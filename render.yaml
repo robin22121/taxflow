@@ -35,8 +35,7 @@ services:
       - key: APP_BASE_URL
         value: https://taxflow-backend.onrender.com
       - key: APP_PUBLIC_URL
-        # Vercel frontend URL — update after first Vercel deploy
-        value: https://taxflow.vercel.app
+        value: https://easyonechon.co.kr
       - key: GEMINI_API_KEY
         sync: false
       - key: PYTHON_VERSION

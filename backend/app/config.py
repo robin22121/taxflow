@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     app_secret_key: str = "change-me-in-prod-32-bytes-min-xxxxxxxx"
     app_base_url: str = "http://localhost:8000"
     app_public_url: str = "http://localhost:3000"
+    cors_extra_origins: str = ""  # comma-separated additional CORS origins
 
     database_url: str = "sqlite+aiosqlite:///./taxflow.db"
 

@@ -20,9 +20,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    origins = [settings.app_public_url]
+    if settings.cors_extra_origins:
+        origins.extend(settings.cors_extra_origins.split(","))
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.app_public_url],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
