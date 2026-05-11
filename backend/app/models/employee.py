@@ -29,6 +29,7 @@ class Employee(Base, IdMixin, TimestampMixin):
     rrn_last4: Mapped[str | None] = mapped_column(String(4))  # 마스킹 표시용
     employee_code: Mapped[str | None] = mapped_column(String(40))
     wehago_employee_id: Mapped[str | None] = mapped_column(String(40))
+    business_type_code: Mapped[str | None] = mapped_column(String(10))  # 사업소득 업종코드 (940100~940929)
     hired_at: Mapped[date | None] = mapped_column(Date)
     resigned_at: Mapped[date | None] = mapped_column(Date)
     status: Mapped[EmploymentStatus] = mapped_column(

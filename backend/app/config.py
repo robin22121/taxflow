@@ -21,10 +21,24 @@ class Settings(BaseSettings):
     app_public_url: str = "http://localhost:3000"
 
     database_url: str = "sqlite+aiosqlite:///./taxflow.db"
+
+    @property
+    def async_database_url(self) -> str:
+        """Render provides postgres:// but SQLAlchemy needs postgresql+asyncpg://."""
+        url = self.database_url
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return url
     redis_url: str = "redis://localhost:6379/0"
 
+    # ── AI 프로바이더 ────────────────────────────────────
+    ai_provider: str = "gemini"  # gemini | anthropic
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-5"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
 
     rrn_encryption_key: str = ""
 
@@ -52,6 +66,10 @@ class Settings(BaseSettings):
     ncp_outbound_sender_address: str = ""
     ncp_outbound_sender_name: str = "TaxFlow AI"
 
+    # ── 웹훅 인증 ──────────────────────────────────────────
+    kakao_webhook_secret: str = ""  # 카카오 오픈빌더 스킬 서버 시크릿 키
+    sendgrid_webhook_secret: str = ""  # SendGrid Inbound Parse Basic Auth password
+
     # ── STT ───────────────────────────────────────────────
     stt_provider: str = "stub"  # stub | clova | whisper
     clova_invoke_url: str = ""
@@ -67,4 +85,18 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    if s.app_env != "dev":
+        insecure = []
+        if s.app_secret_key.startswith("change-me"):
+            insecure.append("APP_SECRET_KEY")
+        if s.jwt_secret.startswith("change-me"):
+            insecure.append("JWT_SECRET")
+        if not s.rrn_encryption_key:
+            insecure.append("RRN_ENCRYPTION_KEY")
+        if insecure:
+            raise RuntimeError(
+                f"Production-unsafe default secrets detected: {', '.join(insecure)}. "
+                "Set proper values in environment variables."
+            )
+    return s

@@ -92,8 +92,8 @@ def test_missing_employee_raises():
 
 
 def test_auto_calculates_when_tax_zero():
-    # income_tax=0 → 자동 계산
-    entry = _fake_entry("김연호", 3_000_000, income_tax=0, local_tax=0)
+    # income_tax=None → 자동 계산
+    entry = _fake_entry("김연호", 3_000_000, income_tax=None, local_tax=None)
     blob = generate_wehago_excel([entry], period="2026-04")
     wb = load_workbook(BytesIO(blob))
     ws = wb.active
@@ -105,8 +105,8 @@ def test_business_income_3_3_percent_in_excel():
     entry = _fake_entry(
         "이프리",
         1_000_000,
-        income_tax=0,  # 자동 계산
-        local_tax=0,
+        income_tax=None,  # 자동 계산
+        local_tax=None,
         income_type=IncomeType.BUSINESS,
     )
     blob = generate_wehago_excel([entry], period="2026-04")

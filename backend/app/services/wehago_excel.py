@@ -44,8 +44,12 @@ class WehagoExcelError(ValueError):
 
 
 def _ensure_taxes(entry: PayrollEntry) -> tuple[int, int]:
-    """If income_tax/local_tax not pre-computed, compute on the fly."""
-    if entry.income_tax or entry.local_tax:
+    """If income_tax/local_tax not pre-computed (None), compute on the fly.
+
+    A value of 0 means "legitimately zero tax" and will NOT trigger recomputation.
+    Only None triggers recomputation.
+    """
+    if entry.income_tax is not None and entry.local_tax is not None:
         return entry.income_tax, entry.local_tax
     tax = calculate_withholding_tax(
         income_type=entry.income_type,

@@ -30,8 +30,14 @@ def _load_key() -> bytes:
         return key
 
     if settings.app_env == "dev":
-        # dev fallback: ephemeral random key
-        return secrets.token_bytes(32)
+        # dev fallback: persist a random key to .dev_rrn_key so it survives restarts.
+        from pathlib import Path
+        key_file = Path(__file__).resolve().parent.parent.parent / ".dev_rrn_key"
+        if key_file.exists():
+            return base64.b64decode(key_file.read_text().strip())
+        key = secrets.token_bytes(32)
+        key_file.write_text(base64.b64encode(key).decode())
+        return key
 
     raise RuntimeError("RRN_ENCRYPTION_KEY required outside dev")
 

@@ -1,0 +1,43 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+databases:
+  - name: taxflow-db
+    plan: free
+    databaseName: taxflow
+    user: taxflow
+
+services:
+  # ── Backend (FastAPI) ────────────────────────────────
+  - type: web
+    name: taxflow-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && alembic upgrade head && python -m app.scripts.seed
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: APP_ENV
+        value: prod
+      - key: APP_DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: taxflow-db
+          property: connectionString
+      - key: APP_SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: RRN_ENCRYPTION_KEY
+        # Must be base64-encoded 32 bytes. Generate with:
+        # python -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+        sync: false
+      - key: APP_BASE_URL
+        value: https://taxflow-backend.onrender.com
+      - key: APP_PUBLIC_URL
+        # Vercel frontend URL — update after first Vercel deploy
+        value: https://taxflow.vercel.app
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.12.8"

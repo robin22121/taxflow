@@ -39,7 +39,11 @@ class PayrollEntryOut(BaseModel):
     employee_id: str | None
     raw_name: str
     income_type: str
+    a_code: str | None
+    business_type_code: str | None
     total_amount: int
+    salary_amount: int | None
+    bonus_amount: int | None
     non_taxable: int
     taxable: int
     income_tax: int

@@ -1,13 +1,13 @@
 """Monthly filing endpoints — create, request collection, dashboard, excel download."""
 
-from datetime import timedelta
+from datetime import UTC, datetime as _dt, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.channels import MessageRecipient, get_alimtalk_channel
+from app.channels import MessageRecipient, get_alimtalk_channel, get_email_channel
 from app.config import get_settings
 from app.core.deps import get_current_user, get_db
 from app.models import (
@@ -30,9 +30,72 @@ from app.schemas.filings import (
     PayrollEntryUpdate,
 )
 from app.services.secure_tokens import issue_token, public_url
+from app.services.simple_statement_excel import (
+    generate_business_statement,
+    generate_wage_statement,
+)
 from app.services.wehago_excel import generate_wehago_excel
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+async def _get_or_create_session(
+    db: AsyncSession,
+    filing: MonthlyFiling,
+    client: Client,
+    ttl_days: int = 14,
+) -> CollectionSession:
+    """Return existing session or create a new one with a secure token."""
+    existing = (
+        await db.execute(
+            select(CollectionSession).where(
+                CollectionSession.monthly_filing_id == filing.id,
+                CollectionSession.client_id == client.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return existing
+
+    token = await issue_token(
+        db,
+        client_id=client.id,
+        purpose="COLLECTION_REQUEST",
+        ttl=timedelta(days=ttl_days),
+        context={"filing_id": filing.id},
+    )
+    session = CollectionSession(
+        monthly_filing_id=filing.id,
+        client_id=client.id,
+        request_token=token.token,
+    )
+    db.add(session)
+    await db.flush()
+    token.collection_session_id = session.id
+    return session
+
+
+def _session_out(session: CollectionSession, client: Client) -> CollectionSessionOut:
+    return CollectionSessionOut(
+        id=session.id,
+        client_id=client.id,
+        client_name=client.business_name,
+        status=session.status.value,
+        request_token=session.request_token,
+        has_responses=False,
+        has_anomalies=False,
+        entry_count=0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 
 @router.post("", response_model=MonthlyFilingOut, status_code=status.HTTP_201_CREATED)
@@ -95,36 +158,8 @@ async def request_collection(
     out: list[CollectionSessionOut] = []
 
     for client in clients:
-        # Avoid duplicate sessions
-        existing = (
-            await db.execute(
-                select(CollectionSession).where(
-                    CollectionSession.monthly_filing_id == filing.id,
-                    CollectionSession.client_id == client.id,
-                )
-            )
-        ).scalar_one_or_none()
-        if existing:
-            session = existing
-        else:
-            token = await issue_token(
-                db,
-                client_id=client.id,
-                purpose="COLLECTION_REQUEST",
-                ttl=timedelta(days=14),
-                context={"filing_id": filing.id},
-            )
-            session = CollectionSession(
-                monthly_filing_id=filing.id,
-                client_id=client.id,
-                request_token=token.token,
-            )
-            db.add(session)
-            await db.flush()
-            # Wire token to session
-            token.collection_session_id = session.id
+        session = await _get_or_create_session(db, filing, client, ttl_days=14)
 
-        # Send alimtalk
         url = f"{settings.app_public_url}/r/{session.request_token}"
         body = (
             f"[{client.business_name}] {filing.period} 원천세 자료 요청드립니다.\n"
@@ -145,7 +180,6 @@ async def request_collection(
             CollectionSessionStatus.SENT if result.accepted else CollectionSessionStatus.PENDING
         )
         if result.accepted:
-            from datetime import UTC, datetime as _dt
             session.request_sent_at = _dt.now(UTC)
 
         db.add(
@@ -157,19 +191,7 @@ async def request_collection(
                 raw_payload={"accepted": result.accepted, "msg_id": result.provider_msg_id},
             )
         )
-
-        out.append(
-            CollectionSessionOut(
-                id=session.id,
-                client_id=client.id,
-                client_name=client.business_name,
-                status=session.status.value,
-                request_token=session.request_token,
-                has_responses=False,
-                has_anomalies=False,
-                entry_count=0,
-            )
-        )
+        out.append(_session_out(session, client))
 
     filing.status = MonthlyFilingStatus.COLLECTING
     filing.total_clients = len(out)
@@ -333,3 +355,184 @@ async def download_wehago_excel(
             "Content-Disposition": f'attachment; filename="wehago_{filing.period}.xlsx"',
         },
     )
+
+
+@router.get("/{filing_id}/statement-wage")
+async def download_wage_statement(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """간이지급명세서(근로소득) 엑셀 다운로드."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.income_type == "WAGE",
+                    PayrollEntry.employee_id.isnot(None),
+                )
+                .options(selectinload(PayrollEntry.employee))
+            )
+        ).scalars().all()
+    )
+    if not entries:
+        raise HTTPException(status.HTTP_409_CONFLICT, "근로소득 항목이 없습니다.")
+
+    blob = generate_wage_statement(entries, period=filing.period)
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="statement_wage_{filing.period}.xlsx"',
+        },
+    )
+
+
+@router.get("/{filing_id}/statement-business")
+async def download_business_statement(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """간이지급명세서(사업소득) 엑셀 다운로드."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.income_type == "BUSINESS",
+                    PayrollEntry.employee_id.isnot(None),
+                )
+                .options(selectinload(PayrollEntry.employee))
+            )
+        ).scalars().all()
+    )
+    if not entries:
+        raise HTTPException(status.HTTP_409_CONFLICT, "사업소득 항목이 없습니다.")
+
+    blob = generate_business_statement(entries, period=filing.period)
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="statement_business_{filing.period}.xlsx"',
+        },
+    )
+
+
+@router.post("/{filing_id}/invite", response_model=list[CollectionSessionOut])
+async def send_invite(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[CollectionSessionOut]:
+    """거래처에 초대장 발송 — 알림톡 + 이메일로 전용 수신 주소 안내.
+
+    기존 request_collection과 달리, 거래처에 전용 이메일 주소(collect+xxx@taxflow.ai)를
+    안내하고, 카카오톡/URL 입력폼 링크도 함께 제공.
+    """
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    # 세무사사무소 이름 조회
+    from app.models import TaxOffice
+    office = await db.get(TaxOffice, user.tax_office_id)
+    office_name = office.name if office else "세무사사무소"
+
+    clients = (
+        await db.execute(
+            select(Client).where(Client.tax_office_id == user.tax_office_id)
+        )
+    ).scalars().all()
+
+    alimtalk = get_alimtalk_channel()
+    email_ch = get_email_channel()
+    settings = get_settings()
+    out: list[CollectionSessionOut] = []
+
+    for client in clients:
+        session = await _get_or_create_session(db, filing, client, ttl_days=30)
+        url = f"{settings.app_public_url}/r/{session.request_token}"
+
+        invite_body = (
+            f"안녕하세요, {office_name}입니다.\n\n"
+            f"{filing.period} 원천세 자료를 요청드립니다.\n\n"
+            f"아래 방법 중 편한 방법으로 보내주세요:\n\n"
+            f"1) 카카오톡 채팅으로 직접 답장\n"
+            f"2) 이메일: {client.collect_email}\n"
+            f"3) 입력 폼: {url}\n\n"
+            f"이 메일에 바로 회신하셔도 자동 접수됩니다."
+        )
+
+        alimtalk_result = await alimtalk.send(
+            MessageRecipient(
+                name=client.business_name,
+                phone=client.contact_phone,
+                email=client.contact_email,
+            ),
+            body=invite_body,
+            template_code="COLLECTION_INVITE",
+            url=url,
+        )
+
+        email_result = None
+        if client.contact_email:
+            email_body = (
+                f"<p>안녕하세요, <b>{office_name}</b>입니다.</p>"
+                f"<p><b>{filing.period}</b> 원천세 자료를 요청드립니다.</p>"
+                f"<hr>"
+                f"<p>아래 방법 중 편한 방법으로 보내주세요:</p>"
+                f"<ol>"
+                f"<li><b>이 메일에 바로 회신</b> (엑셀 첨부 가능)</li>"
+                f"<li>전용 이메일: <a href='mailto:{client.collect_email}'>{client.collect_email}</a></li>"
+                f"<li>입력 폼: <a href='{url}'>{url}</a></li>"
+                f"</ol>"
+                f"<p style='color:#666;font-size:12px;'>회신하시면 자동으로 접수됩니다.</p>"
+            )
+            email_result = await email_ch.send(
+                MessageRecipient(
+                    name=client.business_name,
+                    phone=client.contact_phone,
+                    email=client.contact_email,
+                ),
+                body=email_body,
+                url=url,
+            )
+
+        sent = alimtalk_result.accepted or (email_result and email_result.accepted)
+        session.status = (
+            CollectionSessionStatus.SENT if sent else CollectionSessionStatus.PENDING
+        )
+        if sent:
+            session.request_sent_at = _dt.now(UTC)
+            client.invite_sent = True
+
+        db.add(CollectionEvent(
+            session_id=session.id,
+            event_type="SEND_INVITE",
+            channel="alimtalk+email",
+            raw_text=invite_body,
+            raw_payload={
+                "alimtalk_ok": alimtalk_result.accepted,
+                "email_ok": email_result.accepted if email_result else False,
+                "collect_email": client.collect_email,
+            },
+        ))
+        out.append(_session_out(session, client))
+
+    filing.status = MonthlyFilingStatus.COLLECTING
+    filing.total_clients = len(out)
+    await db.commit()
+    return out

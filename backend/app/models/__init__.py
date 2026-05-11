@@ -1,3 +1,4 @@
+from app.models.business_type import BUSINESS_TYPE_CODES, BusinessTypeCode
 from app.models.client import Client
 from app.models.collection import (
     CollectionEvent,
@@ -12,6 +13,8 @@ from app.models.user import User
 from app.models.secure_token import SecureToken
 
 __all__ = [
+    "BUSINESS_TYPE_CODES",
+    "BusinessTypeCode",
     "Client",
     "CollectionEvent",
     "CollectionSession",

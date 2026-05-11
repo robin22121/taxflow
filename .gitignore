@@ -41,3 +41,6 @@ build/
 backend/data/
 backend/uploads/
 *.log
+
+# Dev-only encryption key
+.dev_rrn_key

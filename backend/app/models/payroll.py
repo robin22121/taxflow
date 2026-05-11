@@ -47,7 +47,14 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
         default=IncomeType.WAGE,
     )
 
+    # 국세청 A코드 (원천징수이행상황신고서용) — A01, A02, A03, A25, A42 등
+    a_code: Mapped[str | None] = mapped_column(String(5))
+    # 사업소득 업종코드 (간이지급명세서 사업소득용) — 940100~940929
+    business_type_code: Mapped[str | None] = mapped_column(String(10))
+
     total_amount: Mapped[int] = mapped_column(Integer, default=0)
+    salary_amount: Mapped[int | None] = mapped_column(Integer)  # 급여 (근로소득 간이지급명세서용)
+    bonus_amount: Mapped[int | None] = mapped_column(Integer)  # 상여 (근로소득 간이지급명세서용)
     non_taxable: Mapped[int] = mapped_column(Integer, default=0)
     taxable: Mapped[int] = mapped_column(Integer, default=0)
     income_tax: Mapped[int] = mapped_column(Integer, default=0)

@@ -45,6 +45,18 @@ async def create_client(
     return client
 
 
+@router.get("/{client_id}", response_model=ClientOut)
+async def get_client(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Client:
+    client = await db.get(Client, client_id)
+    if not client or client.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
+    return client
+
+
 @router.get("/{client_id}/employees", response_model=list[EmployeeOut])
 async def list_employees(
     client_id: str,

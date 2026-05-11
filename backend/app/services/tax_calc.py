@@ -119,11 +119,35 @@ def _wage_table_lookup(taxable_monthly: int, dependents: int) -> int:
     return _round_down_10(monthly_tax)
 
 
+# ---------------------------------------------------------------------------
+# 사업소득 업종별 세율
+# ---------------------------------------------------------------------------
+
+# 기본 3%. 예외: 봉사료수취자(940905) 5%, 외국인 직업운동가(940904) 20%
+_BUSINESS_SPECIAL_RATES: dict[str, float] = {
+    "940905": 0.05,  # 봉사료수취자
+    # 940904 직업운동가 — 외국인 3년이하 계약 시 20%, 그 외 3%
+    # 외국인 여부는 Employee에서 판단해야 하므로 여기서는 기본 3%,
+    # 20%가 필요한 경우 호출자가 business_type_code="940904_foreign"으로 전달
+    "940904_foreign": 0.20,
+}
+
+_DEFAULT_BUSINESS_RATE = 0.03
+
+
+def _business_tax_rate(business_type_code: str | None) -> float:
+    """사업소득 업종코드별 세율 반환."""
+    if business_type_code and business_type_code in _BUSINESS_SPECIAL_RATES:
+        return _BUSINESS_SPECIAL_RATES[business_type_code]
+    return _DEFAULT_BUSINESS_RATE
+
+
 def calculate_withholding_tax(
     income_type: IncomeType,
     taxable_amount: int,
     dependents: int = 1,
     daily_count: int | None = None,
+    business_type_code: str | None = None,
 ) -> WithholdingTax:
     """원천징수세액 계산.
 
@@ -132,6 +156,7 @@ def calculate_withholding_tax(
         taxable_amount: 과세 대상 금액 (근로소득은 비과세 제외 월 과세소득)
         dependents: 부양가족수 (본인 포함). WAGE만 사용.
         daily_count: 일용근로소득의 근로일수. DAILY 일 때만 사용.
+        business_type_code: 사업소득 업종코드. BUSINESS일 때 세율 분기용.
     """
     if taxable_amount <= 0:
         return WithholdingTax(0, 0)
@@ -139,8 +164,8 @@ def calculate_withholding_tax(
     if income_type == IncomeType.WAGE:
         income_tax = _wage_table_lookup(taxable_amount, dependents)
     elif income_type == IncomeType.BUSINESS:
-        # 사업소득 원천징수: 3% (지방소득세 0.3% 별도)
-        income_tax = _round_down_10(taxable_amount * 0.03)
+        rate = _business_tax_rate(business_type_code)
+        income_tax = _round_down_10(taxable_amount * rate)
     elif income_type == IncomeType.OTHER:
         # 기타소득: 필요경비 60% 의제 → 기타소득금액의 20%
         # 결과적으로 지급액 대비 8%
@@ -162,6 +187,22 @@ def calculate_withholding_tax(
         income_tax = 0
 
     return WithholdingTax(income_tax=income_tax, local_tax=_local_tax(income_tax))
+
+
+# ---------------------------------------------------------------------------
+# A코드 매핑 (원천징수이행상황신고서용)
+# ---------------------------------------------------------------------------
+
+def income_type_to_a_code(t: IncomeType, is_corporation: bool = False) -> str:
+    """IncomeType → 국세청 원천징수이행상황신고서 A코드."""
+    if t == IncomeType.WAGE:
+        return "A01" if is_corporation else "A02"
+    return {
+        IncomeType.DAILY: "A03",
+        IncomeType.BUSINESS: "A25",
+        IncomeType.OTHER: "A42",
+        IncomeType.RETIREMENT: "A22",
+    }.get(t, "A99")
 
 
 def income_type_to_wehago_code(t: IncomeType) -> str:

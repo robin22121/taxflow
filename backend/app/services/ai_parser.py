@@ -1,14 +1,14 @@
-"""AI payroll parser using Claude.
+"""AI payroll parser — multi-provider (Gemini / Claude).
 
 Takes raw text from a client (카톡 답장, 이메일 본문, 통화 STT 출력) plus the client's
 employee master + previous month payroll, and returns a structured payroll snapshot
 with matching/anomaly classifications.
 
-Design notes:
-- Uses **tool use** to enforce JSON schema (Anthropic's recommended structured output).
-- Uses **prompt caching** on the stable parts (system prompt + employee master + prev month)
-  so a typical month with 100 clients × ~3 messages each pays only ~100 cache writes.
-- The AI does NOT do final tax calc — that's deterministic in ``tax_calc.py`` post-parse.
+Provider selection:
+- ``AI_PROVIDER=gemini`` (default): Google Gemini Flash — fast, cheap, excellent Korean
+- ``AI_PROVIDER=anthropic``: Claude Sonnet — fallback, proven structured output
+
+The AI does NOT do final tax calc — that's deterministic in ``tax_calc.py`` post-parse.
 """
 
 from __future__ import annotations
@@ -17,8 +17,6 @@ import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-
-from anthropic import AsyncAnthropic
 
 from app.config import get_settings
 from app.services.pii import redact_payload, redact_pii
@@ -79,8 +77,7 @@ class PayrollParsingResult:
     raw_response: dict[str, Any] | None = None
 
 
-# --- Prompt + tool definition ---------------------------------------------
-
+# --- Shared prompt ---------------------------------------------------------
 
 _SYSTEM_PROMPT = """당신은 한국 세무사사무소의 원천세 자료 정형화 어시스턴트입니다.
 
@@ -93,7 +90,6 @@ _SYSTEM_PROMPT = """당신은 한국 세무사사무소의 원천세 자료 정�
 2. 직원 마스터와 매칭합니다 (정확/유사/누락).
 3. "저번 달이랑 똑같아요" 같은 상대 표현은 이전 달 데이터를 그대로 적용한 것으로 표시합니다.
 4. 신규/퇴사 가능성을 분류합니다 — 결정은 사람에게 맡기고 당신은 의심자만 표시합니다.
-5. 결과는 반드시 ``submit_payroll_parsing`` 도구 한 번 호출로만 반환합니다.
 
 [규칙]
 - 금액은 만원 단위 표기("100", "1.2백만") 도 정수 원 단위로 환산합니다 (100만원 → 1000000).
@@ -105,112 +101,92 @@ _SYSTEM_PROMPT = """당신은 한국 세무사사무소의 원천세 자료 정�
 - 동명이인이면 ``ambiguous_items`` 로.
 """
 
-_TOOL_NAME = "submit_payroll_parsing"
-_TOOL_SCHEMA: dict[str, Any] = {
-    "name": _TOOL_NAME,
-    "description": "이번 달 인건비 자료의 구조화 결과를 제출합니다.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "matched_employees": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "employee_id": {"type": "string"},
-                        "amount": {"type": "integer", "minimum": 0},
-                        "non_taxable": {"type": "integer", "minimum": 0},
-                        "income_type": {
-                            "type": "string",
-                            "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],
-                        },
-                        "change_from_prev": {"type": ["integer", "null"]},
-                        "change_reason": {"type": ["string", "null"]},
+_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "matched_employees": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "employee_id": {"type": "string"},
+                    "amount": {"type": "integer"},
+                    "non_taxable": {"type": "integer"},
+                    "income_type": {
+                        "type": "string",
+                        "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],
                     },
-                    "required": ["name", "employee_id", "amount"],
+                    "change_from_prev": {"type": "integer"},
+                    "change_reason": {"type": "string"},
                 },
-            },
-            "new_hire_suspected": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "amount": {"type": "integer", "minimum": 0},
-                        "non_taxable": {"type": "integer", "minimum": 0},
-                        "income_type": {
-                            "type": "string",
-                            "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],
-                        },
-                        "needs_confirmation": {"type": "boolean"},
-                    },
-                    "required": ["name", "amount"],
-                },
-            },
-            "resignation_suspected": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "employee_id": {"type": "string"},
-                        "name": {"type": "string"},
-                        "reason": {"type": "string"},
-                    },
-                    "required": ["employee_id", "name", "reason"],
-                },
-            },
-            "ambiguous_items": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "raw_text": {"type": "string"},
-                        "issue": {"type": "string"},
-                    },
-                    "required": ["raw_text", "issue"],
-                },
-            },
-            "relative_references": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string"},
-                        "applied": {"type": "boolean"},
-                        "note": {"type": ["string", "null"]},
-                    },
-                    "required": ["text", "applied"],
-                },
+                "required": ["name", "employee_id", "amount"],
             },
         },
-        "required": [
-            "matched_employees",
-            "new_hire_suspected",
-            "resignation_suspected",
-            "ambiguous_items",
-            "relative_references",
-        ],
+        "new_hire_suspected": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "amount": {"type": "integer"},
+                    "non_taxable": {"type": "integer"},
+                    "income_type": {
+                        "type": "string",
+                        "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],
+                    },
+                    "needs_confirmation": {"type": "boolean"},
+                },
+                "required": ["name", "amount"],
+            },
+        },
+        "resignation_suspected": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "employee_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["employee_id", "name", "reason"],
+            },
+        },
+        "ambiguous_items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "raw_text": {"type": "string"},
+                    "issue": {"type": "string"},
+                },
+                "required": ["raw_text", "issue"],
+            },
+        },
+        "relative_references": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "applied": {"type": "boolean"},
+                    "note": {"type": "string"},
+                },
+                "required": ["text", "applied"],
+            },
+        },
     },
+    "required": [
+        "matched_employees",
+        "new_hire_suspected",
+        "resignation_suspected",
+        "ambiguous_items",
+        "relative_references",
+    ],
 }
 
 
-# --- Client interface (so tests can fake it) ------------------------------
-
-
-class AnthropicLike(Protocol):
-    @property
-    def messages(self) -> Any: ...  # pragma: no cover
-
-
-def _build_client() -> AsyncAnthropic:
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not configured")
-    return AsyncAnthropic(api_key=settings.anthropic_api_key)
-
-
-# --- Main entry point -----------------------------------------------------
+# --- Main entry point (provider-agnostic) -----------------------------------
 
 
 async def parse_payroll_message(
@@ -220,32 +196,28 @@ async def parse_payroll_message(
     employee_master: list[dict[str, Any]],
     previous_month_data: list[dict[str, Any]],
     period: str,
-    client: AnthropicLike | None = None,
-    model: str | None = None,
+    provider: str | None = None,
+    **kwargs: Any,
 ) -> PayrollParsingResult:
     """Parse a raw client message into structured payroll data.
 
     Args:
         raw_text: 카톡/이메일/통화-STT 결과 등 비정형 텍스트.
         client_name: 거래처(사업자) 이름.
-        employee_master: ``[{"id":..., "name":..., "last_amount":..., "last_paid_at":...}, ...]``
+        employee_master: ``[{"id":..., "name":..., "last_amount":...}, ...]``
         previous_month_data: ``[{"name":..., "employee_id":..., "amount":...}, ...]``
-        period: ``"YYYY-MM"`` (참고용 — 모델에 보여줌)
-        client: 테스트용 Anthropic 클라이언트 주입 가능.
-        model: 모델 ID 오버라이드.
+        period: ``"YYYY-MM"``
+        provider: "gemini" | "anthropic" (기본: config의 ai_provider)
     """
     settings = get_settings()
-    client = client or _build_client()
-    model = model or settings.anthropic_model
+    provider = provider or settings.ai_provider
 
-    # PII 가드: Claude API 외부 송신 전 주민번호·사업자번호·카드번호 마스킹.
-    # 직원 마스터·이전월 데이터는 평문 객체에 RRN이 포함되지 않도록 호출자가 보장해야 하지만,
-    # 방어적으로 재귀 마스킹을 한 번 더 수행.
+    # PII 가드
     safe_text = redact_pii(raw_text)
     safe_master = redact_payload(employee_master)
     safe_prev = redact_payload(previous_month_data)
 
-    stable_context = (
+    context = (
         f"[거래처] {client_name}\n"
         f"[직원 마스터]\n{json.dumps(safe_master, ensure_ascii=False, indent=2)}\n\n"
         f"[이전 달 데이터]\n{json.dumps(safe_prev, ensure_ascii=False, indent=2)}"
@@ -254,8 +226,72 @@ async def parse_payroll_message(
     user_message = (
         f"[지급년월] {period}\n\n"
         f"[이번 달 메시지]\n{safe_text}\n\n"
-        "위 메시지를 분석해 submit_payroll_parsing 도구를 호출하세요."
+        "위 메시지를 분석해 결과를 JSON으로 반환하세요."
     )
+
+    if provider == "gemini":
+        return await _parse_with_gemini(context, user_message, settings, **kwargs)
+    elif provider == "anthropic":
+        return await _parse_with_anthropic(context, user_message, settings, **kwargs)
+    else:
+        raise ValueError(f"Unknown AI provider: {provider}")
+
+
+# --- Gemini backend ---------------------------------------------------------
+
+
+async def _parse_with_gemini(
+    context: str,
+    user_message: str,
+    settings: Any,
+    **kwargs: Any,
+) -> PayrollParsingResult:
+    from google import genai
+
+    if not settings.gemini_api_key:
+        raise RuntimeError("GEMINI_API_KEY not configured")
+
+    client = genai.Client(api_key=settings.gemini_api_key)
+    model = kwargs.get("model") or settings.gemini_model
+
+    full_prompt = f"{context}\n\n{user_message}"
+
+    response = await client.aio.models.generate_content(
+        model=model,
+        contents=full_prompt,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=_SYSTEM_PROMPT,
+            response_mime_type="application/json",
+            response_schema=_OUTPUT_SCHEMA,
+            temperature=0.1,
+        ),
+    )
+
+    return _parse_json_response(response.text)
+
+
+# --- Anthropic backend ------------------------------------------------------
+
+
+async def _parse_with_anthropic(
+    context: str,
+    user_message: str,
+    settings: Any,
+    **kwargs: Any,
+) -> PayrollParsingResult:
+    from anthropic import AsyncAnthropic
+
+    if not settings.anthropic_api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+
+    client = kwargs.get("client") or AsyncAnthropic(api_key=settings.anthropic_api_key)
+    model = kwargs.get("model") or settings.anthropic_model
+
+    tool_schema = {
+        "name": "submit_payroll_parsing",
+        "description": "이번 달 인건비 자료의 구조화 결과를 제출합니다.",
+        "input_schema": _OUTPUT_SCHEMA,
+    }
 
     response = await client.messages.create(
         model=model,
@@ -267,15 +303,15 @@ async def parse_payroll_message(
                 "cache_control": {"type": "ephemeral"},
             }
         ],
-        tools=[_TOOL_SCHEMA],
-        tool_choice={"type": "tool", "name": _TOOL_NAME},
+        tools=[tool_schema],
+        tool_choice={"type": "tool", "name": "submit_payroll_parsing"},
         messages=[
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "text",
-                        "text": stable_context,
+                        "text": context,
                         "cache_control": {"type": "ephemeral"},
                     },
                     {"type": "text", "text": user_message},
@@ -284,29 +320,55 @@ async def parse_payroll_message(
         ],
     )
 
-    return _parse_tool_response(response)
-
-
-def _parse_tool_response(response: Any) -> PayrollParsingResult:
-    tool_block = None
+    # Extract tool_use block
     for block in getattr(response, "content", []):
-        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == _TOOL_NAME:
-            tool_block = block
-            break
+        if getattr(block, "type", None) == "tool_use":
+            data = block.input or {}
+            return _build_result(data)
 
-    if tool_block is None:
-        logger.warning("AI parser: no tool_use block in response: %r", response)
+    logger.warning("Anthropic: no tool_use block in response")
+    return PayrollParsingResult()
+
+
+# --- Response parsing -------------------------------------------------------
+
+
+def _parse_json_response(text: str) -> PayrollParsingResult:
+    """Parse JSON text response (from Gemini structured output)."""
+    if not text:
+        logger.warning("AI parser: empty response text")
         return PayrollParsingResult()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("AI parser: invalid JSON: %s", text[:500])
+        return PayrollParsingResult()
+    return _build_result(data)
 
-    data = tool_block.input or {}
+
+def _safe_init(cls: type, data: dict[str, Any]) -> Any:
+    """Construct a dataclass instance, ignoring unexpected keys from AI."""
+    import dataclasses
+    valid_fields = {f.name for f in dataclasses.fields(cls)}
+    filtered = {k: v for k, v in data.items() if k in valid_fields}
+    try:
+        return cls(**filtered)
+    except (TypeError, ValueError) as e:
+        logger.warning("AI parser: failed to init %s with %s: %s", cls.__name__, filtered, e)
+        return None
+
+
+def _build_result(data: dict[str, Any]) -> PayrollParsingResult:
+    """Build PayrollParsingResult from parsed dict."""
+    def _parse_list(cls: type, items: list) -> list:
+        return [obj for x in items if (obj := _safe_init(cls, x)) is not None]
+
     return PayrollParsingResult(
-        matched_employees=[MatchedEmployee(**x) for x in data.get("matched_employees", [])],
-        new_hire_suspected=[NewHireSuspected(**x) for x in data.get("new_hire_suspected", [])],
-        resignation_suspected=[
-            ResignationSuspected(**x) for x in data.get("resignation_suspected", [])
-        ],
-        ambiguous_items=[AmbiguousItem(**x) for x in data.get("ambiguous_items", [])],
-        relative_references=[RelativeReference(**x) for x in data.get("relative_references", [])],
+        matched_employees=_parse_list(MatchedEmployee, data.get("matched_employees", [])),
+        new_hire_suspected=_parse_list(NewHireSuspected, data.get("new_hire_suspected", [])),
+        resignation_suspected=_parse_list(ResignationSuspected, data.get("resignation_suspected", [])),
+        ambiguous_items=_parse_list(AmbiguousItem, data.get("ambiguous_items", [])),
+        relative_references=_parse_list(RelativeReference, data.get("relative_references", [])),
         raw_response=data,
     )
 

@@ -7,11 +7,15 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "./api";
+import { apiUpload } from "./api";
 import type {
   Client,
   CurrentUser,
+  Employee,
   Filing,
   FilingDashboard,
+  ImportEmployeeResult,
+  ImportPayrollResult,
   PayrollEntry,
 } from "./types";
 
@@ -52,6 +56,45 @@ export function useClients() {
   });
 }
 
+export function useClientDetail(clientId: string) {
+  return useQuery({
+    queryKey: ["clients", clientId],
+    queryFn: () => api<Client>(`/api/v1/clients/${clientId}`),
+  });
+}
+
+export function useClientEmployees(clientId: string) {
+  return useQuery({
+    queryKey: ["clients", clientId, "employees"],
+    queryFn: () => api<Employee[]>(`/api/v1/clients/${clientId}/employees`),
+  });
+}
+
+export function useImportEmployees(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) =>
+      apiUpload<ImportEmployeeResult>(
+        `/api/v1/clients/${clientId}/import-employees`,
+        file,
+      ),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "employees"] }),
+  });
+}
+
+export function useImportPayroll(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { file: File; period: string }) =>
+      apiUpload<ImportPayrollResult>(
+        `/api/v1/clients/${clientId}/import-payroll?period=${vars.period}`,
+        vars.file,
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["filings"] }),
+  });
+}
+
 export function useUpdateEntry(filingId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -72,6 +115,16 @@ export function useCreateFiling() {
     mutationFn: (period: string) =>
       api<Filing>("/api/v1/filings", { method: "POST", json: { period } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["filings"] }),
+  });
+}
+
+export function useSendInvite(filingId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api(`/api/v1/filings/${filingId}/invite`, { method: "POST", json: {} }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["filings", filingId, "dashboard"] }),
   });
 }
 

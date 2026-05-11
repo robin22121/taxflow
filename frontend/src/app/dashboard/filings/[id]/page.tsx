@@ -6,6 +6,7 @@ import {
   useFilingDashboard,
   useFilingEntries,
   useRequestCollection,
+  useSendInvite,
   useSubmitMessage,
   useUpdateEntry,
 } from "@/lib/queries";
@@ -22,11 +23,28 @@ export default function FilingDetailPage({
   const { data, isLoading } = useFilingDashboard(id);
   const { data: entries } = useFilingEntries(id);
   const requestCollection = useRequestCollection(id);
+  const sendInvite = useSendInvite(id);
   const [activeSession, setActiveSession] = useState<string | null>(null);
 
   if (isLoading || !data) return <p>로딩 중...</p>;
 
   const filing = data.filing;
+  async function downloadFile(path: string, filename: string) {
+    try {
+      const blob = await apiBlob(path);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
   async function downloadExcel() {
     try {
       const blob = await apiBlob(`/api/v1/filings/${id}/wehago-excel`);
@@ -55,12 +73,31 @@ export default function FilingDetailPage({
         <div className="flex gap-2">
           <Button
             variant="secondary"
+            onClick={() => sendInvite.mutate()}
+            disabled={sendInvite.isPending}
+          >
+            {sendInvite.isPending ? "발송중..." : "초대장 발송 (카톡+이메일)"}
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => requestCollection.mutate()}
             disabled={requestCollection.isPending}
           >
-            {requestCollection.isPending ? "발송중..." : "자료 요청 알림톡 발송"}
+            {requestCollection.isPending ? "발송중..." : "자료 요청 알림톡"}
           </Button>
           <Button onClick={downloadExcel}>위하고T 엑셀 다운로드</Button>
+          <Button
+            variant="secondary"
+            onClick={() => downloadFile(`/api/v1/filings/${id}/statement-wage`, `간이지급명세서_근로_${filing.period}.xlsx`)}
+          >
+            근로소득 명세서
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => downloadFile(`/api/v1/filings/${id}/statement-business`, `간이지급명세서_사업_${filing.period}.xlsx`)}
+          >
+            사업소득 명세서
+          </Button>
         </div>
       </div>
 

@@ -7,6 +7,8 @@ The full pipeline:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime as _dt
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,8 +29,8 @@ from app.models.payroll import IncomeType, MatchStatus
 from app.models import User
 from app.schemas.filings import CollectMessageIn, CollectMessageOut
 from app.services.ai_parser import parse_payroll_message
-from app.services.matching import EmployeeMaster, reconcile
-from app.services.tax_calc import calculate_withholding_tax
+from app.services.matching import EmployeeMaster, MatchingResult, reconcile
+from app.services.tax_calc import calculate_withholding_tax, income_type_to_a_code
 
 router = APIRouter()
 
@@ -60,22 +62,25 @@ async def submit_message(
     )
 
 
-async def _ingest_message(
-    *,
+# ---------------------------------------------------------------------------
+# Pipeline internals
+# ---------------------------------------------------------------------------
+
+
+async def _build_context(
     db: AsyncSession,
-    session: CollectionSession,
     client: Client,
     filing: MonthlyFiling,
-    text: str,
-    channel: str,
-) -> CollectMessageOut:
-    # 1. Build context for the AI: employee master + previous month
-    employees = (
-        await db.execute(
-            select(Employee)
-            .where(Employee.client_id == client.id, Employee.status != EmploymentStatus.RESIGNED)
-        )
-    ).scalars().all()
+) -> tuple[list[Employee], list[PayrollEntry]]:
+    """Load employee master and previous month payroll entries."""
+    employees = list(
+        (
+            await db.execute(
+                select(Employee)
+                .where(Employee.client_id == client.id, Employee.status != EmploymentStatus.RESIGNED)
+            )
+        ).scalars().all()
+    )
 
     prev_period = _prev_period(filing.period)
     prev_filing = (
@@ -86,6 +91,7 @@ async def _ingest_message(
             )
         )
     ).scalar_one_or_none()
+
     prev_entries: list[PayrollEntry] = []
     if prev_filing:
         prev_entries = list(
@@ -99,13 +105,25 @@ async def _ingest_message(
             ).scalars().all()
         )
 
+    return employees, prev_entries
+
+
+async def _parse_and_match(
+    text: str,
+    client: Client,
+    filing: MonthlyFiling,
+    employees: list[Employee],
+    prev_entries: list[PayrollEntry],
+) -> MatchingResult:
+    """Run AI parsing + matching engine. Pure logic, no DB writes."""
+    # Build prev_amounts lookup (O(1) per employee instead of O(n))
+    prev_by_emp = {p.employee_id: p.total_amount for p in prev_entries if p.employee_id}
+
     employee_master_payload = [
         {
             "id": e.id,
             "name": e.name,
-            "last_amount": next(
-                (p.total_amount for p in prev_entries if p.employee_id == e.id), None
-            ),
+            "last_amount": prev_by_emp.get(e.id),
         }
         for e in employees
     ]
@@ -115,7 +133,6 @@ async def _ingest_message(
         if p.employee_id
     ]
 
-    # 2. Run AI parser
     parsed = await parse_payroll_message(
         raw_text=text,
         client_name=client.business_name,
@@ -124,20 +141,30 @@ async def _ingest_message(
         period=filing.period,
     )
 
-    # 3. Run matching engine
     masters = [
         EmployeeMaster(
             id=e.id,
             name=e.name,
-            last_amount=next((p.total_amount for p in prev_entries if p.employee_id == e.id), None),
+            last_amount=prev_by_emp.get(e.id),
             employee_code=e.employee_code,
         )
         for e in employees
     ]
-    prev_amounts = {p.employee_id: p.total_amount for p in prev_entries if p.employee_id}
-    matching = reconcile(parsed, masters, prev_amounts)
+    return reconcile(parsed, masters, prev_by_emp)
 
-    # 4. Persist event + upsert PayrollEntry rows for this session
+
+async def _persist_results(
+    db: AsyncSession,
+    session: CollectionSession,
+    client: Client,
+    filing: MonthlyFiling,
+    matching: MatchingResult,
+    employees: list[Employee],
+    text: str,
+    channel: str,
+) -> CollectMessageOut:
+    """Save collection event and payroll entries to DB."""
+    # Record event
     db.add(
         CollectionEvent(
             session_id=session.id,
@@ -153,20 +180,36 @@ async def _ingest_message(
         )
     )
 
-    # Replace existing entries for this session (idempotent re-ingest)
+    # Replace existing entries (never delete approved ones)
     existing = (
         await db.execute(
             select(PayrollEntry).where(PayrollEntry.collection_session_id == session.id)
         )
     ).scalars().all()
+    if any(e.approved for e in existing):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "이미 승인된 엔트리가 있습니다. 승인을 취소한 후 재수집하세요.",
+        )
     for e in existing:
         await db.delete(e)
     await db.flush()
 
+    # Create new entries
+    emp_by_id = {e.id: e for e in employees}
     needs_followup_count = 0
+
     for cand in matching.entries:
         taxable = cand.total_amount - cand.non_taxable
-        tax = calculate_withholding_tax(cand.income_type, taxable, dependents=1)
+        matched_emp = emp_by_id.get(cand.employee_id) if cand.employee_id else None
+        biz_code = matched_emp.business_type_code if matched_emp and cand.income_type == IncomeType.BUSINESS else None
+        tax = calculate_withholding_tax(
+            cand.income_type, taxable, dependents=1, business_type_code=biz_code,
+        )
+        a_code = income_type_to_a_code(cand.income_type, is_corporation=client.is_corporation)
+        salary_amt = cand.total_amount if cand.income_type == IncomeType.WAGE else None
+        bonus_amt = 0 if cand.income_type == IncomeType.WAGE else None
+
         entry = PayrollEntry(
             monthly_filing_id=filing.id,
             collection_session_id=session.id,
@@ -174,7 +217,11 @@ async def _ingest_message(
             employee_id=cand.employee_id,
             raw_name=cand.raw_name,
             income_type=cand.income_type,
+            a_code=a_code,
+            business_type_code=biz_code,
             total_amount=cand.total_amount,
+            salary_amount=salary_amt,
+            bonus_amount=bonus_amt,
             non_taxable=cand.non_taxable,
             taxable=taxable,
             income_tax=tax.income_tax,
@@ -187,6 +234,7 @@ async def _ingest_message(
             needs_followup_count += 1
         db.add(entry)
 
+    # Update session status
     session.status = (
         CollectionSessionStatus.NEEDS_REVIEW
         if (
@@ -197,7 +245,6 @@ async def _ingest_message(
         )
         else CollectionSessionStatus.RECEIVED
     )
-    from datetime import UTC, datetime as _dt
     session.last_response_at = _dt.now(UTC)
 
     await db.commit()
@@ -209,6 +256,25 @@ async def _ingest_message(
         ambiguous=len(matching.ambiguous_followups),
         needs_followup=needs_followup_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+
+async def _ingest_message(
+    *,
+    db: AsyncSession,
+    session: CollectionSession,
+    client: Client,
+    filing: MonthlyFiling,
+    text: str,
+    channel: str,
+) -> CollectMessageOut:
+    employees, prev_entries = await _build_context(db, client, filing)
+    matching = await _parse_and_match(text, client, filing, employees, prev_entries)
+    return await _persist_results(db, session, client, filing, matching, employees, text, channel)
 
 
 def _prev_period(period: str) -> str:
