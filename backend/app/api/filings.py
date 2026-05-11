@@ -34,6 +34,7 @@ from app.services.simple_statement_excel import (
     generate_business_statement,
     generate_wage_statement,
 )
+from app.services.payroll_excel import generate_payroll_excel
 from app.services.wehago_excel import generate_wehago_excel
 
 router = APIRouter()
@@ -353,6 +354,48 @@ async def download_wehago_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="wehago_{filing.period}.xlsx"',
+        },
+    )
+
+
+@router.get("/{filing_id}/payroll-excel")
+async def download_payroll_excel(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """급여대장 엑셀 다운로드."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    entries = (
+        await db.execute(
+            select(PayrollEntry)
+            .where(
+                PayrollEntry.monthly_filing_id == filing_id,
+                PayrollEntry.approved.is_(True),
+                PayrollEntry.employee_id.isnot(None),
+            )
+            .options(selectinload(PayrollEntry.employee))
+        )
+    ).scalars().all()
+    if not entries:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "승인된 엔트리가 없습니다. 먼저 검증·승인을 완료하세요.",
+        )
+
+    client = await db.get(Client, entries[0].client_id)
+    client_name = client.business_name if client else ""
+
+    blob = generate_payroll_excel(list(entries), period=filing.period, client_name=client_name)
+    safe_name = client_name or "급여대장"
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}-{filing.period}.xlsx"',
         },
     )
 
