@@ -4,6 +4,7 @@ databases:
     plan: free
     databaseName: taxflow
     user: taxflow
+    region: singapore
 
 services:
   # ── Backend (FastAPI) ────────────────────────────────
@@ -11,6 +12,7 @@ services:
     name: taxflow-backend
     runtime: python
     plan: free
+    region: singapore
     rootDir: backend
     buildCommand: pip install -r requirements.txt && alembic upgrade head && python -m app.scripts.seed
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
