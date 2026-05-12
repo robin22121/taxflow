@@ -575,9 +575,22 @@ function RightPane({ filingId, session, entries }: {
         </div>
         <div className="flex gap-1.5">
           {selected.size > 0 && (
-            <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
-              {remove.isPending ? "삭제중..." : `선택 삭제 (${selected.size})`}
-            </Button>
+            <>
+              <Button variant="primary" className="text-xs px-3 py-1.5"
+                onClick={() => {
+                  selected.forEach((id) => {
+                    const entry = entries.find((e) => e.id === id);
+                    if (entry && !entry.approved) update.mutate({ id, patch: { approved: true } });
+                  });
+                  setSelected(new Set());
+                }}
+                disabled={update.isPending}>
+                {update.isPending ? "승인중..." : `일괄 승인 (${selected.size})`}
+              </Button>
+              <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
+                {remove.isPending ? "삭제중..." : `일괄 삭제 (${selected.size})`}
+              </Button>
+            </>
           )}
           <Button variant="ghost" className="text-xs px-3 py-1.5"
             disabled={confirmWithClient.isPending || entries.length === 0}
@@ -589,11 +602,6 @@ function RightPane({ filingId, session, entries }: {
               );
             }}>
             {confirmWithClient.isPending ? "발송중..." : "확인요청"}
-          </Button>
-          <Button className="text-xs px-3 py-1.5"
-            onClick={() => entries.filter((e) => !e.approved).forEach((e) => update.mutate({ id: e.id, patch: { approved: true } }))}
-            disabled={entries.every((e) => e.approved)}>
-            일괄 승인 · {entries.filter((e) => !e.approved).length}건
           </Button>
         </div>
       </div>
@@ -609,16 +617,9 @@ function RightPane({ filingId, session, entries }: {
           <table className="w-full text-[12px]">
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-gray-200">
-                <th className="w-7 py-2.5 pl-4">
+                <th className="w-8 py-2.5 pl-4">
                   <input type="checkbox" checked={entries.length > 0 && selected.size === entries.length}
-                    onChange={toggleSelectAll} title="전체 선택" className="h-3.5 w-3.5" />
-                </th>
-                <th className="w-7 py-2.5">
-                  <input type="checkbox" checked={entries.length > 0 && entries.every((e) => e.approved)}
-                    onChange={() => {
-                      const all = entries.every((e) => e.approved);
-                      entries.forEach((e) => { if (e.approved !== !all) update.mutate({ id: e.id, patch: { approved: !all } }); });
-                    }} title="전체 승인" className="h-3.5 w-3.5" />
+                    onChange={toggleSelectAll} title="전체 선택" className="h-3.5 w-3.5 accent-blue-600" />
                 </th>
                 <th className="text-left py-2.5 pl-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">직원 · 구분</th>
                 <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">전월</th>
@@ -636,10 +637,7 @@ function RightPane({ filingId, session, entries }: {
                   <tr key={e.id}
                     className={`border-b border-gray-50 transition-colors ${hasFlag ? "bg-red-50/60" : isEditing ? "bg-blue-50/60" : "hover:bg-gray-50"}`}>
                     <td className="py-3 pl-4">
-                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="h-3.5 w-3.5" />
-                    </td>
-                    <td className="py-3">
-                      <input type="checkbox" checked={e.approved} onChange={(ev) => update.mutate({ id: e.id, patch: { approved: ev.target.checked } })} className="h-3.5 w-3.5" />
+                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="h-3.5 w-3.5 accent-blue-600" />
                     </td>
                     <td className="py-3 pl-2">
                       {isEditing ? (
@@ -651,7 +649,10 @@ function RightPane({ filingId, session, entries }: {
                         </div>
                       ) : (
                         <div>
-                          <div className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</span>
+                            {e.approved && <span className="text-[10px] text-green-600">✓</span>}
+                          </div>
                           <div className="text-[11px] text-gray-500 mt-0.5">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
                         </div>
                       )}
