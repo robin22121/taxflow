@@ -461,6 +461,25 @@ function RightPane({ filingId, session, entries }: {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<PayrollEntry>>({});
   const [confirmResult, setConfirmResult] = useState<{ sent: boolean; channel: string; error: string | null } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    if (selected.size === entries.length) setSelected(new Set());
+    else setSelected(new Set(entries.map((e) => e.id)));
+  }
+  function bulkDelete() {
+    if (selected.size === 0) return;
+    if (!window.confirm(`선택된 ${selected.size}건을 삭제하시겠습니까?`)) return;
+    selected.forEach((id) => remove.mutate(id));
+    setSelected(new Set());
+  }
 
   function startEdit(e: PayrollEntry) {
     setEditingId(e.id);
@@ -486,6 +505,11 @@ function RightPane({ filingId, session, entries }: {
           {entries.length > 0 && <span className="text-xs text-ink-3">{entries.filter((e) => e.approved).length}/{entries.length} 승인</span>}
         </div>
         <div className="flex gap-1.5">
+          {selected.size > 0 && (
+            <Button variant="danger" className="text-xs px-2.5 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
+              {remove.isPending ? "삭제중..." : `선택 삭제 (${selected.size})`}
+            </Button>
+          )}
           <Button variant="secondary" className="text-xs px-2.5 py-1.5"
             disabled={confirmWithClient.isPending || entries.length === 0}
             onClick={() => {
@@ -517,16 +541,21 @@ function RightPane({ filingId, session, entries }: {
             <thead className="text-[12px] text-ink-2 font-medium border-b-2 border-ink-4 sticky top-0 bg-paper">
               <tr>
                 <th className="w-7 py-2.5 pl-4">
+                  <input type="checkbox" checked={entries.length > 0 && selected.size === entries.length}
+                    onChange={toggleSelectAll} title="전체 선택" />
+                </th>
+                <th className="w-7 py-2.5">
                   <input type="checkbox" checked={entries.length > 0 && entries.every((e) => e.approved)}
                     onChange={() => {
                       const all = entries.every((e) => e.approved);
                       entries.forEach((e) => { if (e.approved !== !all) update.mutate({ id: e.id, patch: { approved: !all } }); });
-                    }} />
+                    }} title="전체 승인" />
                 </th>
                 <th className="text-left py-2.5 pl-2">직원 · 구분</th>
                 <th className="text-right py-2.5 pr-4">전월</th>
                 <th className="text-right py-2.5 pr-4">이번달</th>
                 <th className="text-right py-2.5 pr-4">변동</th>
+                <th className="text-right py-2.5 pr-3">액션</th>
               </tr>
             </thead>
             <tbody>
@@ -535,14 +564,17 @@ function RightPane({ filingId, session, entries }: {
                 const hasFlag = !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved);
                 const diff = computeDiff(e);
                 return (
-                  <tr key={e.id} onClick={() => !isEditing && startEdit(e)}
-                    className={`border-b border-ink-5 cursor-pointer transition-colors ${hasFlag ? "bg-red-50" : isEditing ? "bg-blue-50" : "hover:bg-gray-50"}`}>
-                    <td className="py-3 pl-4" onClick={(ev) => ev.stopPropagation()}>
+                  <tr key={e.id}
+                    className={`border-b border-ink-5 transition-colors ${hasFlag ? "bg-red-50" : isEditing ? "bg-blue-50" : "hover:bg-gray-50"}`}>
+                    <td className="py-3 pl-4">
+                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="h-4 w-4" />
+                    </td>
+                    <td className="py-3">
                       <input type="checkbox" checked={e.approved} onChange={(ev) => update.mutate({ id: e.id, patch: { approved: ev.target.checked } })} className="h-4 w-4" />
                     </td>
                     <td className="py-3 pl-2">
                       {isEditing ? (
-                        <div className="space-y-1" onClick={(ev) => ev.stopPropagation()}>
+                        <div className="space-y-1">
                           <input className="w-24 px-1.5 py-1 border border-gray-300 rounded text-sm" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
                           <select className="px-1.5 py-1 border border-gray-300 rounded text-sm" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
                             <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
@@ -559,20 +591,13 @@ function RightPane({ filingId, session, entries }: {
                     <td className="py-3 pr-4 text-right tabular-nums font-semibold">
                       {isEditing ? (
                         <input type="number" className="w-24 px-1.5 py-1 border border-gray-300 rounded text-sm text-right" value={draft.total_amount ?? 0}
-                          onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })} onClick={(ev) => ev.stopPropagation()} />
+                          onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })} />
                       ) : (
                         <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
                       )}
                     </td>
                     <td className="py-3 pr-4 text-right">
-                      {isEditing ? (
-                        <div className="flex gap-1 justify-end" onClick={(ev) => ev.stopPropagation()}>
-                          <button onClick={() => save(e)} className="px-2.5 py-1 text-[12px] bg-blue-600 text-white rounded-md font-medium" disabled={update.isPending}>저장</button>
-                          <button onClick={cancelEdit} className="px-2.5 py-1 text-[12px] border border-gray-300 rounded-md hover:bg-gray-50">취소</button>
-                          <button onClick={() => { if (window.confirm(`${e.raw_name} 삭제?`)) { remove.mutate(e.id); cancelEdit(); } }}
-                            className="px-2.5 py-1 text-[12px] text-red-600 border border-red-200 rounded-md hover:bg-red-50">삭제</button>
-                        </div>
-                      ) : diff ? (
+                      {diff ? (
                         <span className={`text-[12px] font-bold tabular-nums ${hasFlag ? "text-red-600" : "text-gray-400"}`}>{diff}</span>
                       ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
                         <span className="text-[12px] text-blue-600 font-bold">신규</span>
@@ -580,6 +605,20 @@ function RightPane({ filingId, session, entries }: {
                         <span className="text-[12px] text-gray-500 font-semibold">퇴사</span>
                       ) : (
                         <span className="text-[12px] text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 pr-3 text-right">
+                      {isEditing ? (
+                        <div className="flex gap-1 justify-end">
+                          <button onClick={() => save(e)} className="px-2 py-1 text-[12px] bg-blue-600 text-white rounded-md font-medium" disabled={update.isPending}>저장</button>
+                          <button onClick={cancelEdit} className="px-2 py-1 text-[12px] border border-gray-300 rounded-md hover:bg-gray-50">취소</button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-1 justify-end">
+                          <button onClick={() => startEdit(e)} className="px-2 py-1 text-[12px] text-blue-600 border border-blue-200 rounded-md hover:bg-blue-50" title="수정">수정</button>
+                          <button onClick={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }}
+                            className="px-2 py-1 text-[12px] text-red-600 border border-red-200 rounded-md hover:bg-red-50" title="삭제">삭제</button>
+                        </div>
                       )}
                     </td>
                   </tr>
