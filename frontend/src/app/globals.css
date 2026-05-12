@@ -43,23 +43,23 @@
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-accent: var(--accent);
-  --color-accent-50: var(--accent-50);
-  --color-accent-100: var(--accent-100);
-  --color-accent-300: var(--accent-300);
-  --color-accent-700: var(--accent-2);
-  --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-ink-3: var(--ink-3);
-  --color-ink-4: var(--ink-4);
-  --color-ink-5: var(--ink-5);
-  --color-paper: var(--paper);
-  --color-paper-2: var(--paper-2);
-  --color-alert: var(--red);
-  --color-alert-50: var(--red-50);
-  --color-alert-700: var(--red-700);
+  --color-background: #FFFFFF;
+  --color-foreground: #101112;
+  --color-accent: #1370CE;
+  --color-accent-50: #D8E3FE;
+  --color-accent-100: #9BBBFD;
+  --color-accent-300: #4995FC;
+  --color-accent-700: #0A4E92;
+  --color-ink: #101112;
+  --color-ink-2: #2D2E30;
+  --color-ink-3: #6F7076;
+  --color-ink-4: #BABBBF;
+  --color-ink-5: #E3E3E5;
+  --color-paper: #FFFFFF;
+  --color-paper-2: #F4F4F6;
+  --color-alert: #CE2A10;
+  --color-alert-50: #FED4D2;
+  --color-alert-700: #901A08;
   --font-sans: 'Pretendard', 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
