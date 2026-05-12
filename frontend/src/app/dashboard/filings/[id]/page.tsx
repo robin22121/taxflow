@@ -87,7 +87,7 @@ export default function FilingDetailPage({
   }
 
   return (
-    <div className="-m-6 flex flex-col" style={{ height: "100dvh" }}>
+    <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
       {/* Top bar — Hi-fi style */}
       <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-white shrink-0" style={{ height: 64 }}>
         <div className="flex items-center gap-5">
@@ -253,7 +253,7 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
   );
 }
 
-/* ═══ Default 3-Pane Mode ═══ */
+/* ═══ Default 2-Pane Mode ═══ */
 
 function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries }: {
   filingId: string;
@@ -318,25 +318,21 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
       </div>
 
-      {/* CENTER — Original docs (bezel card) */}
-      <div className="w-[320px] p-3 flex flex-col shrink-0">
+      {/* RIGHT — Top/Bottom split: 원본자료 + AI추출결과 */}
+      <div className="flex-1 min-w-0 flex flex-col">
         {selectedSession ? (
-          <BezelCard className="flex-1 flex flex-col min-h-0">
-            <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
-          </BezelCard>
+          <>
+            {/* TOP — Original docs */}
+            <div className="h-[45%] min-h-0 border-b border-gray-200 bg-white flex flex-col">
+              <CenterPane key={`center-${selectedSession.id}`} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+            </div>
+            {/* BOTTOM — AI table */}
+            <div className="flex-1 min-h-0 bg-white flex flex-col">
+              <RightPane key={`right-${selectedSession.id}`} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+            </div>
+          </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
-        )}
-      </div>
-
-      {/* RIGHT — AI table (bezel card) */}
-      <div className="flex-1 min-w-0 p-3 pl-0 flex flex-col">
-        {selectedSession ? (
-          <BezelCard className="flex-1 flex flex-col min-h-0">
-            <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
-          </BezelCard>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">거래처를 선택하면 AI 추출 결과가 표시됩니다</div>
         )}
       </div>
     </div>

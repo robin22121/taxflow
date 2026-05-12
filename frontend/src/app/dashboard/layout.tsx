@@ -8,8 +8,8 @@ import { clearTokens, getToken } from "@/lib/api";
 import { useMe } from "@/lib/queries";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "월별 신고", icon: "calendar" },
-  { href: "/dashboard/clients", label: "거래처", icon: "buildings" },
+  { href: "/dashboard", label: "월별 신고" },
+  { href: "/dashboard/clients", label: "거래처" },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -33,107 +33,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="w-56 border-r border-gray-300 bg-white flex flex-col shrink-0">
-        {/* Logo */}
-        <div className="flex items-center gap-2 px-4 pt-5 pb-3">
-          <div className="w-[26px] h-[26px] rounded-lg bg-gray-900 text-white flex items-center justify-center text-[13px] font-extrabold">
-            이
-          </div>
-          <span className="text-base font-bold tracking-tight text-black">이지원천</span>
+    <div className="flex flex-col min-h-screen">
+      {/* Top nav bar */}
+      <header className="flex items-center justify-between px-5 border-b border-gray-200 bg-white shrink-0 h-12">
+        <div className="flex items-center gap-6">
+          {/* Logo */}
+          <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
+            <div className="w-[22px] h-[22px] rounded-md bg-gray-900 text-white flex items-center justify-center text-[11px] font-extrabold">
+              이
+            </div>
+            <span className="text-[14px] font-bold tracking-tight text-black">이지원천</span>
+          </Link>
+
+          {/* Nav tabs */}
+          <nav className="flex items-center gap-1">
+            {NAV_ITEMS.map((item) => {
+              const active = pathname === item.href || pathname.startsWith(item.href + "/");
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={
+                    "px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors " +
+                    (active
+                      ? "bg-gray-900 text-white"
+                      : "text-gray-600 hover:bg-gray-100")
+                  }
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
 
-        {/* Workspace card */}
-        <div className="mx-3 mb-3 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200">
-          <div className="text-[12px] font-medium text-gray-700 truncate">
+        <div className="flex items-center gap-3">
+          <span className="text-[12px] text-gray-500 truncate max-w-[140px]">
             {me?.name ?? "세무사사무소"}
-          </div>
-        </div>
-
-        {/* Nav items */}
-        <nav className="flex-1 px-2 space-y-0.5">
-          {NAV_ITEMS.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(item.href + "/");
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={
-                  "flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-[13px] font-medium transition-colors " +
-                  (active
-                    ? "bg-gray-50 text-gray-900 font-semibold"
-                    : "text-gray-700 hover:bg-gray-50")
-                }
-              >
-                <NavIcon name={item.icon} active={active} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* Bottom */}
-        <div className="px-2 pb-3 border-t border-gray-200 pt-2 mt-2">
+          </span>
           <button
             onClick={logout}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-[13px] font-medium text-red-600 hover:bg-red-50 transition-colors"
+            className="text-[12px] font-medium text-red-600 hover:text-red-700 transition-colors"
           >
-            <NavIcon name="logout" active={false} />
             로그아웃
           </button>
         </div>
-      </aside>
+      </header>
 
       {/* Main content */}
       <main className="flex-1 min-w-0 bg-gray-50">
         <div className="p-6">{children}</div>
       </main>
     </div>
-  );
-}
-
-function NavIcon({ name, active }: { name: string; active: boolean }) {
-  const color = active ? "text-gray-900" : name === "logout" ? "text-red-600" : "text-gray-500";
-  const paths: Record<string, React.ReactNode> = {
-    calendar: (
-      <>
-        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-        <line x1="16" y1="2" x2="16" y2="6" />
-        <line x1="8" y1="2" x2="8" y2="6" />
-        <line x1="3" y1="10" x2="21" y2="10" />
-      </>
-    ),
-    buildings: (
-      <>
-        <path d="M3 21h18" />
-        <path d="M5 21V7l8-4v18" />
-        <path d="M19 21V11l-6-4" />
-        <path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01" />
-      </>
-    ),
-    logout: (
-      <>
-        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
-        <polyline points="16 17 21 12 16 7" />
-        <line x1="21" y1="12" x2="9" y2="12" />
-      </>
-    ),
-  };
-
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={color}
-    >
-      {paths[name]}
-    </svg>
   );
 }
