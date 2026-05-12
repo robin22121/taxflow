@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 class ClientCreate(BaseModel):
@@ -8,7 +8,9 @@ class ClientCreate(BaseModel):
     business_number: str | None = None
     representative: str | None = None
     contact_phone: str | None = None
-    contact_email: EmailStr | None = None
+    # EmailStr 대신 str — 내부 도메인(.local, .internal 등)도 허용. 형식 오류는
+    # 발송 시점에 채널이 처리.
+    contact_email: str | None = None
     is_corporation: bool = False
 
 
@@ -31,7 +33,7 @@ class ClientUpdate(BaseModel):
     business_number: str | None = None
     representative: str | None = None
     contact_phone: str | None = None
-    contact_email: EmailStr | None = None
+    contact_email: str | None = None
     is_corporation: bool | None = None
 
 

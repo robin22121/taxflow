@@ -30,6 +30,26 @@ export class ApiError extends Error {
   }
 }
 
+function formatErrorBody(body: unknown, status: number, statusText: string): string {
+  if (typeof body !== "object" || body === null) return `${status} ${statusText}`;
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  // FastAPI validation 에러: [{loc, msg, type}, ...]
+  if (Array.isArray(detail)) {
+    return detail
+      .map((e: unknown) => {
+        if (typeof e !== "object" || e === null) return String(e);
+        const ev = e as { loc?: unknown; msg?: unknown };
+        const loc = Array.isArray(ev.loc)
+          ? ev.loc.filter((x) => x !== "body").join(".")
+          : "";
+        return loc ? `${loc}: ${ev.msg}` : String(ev.msg ?? "");
+      })
+      .join("; ");
+  }
+  return `${status} ${statusText}`;
+}
+
 export async function api<T = unknown>(
   path: string,
   init: RequestInit & { json?: unknown } = {},
@@ -55,11 +75,7 @@ export async function api<T = unknown>(
     } catch {
       body = await res.text();
     }
-    const message =
-      typeof body === "object" && body && "detail" in body
-        ? String((body as { detail: unknown }).detail)
-        : `${res.status} ${res.statusText}`;
-    throw new ApiError(res.status, body, message);
+    throw new ApiError(res.status, body, formatErrorBody(body, res.status, res.statusText));
   }
 
   const ct = res.headers.get("content-type") ?? "";
@@ -81,11 +97,7 @@ export async function apiUpload<T = unknown>(path: string, file: File): Promise<
     } catch {
       body = await res.text();
     }
-    const message =
-      typeof body === "object" && body && "detail" in body
-        ? String((body as { detail: unknown }).detail)
-        : `${res.status} ${res.statusText}`;
-    throw new ApiError(res.status, body, message);
+    throw new ApiError(res.status, body, formatErrorBody(body, res.status, res.statusText));
   }
   return res.json() as Promise<T>;
 }
