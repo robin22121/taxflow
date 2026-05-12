@@ -1,21 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { useClients, useCreateClient } from "@/lib/queries";
+import { useBulkUploadClients, useClients, useCreateClient } from "@/lib/queries";
 import { Button, Card, Input, Modal } from "@/components/ui";
 
 export default function ClientsPage() {
   const { data, isLoading } = useClients();
   const [open, setOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">거래처 관리</h1>
-        <Button onClick={() => setOpen(true)}>+ 거래처 추가</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setBulkOpen(true)}>
+            거래처 일괄 업로드
+          </Button>
+          <Button onClick={() => setOpen(true)}>+ 거래처 추가</Button>
+        </div>
       </div>
 
       {isLoading && <p>로딩 중...</p>}
@@ -49,7 +55,75 @@ export default function ClientsPage() {
       </div>
 
       {open && <CreateClientModal onClose={() => setOpen(false)} />}
+      {bulkOpen && <BulkUploadModal onClose={() => setBulkOpen(false)} />}
     </div>
+  );
+}
+
+function BulkUploadModal({ onClose }: { onClose: () => void }) {
+  const bulk = useBulkUploadClients();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<{ count: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="거래처 일괄 업로드"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={bulk.isPending}>
+            {result ? "닫기" : "취소"}
+          </Button>
+          {!result && (
+            <Button
+              disabled={!file || bulk.isPending}
+              onClick={async () => {
+                if (!file) return;
+                setErr(null);
+                try {
+                  const created = await bulk.mutateAsync(file);
+                  setResult({ count: created.length });
+                } catch (e) {
+                  setErr((e as Error).message);
+                }
+              }}
+            >
+              {bulk.isPending ? "업로드 중..." : "업로드"}
+            </Button>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        {result ? (
+          <p className="text-green-700 dark:text-green-300">
+            {result.count}개 거래처가 등록되었습니다.
+          </p>
+        ) : (
+          <>
+            <p className="text-gray-600 dark:text-gray-400">
+              엑셀(.xlsx) 또는 CSV 파일을 업로드하세요.
+            </p>
+            <p className="text-xs text-gray-500">
+              필수 컬럼: <strong>상호</strong> (또는 사업자명, 거래처명)
+              <br />
+              선택 컬럼: 사업자번호, 대표자, 전화번호, 이메일, 법인여부
+            </p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="block w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-950 dark:file:text-blue-300"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </>
+        )}
+        {err && <p className="text-red-600">{err}</p>}
+      </div>
+    </Modal>
   );
 }
 

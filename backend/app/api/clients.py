@@ -1,6 +1,9 @@
 """Client (거래처) + Employee endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import io
+import logging
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +28,8 @@ from app.schemas.clients import (
 )
 from app.services.crypto import encrypt_rrn, mask_rrn
 from app.services.invite import get_or_create_session, send_invite_to_client
+
+logger = logging.getLogger(__name__)
 
 
 # 신규 거래처가 자동 추가될 수 있는 활성 filing 상태 (제출·완료된 filing은 제외)
@@ -86,6 +91,123 @@ async def create_client(
     await db.commit()
     await db.refresh(client)
     return client
+
+
+@router.post("/bulk-upload", response_model=list[ClientOut], status_code=status.HTTP_201_CREATED)
+async def bulk_upload_clients(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[Client]:
+    """엑셀/CSV 파일로 거래처 일괄 등록.
+
+    필수 컬럼: 상호 (또는 business_name, 사업자명)
+    선택 컬럼: 사업자번호, 대표자, 전화번호, 이메일, 법인여부
+    """
+    content = await file.read()
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 파일입니다")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "10MB 초과")
+
+    fname = (file.filename or "").lower()
+    try:
+        if fname.endswith(".csv"):
+            import csv as csv_mod
+            text = content.decode("utf-8-sig")
+            reader = csv_mod.DictReader(io.StringIO(text))
+            rows = list(reader)
+        else:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            ws = wb.active
+            if ws is None:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "시트를 찾을 수 없습니다")
+            headers = [str(c.value or "").strip() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+            rows = []
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                row_dict = {h: (str(v).strip() if v is not None else "") for h, v in zip(headers, row)}
+                rows.append(row_dict)
+            wb.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"파일 파싱 실패: {e}") from e
+
+    if not rows:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "데이터 행이 없습니다")
+
+    # Column name mapping (flexible)
+    _COL_MAP = {
+        "상호": "business_name", "사업자명": "business_name", "business_name": "business_name",
+        "거래처명": "business_name", "회사명": "business_name",
+        "사업자번호": "business_number", "business_number": "business_number",
+        "대표자": "representative", "대표자명": "representative", "representative": "representative",
+        "전화번호": "contact_phone", "연락처": "contact_phone", "휴대폰": "contact_phone",
+        "contact_phone": "contact_phone", "phone": "contact_phone",
+        "이메일": "contact_email", "email": "contact_email", "contact_email": "contact_email",
+        "법인": "is_corporation", "법인여부": "is_corporation", "is_corporation": "is_corporation",
+    }
+
+    def _map_row(raw: dict) -> dict:
+        mapped: dict = {}
+        for k, v in raw.items():
+            norm = _COL_MAP.get(k.strip())
+            if norm and v:
+                mapped[norm] = v
+        return mapped
+
+    # Get active filing for auto-session creation
+    active_filing = (
+        await db.execute(
+            select(MonthlyFiling)
+            .where(
+                MonthlyFiling.tax_office_id == user.tax_office_id,
+                MonthlyFiling.status.in_(_ACTIVE_FILING_STATUSES),
+            )
+            .order_by(MonthlyFiling.period.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    created: list[Client] = []
+    for raw_row in rows:
+        m = _map_row(raw_row)
+        biz_name = m.get("business_name", "").strip()
+        if not biz_name:
+            continue
+
+        is_corp = False
+        is_corp_raw = m.get("is_corporation", "").strip().lower()
+        if is_corp_raw in ("true", "1", "yes", "y", "법인", "○"):
+            is_corp = True
+
+        client = Client(
+            tax_office_id=user.tax_office_id,
+            business_name=biz_name,
+            business_number=m.get("business_number") or None,
+            representative=m.get("representative") or None,
+            contact_phone=m.get("contact_phone") or None,
+            contact_email=m.get("contact_email") or None,
+            is_corporation=is_corp,
+        )
+        db.add(client)
+        await db.flush()
+
+        if active_filing is not None:
+            await get_or_create_session(db, active_filing, client, ttl_days=30)
+
+        created.append(client)
+
+    if not created:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "유효한 거래처 데이터가 없습니다 (상호 컬럼 필수)")
+
+    await db.commit()
+    for c in created:
+        await db.refresh(c)
+
+    logger.info("Bulk uploaded %d clients for tax_office %s", len(created), user.tax_office_id)
+    return created
 
 
 @router.get("/{client_id}", response_model=ClientOut)

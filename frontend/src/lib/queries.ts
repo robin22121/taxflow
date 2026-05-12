@@ -103,6 +103,15 @@ export function useCreateClient() {
   });
 }
 
+export function useBulkUploadClients() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) =>
+      apiUpload<Client[]>("/api/v1/clients/bulk-upload", file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
+  });
+}
+
 export function useClientDetail(clientId: string) {
   return useQuery({
     queryKey: ["clients", clientId],
@@ -216,8 +225,11 @@ export function useSendInvite(filingId: string) {
 export function useRequestCollection(filingId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      api(`/api/v1/filings/${filingId}/request`, { method: "POST", json: {} }),
+    mutationFn: (sessionId: string) =>
+      api(`/api/v1/filings/${filingId}/sessions/${sessionId}/request`, {
+        method: "POST",
+        json: {},
+      }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["filings", filingId, "dashboard"] }),
   });

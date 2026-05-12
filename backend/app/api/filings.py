@@ -111,7 +111,7 @@ async def request_collection(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[CollectionSessionOut]:
-    """Create a CollectionSession per client + send alimtalk."""
+    """Create a CollectionSession per client + send alimtalk to ALL clients."""
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
@@ -122,50 +122,84 @@ async def request_collection(
         )
     ).scalars().all()
 
-    channel = get_alimtalk_channel()
-    settings = get_settings()
     out: list[CollectionSessionOut] = []
-
     for client in clients:
         session = await _get_or_create_session(db, filing, client, ttl_days=14)
-
-        url = f"{settings.app_public_url}/r/{session.request_token}"
-        body = (
-            f"[{client.business_name}] {filing.period} 원천세 자료 요청드립니다.\n"
-            f"아래 링크에서 직원 인건비를 입력하시거나, 평소처럼 이 채팅에 답장해주셔도 됩니다.\n"
-            f"🔗 {url}"
-        )
-        result = await channel.send(
-            MessageRecipient(
-                name=client.business_name,
-                phone=client.contact_phone,
-                email=client.contact_email,
-            ),
-            body=body,
-            template_code="COLLECTION_REQUEST",
-            url=url,
-        )
-        session.status = (
-            CollectionSessionStatus.SENT if result.accepted else CollectionSessionStatus.PENDING
-        )
-        if result.accepted:
-            session.request_sent_at = _dt.now(UTC)
-
-        db.add(
-            CollectionEvent(
-                session_id=session.id,
-                event_type="SEND_ALIMTALK",
-                channel=result.channel,
-                raw_text=body,
-                raw_payload={"accepted": result.accepted, "msg_id": result.provider_msg_id},
-            )
-        )
+        await _send_collection_alimtalk(db, session, client, filing)
         out.append(_session_out(session, client))
 
     filing.status = MonthlyFilingStatus.COLLECTING
     filing.total_clients = len(out)
     await db.commit()
     return out
+
+
+@router.post("/{filing_id}/sessions/{session_id}/request", response_model=CollectionSessionOut)
+async def request_collection_single(
+    filing_id: str,
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectionSessionOut:
+    """Send alimtalk to a single client (by session)."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    session = await db.get(
+        CollectionSession,
+        session_id,
+        options=[selectinload(CollectionSession.client)],
+    )
+    if not session or session.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+
+    await _send_collection_alimtalk(db, session, session.client, filing)
+    await db.commit()
+    return _session_out(session, session.client)
+
+
+async def _send_collection_alimtalk(
+    db: AsyncSession,
+    session: CollectionSession,
+    client: Client,
+    filing: MonthlyFiling,
+) -> None:
+    """Send a collection request alimtalk for a single client session."""
+    channel = get_alimtalk_channel()
+    settings = get_settings()
+
+    url = f"{settings.app_public_url}/r/{session.request_token}"
+    body = (
+        f"[{client.business_name}] {filing.period} 원천세 자료 요청드립니다.\n"
+        f"아래 링크에서 직원 인건비를 입력하시거나, 평소처럼 이 채팅에 답장해주셔도 됩니다.\n"
+        f"🔗 {url}"
+    )
+    result = await channel.send(
+        MessageRecipient(
+            name=client.business_name,
+            phone=client.contact_phone,
+            email=client.contact_email,
+        ),
+        body=body,
+        template_code="COLLECTION_REQUEST",
+        url=url,
+    )
+    session.status = (
+        CollectionSessionStatus.SENT if result.accepted else CollectionSessionStatus.PENDING
+    )
+    if result.accepted:
+        session.request_sent_at = _dt.now(UTC)
+
+    db.add(
+        CollectionEvent(
+            session_id=session.id,
+            event_type="SEND_ALIMTALK",
+            channel=result.channel,
+            raw_text=body,
+            raw_payload={"accepted": result.accepted, "msg_id": result.provider_msg_id},
+        )
+    )
 
 
 @router.post("/{filing_id}/sessions/{session_id}/confirm-with-client")

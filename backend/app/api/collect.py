@@ -192,13 +192,30 @@ async def _persist_results(
         )
     )
 
-    # Append new entries — preserve existing rows.
-    # Same employee may end up with multiple entries; UI surfaces duplicates
-    # so the tax accountant can pick the correct one.
+    # Deduplicate: skip if same session + same employee (or same raw_name for unmatched) already exists
+    existing_entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry).where(
+                    PayrollEntry.monthly_filing_id == filing.id,
+                    PayrollEntry.collection_session_id == session.id,
+                    PayrollEntry.client_id == client.id,
+                )
+            )
+        ).scalars().all()
+    )
+    existing_keys: set[str] = set()
+    for ex in existing_entries:
+        key = ex.employee_id if ex.employee_id else f"__name:{ex.raw_name}"
+        existing_keys.add(key)
+
     emp_by_id = {e.id: e for e in employees}
     needs_followup_count = 0
 
     for cand in matching.entries:
+        dedup_key = cand.employee_id if cand.employee_id else f"__name:{cand.raw_name}"
+        if dedup_key in existing_keys:
+            continue
         # 비과세 세분이 있으면 그 합으로 non_taxable 재계산 (정합 보장)
         breakdown_sum = cand.meal_amount + cand.car_amount + cand.childcare_amount
         non_taxable = max(cand.non_taxable, breakdown_sum)

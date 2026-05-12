@@ -25,9 +25,9 @@ export default function FilingDetailPage({
   const { id } = use(params);
   const { data, isLoading } = useFilingDashboard(id);
   const { data: entries } = useFilingEntries(id);
-  const requestCollection = useRequestCollection(id);
   const sendInvite = useSendInvite(id);
   const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
 
   if (isLoading || !data) return <p>로딩 중...</p>;
 
@@ -60,20 +60,40 @@ export default function FilingDetailPage({
         <div className="flex gap-2">
           <Button
             variant="secondary"
-            onClick={() => sendInvite.mutate()}
+            onClick={() => setShowBulkConfirm(true)}
             disabled={sendInvite.isPending}
           >
-            {sendInvite.isPending ? "발송중..." : "초대장 발송 (카톡+이메일)"}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => requestCollection.mutate()}
-            disabled={requestCollection.isPending}
-          >
-            {requestCollection.isPending ? "발송중..." : "자료 요청 알림톡"}
+            {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
           </Button>
           <Button onClick={downloadExcel}>최종엑셀전송</Button>
         </div>
+
+        {showBulkConfirm && (
+          <Modal
+            open={true}
+            onClose={() => setShowBulkConfirm(false)}
+            title="자료요청 일괄전송"
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setShowBulkConfirm(false)}>
+                  취소
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowBulkConfirm(false);
+                    sendInvite.mutate();
+                  }}
+                >
+                  확인
+                </Button>
+              </>
+            }
+          >
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              모든 거래처에 자료요청 안내문을 보냅니다. 진행하시겠습니까?
+            </p>
+          </Modal>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -155,6 +175,7 @@ function SessionDetail({
 }) {
   const submit = useSubmitMessage(filingId);
   const confirmWithClient = useConfirmWithClient(filingId);
+  const requestCollection = useRequestCollection(filingId);
   const [text, setText] = useState("");
   const [confirmResult, setConfirmResult] = useState<{
     sent: boolean;
@@ -174,6 +195,13 @@ function SessionDetail({
           >
             공개 입력 URL ↗
           </a>
+          <Button
+            variant="secondary"
+            disabled={requestCollection.isPending}
+            onClick={() => requestCollection.mutate(session.id)}
+          >
+            {requestCollection.isPending ? "발송중..." : "자료 요청 알림톡"}
+          </Button>
           <Button
             variant="secondary"
             disabled={confirmWithClient.isPending || entries.length === 0}
