@@ -516,7 +516,7 @@ async def send_invite(
 
     out: list[CollectionSessionOut] = []
     for client in clients:
-        session, _ = await send_invite_to_client(db, filing, client, office_name)
+        session, _, _ = await send_invite_to_client(db, filing, client, office_name)
         out.append(_session_out(session, client))
 
     filing.status = MonthlyFilingStatus.COLLECTING

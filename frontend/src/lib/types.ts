@@ -24,9 +24,16 @@ export type Client = {
   invite_sent: boolean;
 };
 
+export type ChannelAttempt = {
+  channel: string;
+  accepted: boolean;
+  error: string | null;
+};
+
 export type ClientInviteResult = {
   sent: boolean;
   channels: string[];
+  attempts: ChannelAttempt[];
   filing_period: string;
   detail: string | null;
 };

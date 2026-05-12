@@ -65,11 +65,12 @@ async def send_invite_to_client(
     office_name: str,
     *,
     settings: Settings | None = None,
-) -> tuple[CollectionSession, list[str]]:
+) -> tuple[CollectionSession, list[str], list[SendResult]]:
     """Send invite (알림톡 → SMS fallback + 이메일) to a single client.
 
-    Returns (session, accepted_channels) where accepted_channels lists the channels
-    that the provider accepted (e.g., ["sms", "email"]).
+    Returns (session, accepted_channels, all_attempts).
+    - accepted_channels: 성공한 채널명 리스트 (예: ["sms_aligo", "email_sendgrid"])
+    - all_attempts: 시도한 모든 SendResult (실패 채널 + 사유 진단용)
     Caller is responsible for db.commit().
     """
     settings = settings or get_settings()
@@ -179,11 +180,11 @@ async def send_invite_to_client(
 
     # 실제 채널명 노출 — sms_aligo / sms_stub / email_sendgrid / email_stub 등
     # UI는 "_stub" 접미사로 테스트 모드를 감지해 경고를 표시
-    accepted_channels: list[str] = []
-    if alimtalk_result.accepted:
-        accepted_channels.append(alimtalk_result.channel)
-    if sms_result is not None and sms_result.accepted:
-        accepted_channels.append(sms_result.channel)
-    if email_result is not None and email_result.accepted:
-        accepted_channels.append(email_result.channel)
-    return session, accepted_channels
+    # 시도된 모든 결과(성공/실패) 함께 반환 → UI에서 실패 사유까지 표시
+    attempts: list[SendResult] = [alimtalk_result]
+    if sms_result is not None:
+        attempts.append(sms_result)
+    if email_result is not None:
+        attempts.append(email_result)
+    accepted_channels = [a.channel for a in attempts if a.accepted]
+    return session, accepted_channels, attempts

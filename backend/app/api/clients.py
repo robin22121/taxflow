@@ -15,6 +15,7 @@ from app.models import (
     User,
 )
 from app.schemas.clients import (
+    ChannelAttempt,
     ClientCreate,
     ClientInviteResult,
     ClientOut,
@@ -153,12 +154,16 @@ async def invite_client(
     office = await db.get(TaxOffice, user.tax_office_id)
     office_name = office.name if office else "세무사사무소"
 
-    _, accepted = await send_invite_to_client(db, filing, client, office_name)
+    _, accepted, attempts = await send_invite_to_client(db, filing, client, office_name)
     await db.commit()
 
     return ClientInviteResult(
         sent=bool(accepted),
         channels=accepted,
+        attempts=[
+            ChannelAttempt(channel=a.channel, accepted=a.accepted, error=a.error)
+            for a in attempts
+        ],
         filing_period=filing.period,
         detail=None if accepted else "모든 채널 발송 실패 — 연락처 정보를 확인해주세요.",
     )

@@ -316,43 +316,52 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function InviteResultBanner({ result }: { result: ClientInviteResult }) {
-  if (!result.sent) {
-    return (
-      <div className="mt-3 text-sm text-amber-700 dark:text-amber-300">
-        ⚠️ 발송 실패 — {result.detail ?? "알 수 없는 오류"}
-      </div>
-    );
-  }
-
   const stubChannels = result.channels.filter((c) => c.endsWith("_stub"));
   const realChannels = result.channels.filter((c) => !c.endsWith("_stub"));
   const allStub = stubChannels.length > 0 && realChannels.length === 0;
-  const mixed = stubChannels.length > 0 && realChannels.length > 0;
-
-  if (allStub) {
-    return (
-      <div className="mt-3 p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm">
-        <p className="font-medium text-amber-800 dark:text-amber-300">
-          ⚠️ 테스트 모드 — 실제로 발송되지 않았습니다
-        </p>
-        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-          사용된 채널: {stubChannels.join(", ")}
-        </p>
-        <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
-          Render Environment에서 <code>SMS_PROVIDER=aligo</code>,{" "}
-          <code>EMAIL_PROVIDER=sendgrid</code> 및 자격증명을 설정해주세요.
-        </p>
-      </div>
-    );
-  }
+  const failedAttempts = result.attempts.filter(
+    (a) => !a.accepted && a.channel !== "alimtalk_skipped",
+  );
 
   return (
-    <div className="mt-3 text-sm text-green-700 dark:text-green-300">
-      ✅ {result.filing_period} 초대장 발송 완료 ({realChannels.join(", ")})
-      {mixed && (
-        <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">
-          (일부 채널은 테스트 모드: {stubChannels.join(", ")})
-        </span>
+    <div className="mt-3 space-y-2">
+      {result.sent && realChannels.length > 0 && (
+        <div className="text-sm text-green-700 dark:text-green-300">
+          ✅ {result.filing_period} 초대장 발송 완료 ({realChannels.join(", ")})
+        </div>
+      )}
+
+      {result.sent && allStub && (
+        <div className="p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm">
+          <p className="font-medium text-amber-800 dark:text-amber-300">
+            ⚠️ 테스트 모드 — 실제로 발송되지 않았습니다
+          </p>
+          <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+            성공한 채널: {stubChannels.join(", ")}
+          </p>
+        </div>
+      )}
+
+      {!result.sent && (
+        <div className="text-sm text-amber-700 dark:text-amber-300">
+          ⚠️ 발송 실패 — {result.detail ?? "알 수 없는 오류"}
+        </div>
+      )}
+
+      {failedAttempts.length > 0 && (
+        <div className="p-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm">
+          <p className="font-medium text-red-800 dark:text-red-300 mb-1">
+            실패/스킵된 채널 ({failedAttempts.length}건):
+          </p>
+          <ul className="text-xs text-red-700 dark:text-red-400 space-y-0.5">
+            {failedAttempts.map((a, i) => (
+              <li key={i}>
+                <code className="font-mono">{a.channel}</code>
+                {a.error ? ` — ${a.error}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

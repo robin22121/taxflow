@@ -35,9 +35,16 @@ class ClientUpdate(BaseModel):
     is_corporation: bool | None = None
 
 
+class ChannelAttempt(BaseModel):
+    channel: str  # 예: sms_aligo, sms_stub, email_sendgrid, alimtalk_skipped
+    accepted: bool
+    error: str | None = None
+
+
 class ClientInviteResult(BaseModel):
     sent: bool
-    channels: list[str]  # ["alimtalk", "sms", "email"] 중 실제 accepted된 채널
+    channels: list[str]  # accepted된 실제 채널명
+    attempts: list[ChannelAttempt] = []  # 모든 시도 (성공/실패 포함, UI 진단용)
     filing_period: str
     detail: str | None = None
 
