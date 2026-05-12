@@ -107,7 +107,10 @@ def get_storage() -> ObjectStorage:
     s = get_settings()
     if s.ncp_object_storage_access_key and s.ncp_object_storage_secret_key:
         return NcpObjectStorage()
-    return LocalFileStorage()
+    # Render Persistent Disk는 /data/uploads에 마운트됨
+    # 로컬 개발 시에는 data/uploads (상대경로) 사용
+    upload_dir = Path("/data/uploads") if Path("/data/uploads").is_dir() else None
+    return LocalFileStorage(base_dir=upload_dir)
 
 
 __all__ = ["LocalFileStorage", "NcpObjectStorage", "ObjectStorage", "get_storage"]

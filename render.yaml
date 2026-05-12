@@ -11,7 +11,7 @@ services:
   - type: web
     name: taxflow-backend
     runtime: python
-    plan: free
+    plan: starter
     region: singapore
     rootDir: backend
     # NOTE: seed (`python -m app.scripts.seed`)는 prod DB를 wipe하므로 buildCommand에 포함하지 않음.
@@ -19,6 +19,10 @@ services:
     #   python -m app.scripts.seed
     buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    disk:
+      name: taxflow-uploads
+      mountPath: /data/uploads
+      sizeGB: 1
     healthCheckPath: /healthz
     envVars:
       - key: APP_ENV
