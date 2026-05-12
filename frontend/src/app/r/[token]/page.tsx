@@ -92,14 +92,14 @@ export default function PublicCollectPage({
   if (error && !session) {
     return (
       <div className="min-h-dvh flex items-center justify-center p-4 bg-[#F7F7F9]">
-        <div className="max-w-md rounded-2xl bg-paper border border-ink-5 p-6 text-center shadow-lg">
-          <p className="text-alert">{error}</p>
+        <div className="max-w-md rounded-2xl bg-white border border-gray-200 p-6 text-center shadow-lg">
+          <p className="text-red-600">{error}</p>
         </div>
       </div>
     );
   }
   if (!session) {
-    return <div className="min-h-dvh flex items-center justify-center bg-[#F7F7F9]"><p className="text-ink-3">로딩 중...</p></div>;
+    return <div className="min-h-dvh flex items-center justify-center bg-[#F7F7F9]"><p className="text-gray-500">로딩 중...</p></div>;
   }
 
   return (
@@ -108,16 +108,16 @@ export default function PublicCollectPage({
       backgroundSize: "16px 16px",
     }}>
       {/* Header */}
-      <div className="px-4 py-3 bg-paper border-b border-ink-5 shrink-0">
+      <div className="px-4 py-3 bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-blue-600 text-white flex items-center justify-center text-base font-extrabold shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-blue-600 text-white flex items-center justify-center text-base font-extrabold shrink-0">
             {session.client_name.charAt(0)}
           </div>
           <div className="min-w-0">
-            <div className="text-[15px] font-bold tracking-tight truncate">{session.client_name}</div>
+            <div className="text-[15px] font-bold tracking-tight text-gray-900 truncate">{session.client_name}</div>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-              <span className="text-[11.5px] text-ink-3">{session.period} 자료 수집중</span>
+              <span className="text-[11.5px] text-gray-500">{session.period} 자료 수집중</span>
             </div>
           </div>
         </div>
@@ -127,25 +127,25 @@ export default function PublicCollectPage({
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
         {/* Date divider */}
         <div className="flex justify-center mb-3">
-          <span className="px-3 py-1 rounded-full bg-black/[0.06] text-[11.5px] text-ink-3">
+          <span className="px-3 py-1 rounded-full bg-black/[0.06] text-[11.5px] text-gray-500">
             오늘
           </span>
         </div>
 
         {/* Safety card */}
-        <div className="mx-0 mb-3 p-3 bg-paper border border-ink-5 rounded-[14px] shadow-sm">
+        <div className="mx-0 mb-3 p-3 bg-white border border-gray-200 rounded-[14px] shadow-sm">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-accent-50 text-accent flex items-center justify-center shrink-0 text-sm">🔒</div>
+            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 text-sm">🔒</div>
             <div>
-              <div className="text-[12px] font-bold">전용 안전 링크</div>
-              <div className="text-[11px] text-ink-3 leading-snug">답장 내용은 세무사 사무소만 확인할 수 있어요</div>
+              <div className="text-[12px] font-bold text-gray-900">전용 안전 링크</div>
+              <div className="text-[11px] text-gray-500 leading-snug">답장 내용은 세무사 사무소만 확인할 수 있어요</div>
             </div>
           </div>
         </div>
 
         {/* Greeting bubbles (them) */}
         <ChatBubbleThem>
-          안녕하세요 <b className="text-accent">{session.client_name}</b> 사장님,<br />
+          안녕하세요 <b className="text-blue-600">{session.client_name}</b> 사장님,<br />
           {session.period} 직원 급여 자료 부탁드려요 🙏
         </ChatBubbleThem>
         <ChatBubbleThem>
@@ -160,7 +160,7 @@ export default function PublicCollectPage({
             disabled={submitting}
             className="flex items-center gap-3 w-full max-w-[78%] p-3.5 rounded-2xl bg-gradient-to-r from-blue-100 to-blue-200 border border-blue-200 text-left shadow-sm hover:shadow-md transition-shadow disabled:opacity-50"
           >
-            <div className="w-9 h-9 rounded-xl bg-accent text-white flex items-center justify-center shrink-0 text-lg">⭐</div>
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 text-lg">⭐</div>
             <div className="flex-1 min-w-0">
               <div className="text-[14px] font-bold text-blue-900">전월과 똑같아요</div>
               <div className="text-[11.5px] text-blue-700">저번 달 자료 그대로 제출 · 한 번 탭</div>
@@ -169,15 +169,15 @@ export default function PublicCollectPage({
           </button>
 
           <div className="flex gap-2 max-w-[78%]">
-            <label className="flex-1 flex flex-col items-center gap-1 py-2.5 px-2 bg-paper border border-ink-5 rounded-xl cursor-pointer hover:border-ink-4 transition-colors">
+            <label className="flex-1 flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-gray-200 rounded-xl cursor-pointer hover:border-gray-300 transition-colors">
               <span className="text-lg">📷</span>
-              <span className="text-[11px] font-semibold text-ink-2">사진·파일</span>
+              <span className="text-[11px] font-semibold text-gray-700">사진·파일</span>
               <input type="file" className="hidden" accept="audio/*,.mp3,.m4a,.wav,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
             </label>
-            <button onClick={() => setMode("text")} className="flex-1 flex flex-col items-center gap-1 py-2.5 px-2 bg-paper border border-ink-5 rounded-xl hover:border-ink-4 transition-colors">
+            <button onClick={() => setMode("text")} className="flex-1 flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-gray-200 rounded-xl hover:border-gray-300 transition-colors">
               <span className="text-lg">✏️</span>
-              <span className="text-[11px] font-semibold text-ink-2">직접 적기</span>
+              <span className="text-[11px] font-semibold text-gray-700">직접 적기</span>
             </button>
           </div>
         </div>
@@ -191,12 +191,12 @@ export default function PublicCollectPage({
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder={"예) 김연호 100만원, 박민수 신규입사 150만원, 이영수는 이번달 퇴사했어요"}
-                className="w-full rounded-2xl bg-paper border border-ink-4 px-3.5 py-3 text-[14px] leading-relaxed outline-none focus:border-accent resize-none"
+                className="w-full rounded-2xl bg-white border border-gray-300 px-3.5 py-3 text-[14px] text-gray-900 leading-relaxed outline-none focus:border-blue-500 resize-none"
                 autoFocus
               />
               <div className="flex gap-2 justify-end">
                 <button onClick={() => { setMode("idle"); setText(""); }}
-                  className="px-3.5 py-2 rounded-xl border border-ink-4 text-[13px] text-ink-2 hover:bg-paper-2">
+                  className="px-3.5 py-2 rounded-xl border border-gray-300 text-[13px] text-gray-700 hover:bg-gray-50">
                   취소
                 </button>
                 <Button onClick={submit} disabled={submitting || !text.trim()}>
@@ -212,15 +212,15 @@ export default function PublicCollectPage({
           <div className="flex gap-2 items-end mb-2">
             <div className="w-8 h-8 rounded-[10px] bg-amber-50 text-amber-700 flex items-center justify-center shrink-0 text-sm">🤖</div>
             <div className="max-w-[78%]">
-              <div className="bg-paper border border-ink-5 rounded-[4px_16px_16px_16px] p-3 shadow-sm min-w-[200px]">
+              <div className="bg-white border border-gray-200 rounded-[4px_16px_16px_16px] p-3 shadow-sm min-w-[200px]">
                 <div className="flex items-center gap-1.5 mb-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  <span className="text-[12.5px] font-bold">자료 읽고 있어요</span>
+                  <span className="text-[12.5px] font-bold text-gray-900">자료 읽고 있어요</span>
                 </div>
-                <div className="h-[5px] rounded-full bg-ink-5 overflow-hidden mb-1.5">
+                <div className="h-[5px] rounded-full bg-gray-200 overflow-hidden mb-1.5">
                   <div className="h-full rounded-full bg-gradient-to-r from-amber-200 to-amber-500 animate-pulse" style={{ width: "72%" }} />
                 </div>
-                <div className="text-[11px] text-ink-3">분석 중… 약 10초</div>
+                <div className="text-[11px] text-gray-500">분석 중… 약 10초</div>
               </div>
             </div>
           </div>
@@ -229,7 +229,7 @@ export default function PublicCollectPage({
         {/* Error */}
         {error && (
           <div className="flex justify-end mb-2">
-            <div className="bg-alert-50 border border-alert/20 rounded-2xl px-3.5 py-2.5 text-[13px] text-alert max-w-[82%]">
+            <div className="bg-red-50 border border-red-600/20 rounded-2xl px-3.5 py-2.5 text-[13px] text-red-600 max-w-[82%]">
               {error}
             </div>
           </div>
@@ -240,34 +240,32 @@ export default function PublicCollectPage({
           <div className="flex gap-2 items-end mb-2">
             <div className="w-8 shrink-0" />
             <div className="max-w-[88%] w-full">
-              <div className="bg-paper border border-ink-5 rounded-[4px_18px_18px_18px] overflow-hidden shadow-md">
-                <div className="px-3.5 py-3 border-b border-ink-5 bg-gradient-to-b from-accent-50 to-paper">
+              <div className="bg-white border border-gray-200 rounded-[4px_18px_18px_18px] overflow-hidden shadow-md">
+                <div className="px-3.5 py-3 border-b border-gray-200 bg-gradient-to-b from-blue-50 to-white">
                   <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-accent">✅</span>
-                    <span className="text-[13px] font-bold text-accent">정리 완료</span>
+                    <span className="text-blue-600">✅</span>
+                    <span className="text-[13px] font-bold text-blue-600">정리 완료</span>
                   </div>
-                  <div className="text-[11.5px] text-ink-3">
+                  <div className="text-[11.5px] text-gray-500">
                     {session.period} {session.client_name} 급여 · 직원 {result.matched + result.new_hire_suspected + result.resignation_suspected + result.ambiguous}명 확인
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 py-2.5 px-1 border-b border-ink-5">
+                <div className="grid grid-cols-4 py-2.5 px-1 border-b border-gray-200">
                   {([
-                    ["기존", result.matched, "ink"],
-                    ["신규", result.new_hire_suspected, "accent"],
-                    ["퇴사", result.resignation_suspected, "ink-3"],
-                    ["확인", result.ambiguous + (result.needs_followup ?? 0), "alert"],
+                    ["기존", result.matched, "gray-900"],
+                    ["신규", result.new_hire_suspected, "blue-600"],
+                    ["퇴사", result.resignation_suspected, "gray-500"],
+                    ["확인", result.ambiguous + (result.needs_followup ?? 0), "red-600"],
                   ] as const).map(([label, val, tone], i) => (
-                    <div key={i} className="flex flex-col items-center gap-0.5" style={{ borderRight: i < 3 ? "1px solid var(--ink-5)" : "none" }}>
-                      <span className={`text-xl font-extrabold tabular-nums ${
-                        tone === "alert" ? "text-alert" : tone === "accent" ? "text-accent" : tone === "ink-3" ? "text-ink-3" : "text-ink"
-                      }`}>{val}</span>
-                      <span className="text-[11px] text-ink-3">{label}</span>
+                    <div key={i} className="flex flex-col items-center gap-0.5" style={{ borderRight: i < 3 ? "1px solid #E3E3E5" : "none" }}>
+                      <span className={`text-xl font-extrabold tabular-nums text-${tone}`}>{val}</span>
+                      <span className="text-[11px] text-gray-500">{label}</span>
                     </div>
                   ))}
                 </div>
 
-                <div className="px-3.5 py-2.5 bg-paper-2 text-[12.5px] text-ink-2">
+                <div className="px-3.5 py-2.5 bg-gray-50 text-[12.5px] text-gray-700">
                   세무사가 검증 후 추가 확인 사항이 있으면 다시 연락드릴게요.
                 </div>
               </div>
@@ -279,21 +277,21 @@ export default function PublicCollectPage({
       </div>
 
       {/* Bottom input bar */}
-      <div className="px-3 py-2 bg-paper border-t border-ink-5 flex items-center gap-2 shrink-0">
-        <label className="w-9 h-9 rounded-full bg-paper-2 flex items-center justify-center text-ink-2 cursor-pointer shrink-0 hover:bg-ink-5 transition-colors">
+      <div className="px-3 py-2 bg-white border-t border-gray-200 flex items-center gap-2 shrink-0">
+        <label className="w-9 h-9 rounded-full bg-gray-50 flex items-center justify-center text-gray-700 cursor-pointer shrink-0 hover:bg-gray-200 transition-colors">
           <span className="text-lg">+</span>
           <input type="file" className="hidden" accept="audio/*,.mp3,.m4a,.wav,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
         </label>
         <div
           onClick={() => setMode("text")}
-          className="flex-1 h-9 bg-paper-2 rounded-full px-3.5 flex items-center text-[13.5px] text-ink-3 cursor-text"
+          className="flex-1 h-9 bg-gray-50 rounded-full px-3.5 flex items-center text-[13.5px] text-gray-500 cursor-text"
         >
           메시지 입력…
         </div>
         <button
           onClick={() => { if (text.trim()) submit(); else setMode("text"); }}
-          className="w-9 h-9 rounded-full bg-accent text-white flex items-center justify-center shrink-0 shadow-[0_4px_12px_-4px_rgba(19,112,206,0.5)]"
+          className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-[0_4px_12px_-4px_rgba(19,112,206,0.5)]"
         >
           <span className="text-sm">↑</span>
         </button>
@@ -305,11 +303,11 @@ export default function PublicCollectPage({
 function ChatBubbleThem({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex gap-2 items-end mb-1">
-      <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-accent to-blue-600 text-white flex items-center justify-center shrink-0 text-[13px] font-extrabold">
+      <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-blue-600 to-blue-600 text-white flex items-center justify-center shrink-0 text-[13px] font-extrabold">
         조
       </div>
       <div className="max-w-[78%]">
-        <div className="bg-paper border border-ink-5 rounded-[4px_16px_16px_16px] px-3.5 py-2.5 text-[14px] leading-relaxed shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-[4px_16px_16px_16px] px-3.5 py-2.5 text-[14px] text-gray-900 leading-relaxed shadow-sm">
           {children}
         </div>
       </div>

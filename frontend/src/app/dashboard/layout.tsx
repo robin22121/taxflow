@@ -35,18 +35,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="w-56 border-r border-ink-4 bg-paper flex flex-col shrink-0">
+      <aside className="w-56 border-r border-gray-300 bg-white flex flex-col shrink-0">
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 pt-5 pb-3">
-          <div className="w-[26px] h-[26px] rounded-lg bg-ink text-white flex items-center justify-center text-[13px] font-extrabold">
+          <div className="w-[26px] h-[26px] rounded-lg bg-gray-900 text-white flex items-center justify-center text-[13px] font-extrabold">
             이
           </div>
           <span className="text-base font-bold tracking-tight text-black">이지원천</span>
         </div>
 
         {/* Workspace card */}
-        <div className="mx-3 mb-3 px-3 py-2 rounded-lg bg-paper-2 border border-ink-5">
-          <div className="text-[12px] font-medium text-ink-2 truncate">
+        <div className="mx-3 mb-3 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200">
+          <div className="text-[12px] font-medium text-gray-700 truncate">
             {me?.name ?? "세무사사무소"}
           </div>
         </div>
@@ -62,8 +62,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className={
                   "flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-[13px] font-medium transition-colors " +
                   (active
-                    ? "bg-paper-2 text-ink font-semibold"
-                    : "text-ink-2 hover:bg-paper-2")
+                    ? "bg-gray-50 text-gray-900 font-semibold"
+                    : "text-gray-700 hover:bg-gray-50")
                 }
               >
                 <NavIcon name={item.icon} active={active} />
@@ -74,10 +74,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         {/* Bottom */}
-        <div className="px-2 pb-3 border-t border-ink-5 pt-2 mt-2">
+        <div className="px-2 pb-3 border-t border-gray-200 pt-2 mt-2">
           <button
             onClick={logout}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-[13px] text-ink-3 hover:bg-paper-2 transition-colors"
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-[13px] text-gray-500 hover:bg-gray-50 transition-colors"
           >
             <NavIcon name="logout" active={false} />
             로그아웃
@@ -86,7 +86,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 min-w-0 bg-paper-2">
+      <main className="flex-1 min-w-0 bg-gray-50">
         <div className="p-6">{children}</div>
       </main>
     </div>
@@ -94,7 +94,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 }
 
 function NavIcon({ name, active }: { name: string; active: boolean }) {
-  const color = active ? "text-ink" : "text-ink-3";
+  const color = active ? "text-gray-900" : "text-gray-500";
   const paths: Record<string, React.ReactNode> = {
     calendar: (
       <>

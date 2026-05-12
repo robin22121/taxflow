@@ -25,8 +25,8 @@ export default function DashboardHomePage() {
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-[20px] font-bold tracking-tight">월별 신고</h1>
-          <p className="text-[13px] text-ink-3 mt-0.5">기간을 선택해 자료 수집을 시작하세요.</p>
+          <h1 className="text-[20px] font-bold tracking-tight text-gray-900">월별 신고</h1>
+          <p className="text-[13px] text-gray-500 mt-0.5">기간을 선택해 자료 수집을 시작하세요.</p>
         </div>
         <form
           className="flex gap-2"
@@ -69,7 +69,7 @@ export default function DashboardHomePage() {
       {isLoading && (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-16 rounded-[14px] bg-paper animate-pulse border border-ink-5" />
+            <div key={i} className="h-16 rounded-[14px] bg-white animate-pulse border border-gray-200" />
           ))}
         </div>
       )}
@@ -79,26 +79,26 @@ export default function DashboardHomePage() {
         <Card className="p-0 overflow-hidden">
           <table className="w-full text-[13px]">
             <thead>
-              <tr className="border-b border-ink-4">
-                <th className="text-left px-4 py-3 text-[11px] font-medium text-ink-3 uppercase tracking-wider">기간</th>
-                <th className="text-left px-4 py-3 text-[11px] font-medium text-ink-3 uppercase tracking-wider">상태</th>
-                <th className="text-right px-4 py-3 text-[11px] font-medium text-ink-3 uppercase tracking-wider">거래처</th>
-                <th className="text-right px-4 py-3 text-[11px] font-medium text-ink-3 uppercase tracking-wider">항목</th>
+              <tr className="border-b border-gray-300">
+                <th className="text-left px-4 py-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">기간</th>
+                <th className="text-left px-4 py-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">상태</th>
+                <th className="text-right px-4 py-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">거래처</th>
+                <th className="text-right px-4 py-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">항목</th>
               </tr>
             </thead>
             <tbody>
               {filings.map((f) => (
-                <tr key={f.id} className="border-b border-paper-2 hover:bg-paper-2 transition-colors">
+                <tr key={f.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3">
-                    <Link href={`/dashboard/filings/${f.id}`} className="font-medium text-ink hover:text-accent transition-colors">
+                    <Link href={`/dashboard/filings/${f.id}`} className="font-medium text-gray-900 hover:text-blue-600 transition-colors">
                       {f.period}
                     </Link>
                   </td>
                   <td className="px-4 py-3">
                     <Badge tone={statusTone(f.status)}>{statusKo(f.status)}</Badge>
                   </td>
-                  <td className="px-4 py-3 text-right t-num text-ink-2">{f.total_clients}</td>
-                  <td className="px-4 py-3 text-right t-num text-ink-2">{f.total_entries}</td>
+                  <td className="px-4 py-3 text-right t-num text-gray-700">{f.total_clients}</td>
+                  <td className="px-4 py-3 text-right t-num text-gray-700">{f.total_entries}</td>
                 </tr>
               ))}
             </tbody>
@@ -110,8 +110,8 @@ export default function DashboardHomePage() {
       {!isLoading && filings.length === 0 && (
         <Card className="text-center py-12">
           <div className="text-4xl mb-3 opacity-30">📋</div>
-          <p className="text-[15px] font-medium text-ink-2 mb-1">아직 생성된 신고 기간이 없습니다</p>
-          <p className="text-[13px] text-ink-3">위 입력란에서 기간을 입력하고 [새 기간 생성]을 눌러 시작하세요.</p>
+          <p className="text-[15px] font-medium text-gray-700 mb-1">아직 생성된 신고 기간이 없습니다</p>
+          <p className="text-[13px] text-gray-500">위 입력란에서 기간을 입력하고 [새 기간 생성]을 눌러 시작하세요.</p>
         </Card>
       )}
     </div>
@@ -131,10 +131,10 @@ function KpiCard({
 }) {
   return (
     <Card className="py-3 px-4">
-      <div className="text-[11px] font-medium text-ink-3 uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">{label}</div>
       <div className="flex items-baseline gap-1">
-        <span className="text-[22px] font-bold tracking-tight t-num">{value}</span>
-        {unit && <span className="text-[13px] text-ink-3">{unit}</span>}
+        <span className="text-[22px] font-bold tracking-tight t-num text-gray-900">{value}</span>
+        {unit && <span className="text-[13px] text-gray-500">{unit}</span>}
         {tone && !unit && (
           <Badge tone={tone}>{value}</Badge>
         )}

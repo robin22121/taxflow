@@ -27,7 +27,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className="min-h-full bg-paper text-ink"
+        className="min-h-full bg-white text-gray-900"
         suppressHydrationWarning
       >
         <Providers>{children}</Providers>

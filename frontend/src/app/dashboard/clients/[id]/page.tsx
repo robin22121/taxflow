@@ -43,21 +43,21 @@ export default function ClientDetailPage({
   const [inviteResult, setInviteResult] = useState<ClientInviteResult | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
-  if (isLoading || !client) return <p className="p-6">로딩 중...</p>;
+  if (isLoading || !client) return <p className="p-6 text-gray-900">로딩 중...</p>;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 text-sm text-ink-3">
+      <div className="flex items-center gap-2 text-sm text-gray-500">
         <Link href="/dashboard/clients" className="hover:underline">
           거래처 관리
         </Link>
         <span>/</span>
-        <span>{client.business_name}</span>
+        <span className="text-gray-900">{client.business_name}</span>
       </div>
 
       <Card>
         <div className="flex items-start justify-between gap-3 mb-2">
-          <h1 className="text-2xl font-semibold">{client.business_name}</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">{client.business_name}</h1>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               연락처 편집
@@ -84,36 +84,36 @@ export default function ClientDetailPage({
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div>
-            <span className="text-ink-3">사업자번호</span>
-            <p>{client.business_number ? formatBizNumber(client.business_number) : "—"}</p>
+            <span className="text-gray-500">사업자번호</span>
+            <p className="text-gray-900">{client.business_number ? formatBizNumber(client.business_number) : "—"}</p>
           </div>
           <div>
-            <span className="text-ink-3">대표자</span>
-            <p>{client.representative || "—"}</p>
+            <span className="text-gray-500">대표자</span>
+            <p className="text-gray-900">{client.representative || "—"}</p>
           </div>
           <div>
-            <span className="text-ink-3">연락처</span>
-            <p>{client.contact_phone ? formatPhone(client.contact_phone) : "—"}</p>
+            <span className="text-gray-500">연락처</span>
+            <p className="text-gray-900">{client.contact_phone ? formatPhone(client.contact_phone) : "—"}</p>
           </div>
           <div>
-            <span className="text-ink-3">이메일</span>
-            <p>{client.contact_email || "—"}</p>
+            <span className="text-gray-500">이메일</span>
+            <p className="text-gray-900">{client.contact_email || "—"}</p>
           </div>
         </div>
         {client.collect_email && (
-          <div className="mt-3 p-3 rounded-lg bg-accent-50/30 border border-accent/20">
-            <p className="text-xs text-ink-3 mb-1">전용 수신 이메일 (거래처 안내용)</p>
-            <p className="font-mono text-sm text-accent">
+          <div className="mt-3 p-3 rounded-lg bg-blue-50/30 border border-blue-600/20">
+            <p className="text-xs text-gray-500 mb-1">전용 수신 이메일 (거래처 안내용)</p>
+            <p className="font-mono text-sm text-blue-600">
               {client.collect_email}
             </p>
-            <p className="text-xs text-ink-3 mt-1">
+            <p className="text-xs text-gray-500 mt-1">
               {client.invite_sent ? "✅ 초대장 발송 완료" : "⏳ 초대장 미발송"}
             </p>
           </div>
         )}
         {inviteResult && <InviteResultBanner result={inviteResult} />}
         {inviteError && (
-          <p className="mt-3 text-sm text-alert">{inviteError}</p>
+          <p className="mt-3 text-sm text-red-600">{inviteError}</p>
         )}
       </Card>
 
@@ -131,12 +131,12 @@ export default function ClientDetailPage({
 
       {/* Import Section */}
       <Card>
-        <h2 className="text-lg font-semibold mb-3">데이터 임포트</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-3">데이터 임포트</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Employee Import */}
-          <div className="space-y-2 p-4 rounded-lg border border-ink-4">
-            <h3 className="font-medium">직원 마스터 업로드</h3>
-            <p className="text-xs text-ink-3">
+          <div className="space-y-2 p-4 rounded-lg border border-gray-300">
+            <h3 className="font-medium text-gray-900">직원 마스터 업로드</h3>
+            <p className="text-xs text-gray-500">
               위하고T 인적사항 엑셀 또는 자유 양식 (.xlsx, .csv)
             </p>
             <input
@@ -166,13 +166,13 @@ export default function ClientDetailPage({
               {importEmp.isPending ? "업로드 중..." : "파일 선택 + 업로드"}
             </Button>
             {empResult && (
-              <div className="text-xs mt-2 p-2 rounded bg-green-50 dark:bg-green-950/30 text-green-800 dark:text-green-300">
+              <div className="text-xs mt-2 p-2 rounded bg-green-50 text-green-800">
                 <p>
                   총 {empResult.total_rows}행 처리 — 생성 {empResult.created},
                   업데이트 {empResult.updated}, 건너뜀 {empResult.skipped}
                 </p>
                 {empResult.errors.length > 0 && (
-                  <ul className="mt-1 text-amber-700 dark:text-amber-400">
+                  <ul className="mt-1 text-amber-700">
                     {empResult.errors.map((e, i) => (
                       <li key={i}>{e}</li>
                     ))}
@@ -183,21 +183,21 @@ export default function ClientDetailPage({
           </div>
 
           {/* Payroll Import */}
-          <div className="space-y-2 p-4 rounded-lg border border-ink-4">
-            <h3 className="font-medium">전월 급여 업로드</h3>
-            <p className="text-xs text-ink-3">
+          <div className="space-y-2 p-4 rounded-lg border border-gray-300">
+            <h3 className="font-medium text-gray-900">전월 급여 업로드</h3>
+            <p className="text-xs text-gray-500">
               위하고T 원천징수이행상황신고서 엑셀 (.xlsx, .csv)
             </p>
             <div className="flex gap-2 items-end">
               <div>
-                <label className="block text-xs text-ink-3 mb-1">
+                <label className="block text-xs text-gray-500 mb-1">
                   지급년월
                 </label>
                 <input
                   type="month"
                   value={payPeriod}
                   onChange={(e) => setPayPeriod(e.target.value)}
-                  className="rounded-lg border border-ink-4 bg-transparent px-2 py-1 text-sm"
+                  className="rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-sm text-gray-900"
                 />
               </div>
               <input
@@ -231,14 +231,14 @@ export default function ClientDetailPage({
               </Button>
             </div>
             {payResult && (
-              <div className="text-xs mt-2 p-2 rounded bg-green-50 dark:bg-green-950/30 text-green-800 dark:text-green-300">
+              <div className="text-xs mt-2 p-2 rounded bg-green-50 text-green-800">
                 <p>
                   {payResult.period} — 총 {payResult.total_rows}행, 매칭{" "}
                   {payResult.matched}, 미매칭 {payResult.unmatched}, 생성{" "}
                   {payResult.created_entries}건
                 </p>
                 {payResult.errors.length > 0 && (
-                  <ul className="mt-1 text-amber-700 dark:text-amber-400">
+                  <ul className="mt-1 text-amber-700">
                     {payResult.errors.map((e, i) => (
                       <li key={i}>{e}</li>
                     ))}
@@ -249,21 +249,21 @@ export default function ClientDetailPage({
           </div>
         </div>
         {error && (
-          <p className="text-sm text-alert mt-3">{error}</p>
+          <p className="text-sm text-red-600 mt-3">{error}</p>
         )}
       </Card>
 
       {/* Employee List */}
       <Card>
         <div className="flex items-baseline justify-between mb-3">
-          <h2 className="text-lg font-semibold">
+          <h2 className="text-lg font-semibold text-gray-900">
             직원 목록 ({employees?.length ?? 0}명)
           </h2>
         </div>
         {employees && employees.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-xs text-ink-3 border-b border-ink-4">
+              <thead className="text-xs text-gray-500 border-b border-gray-300">
                 <tr>
                   <th className="text-left py-2 pr-3">이름</th>
                   <th className="text-left py-2 pr-3">사번</th>
@@ -277,19 +277,19 @@ export default function ClientDetailPage({
                 {employees.map((e) => (
                   <tr
                     key={e.id}
-                    className="border-b border-paper-2"
+                    className="border-b border-gray-100"
                   >
-                    <td className="py-2 pr-3 font-medium">{e.name}</td>
-                    <td className="py-2 pr-3 text-ink-3">
+                    <td className="py-2 pr-3 font-medium text-gray-900">{e.name}</td>
+                    <td className="py-2 pr-3 text-gray-500">
                       {e.employee_code || "—"}
                     </td>
-                    <td className="py-2 pr-3 text-ink-3">
+                    <td className="py-2 pr-3 text-gray-500">
                       {e.rrn_last4 ? `******-*${e.rrn_last4}` : "—"}
                     </td>
-                    <td className="py-2 pr-3 text-ink-3">
+                    <td className="py-2 pr-3 text-gray-500">
                       {e.hired_at || "—"}
                     </td>
-                    <td className="py-2 pr-3 text-ink-3">
+                    <td className="py-2 pr-3 text-gray-500">
                       {e.resigned_at || "—"}
                     </td>
                     <td className="py-2">
@@ -301,7 +301,7 @@ export default function ClientDetailPage({
             </table>
           </div>
         ) : (
-          <p className="text-sm text-ink-3">
+          <p className="text-sm text-gray-500">
             등록된 직원이 없습니다. 위에서 직원 마스터를 업로드하세요.
           </p>
         )}
@@ -327,34 +327,34 @@ function InviteResultBanner({ result }: { result: ClientInviteResult }) {
   return (
     <div className="mt-3 space-y-2">
       {result.sent && realChannels.length > 0 && (
-        <div className="text-sm text-green-700 dark:text-green-300">
+        <div className="text-sm text-green-700">
           ✅ {result.filing_period} 초대장 발송 완료 ({realChannels.join(", ")})
         </div>
       )}
 
       {result.sent && allStub && (
-        <div className="p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm">
-          <p className="font-medium text-amber-800 dark:text-amber-300">
+        <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-sm">
+          <p className="font-medium text-amber-800">
             ⚠️ 테스트 모드 — 실제로 발송되지 않았습니다
           </p>
-          <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+          <p className="text-xs text-amber-700 mt-1">
             성공한 채널: {stubChannels.join(", ")}
           </p>
         </div>
       )}
 
       {!result.sent && (
-        <div className="text-sm text-amber-700 dark:text-amber-300">
+        <div className="text-sm text-amber-700">
           ⚠️ 발송 실패 — {result.detail ?? "알 수 없는 오류"}
         </div>
       )}
 
       {failedAttempts.length > 0 && (
-        <div className="p-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm">
-          <p className="font-medium text-red-800 dark:text-red-300 mb-1">
+        <div className="p-3 rounded-md bg-red-50 border border-red-200 text-sm">
+          <p className="font-medium text-red-800 mb-1">
             실패/스킵된 채널 ({failedAttempts.length}건):
           </p>
-          <ul className="text-xs text-red-700 dark:text-red-400 space-y-0.5">
+          <ul className="text-xs text-red-700 space-y-0.5">
             {failedAttempts.map((a, i) => (
               <li key={i}>
                 <code className="font-mono">{a.channel}</code>
@@ -414,7 +414,7 @@ function ClientEditModal({
     >
       <div className="space-y-3 text-sm">
         <div>
-          <label className="block text-xs text-ink-3 mb-1">
+          <label className="block text-xs text-gray-500 mb-1">
             전화번호 (휴대폰)
           </label>
           <Input
@@ -423,23 +423,23 @@ function ClientEditModal({
             value={formatPhone(phone)}
             onChange={(e) => setPhone(digitsOnly(e.target.value))}
           />
-          <p className="text-xs text-ink-4 mt-1">
+          <p className="text-xs text-gray-400 mt-1">
             알림톡·SMS 발송에 사용됩니다.
           </p>
         </div>
         <div>
-          <label className="block text-xs text-ink-3 mb-1">이메일</label>
+          <label className="block text-xs text-gray-500 mb-1">이메일</label>
           <Input
             type="email"
             placeholder="contact@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          <p className="text-xs text-ink-4 mt-1">
+          <p className="text-xs text-gray-400 mt-1">
             초대장 이메일이 이 주소로 발송됩니다.
           </p>
         </div>
-        {err && <p className="text-alert">{err}</p>}
+        {err && <p className="text-red-600">{err}</p>}
       </div>
     </Modal>
   );

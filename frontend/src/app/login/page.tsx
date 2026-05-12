@@ -33,23 +33,23 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 bg-paper-2">
+    <div className="flex min-h-screen items-center justify-center px-4 bg-gray-50">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
-          <div className="w-9 h-9 rounded-xl bg-ink text-white flex items-center justify-center text-base font-extrabold">
+          <div className="w-9 h-9 rounded-xl bg-gray-900 text-white flex items-center justify-center text-base font-extrabold">
             이
           </div>
           <span className="text-xl font-bold tracking-tight text-black">이지원천</span>
         </div>
 
         <Card className="p-6">
-          <h1 className="text-lg font-semibold tracking-tight mb-1">로그인</h1>
-          <p className="text-[13px] text-ink-3 mb-5">세무사 사무소 계정으로 시작하세요</p>
+          <h1 className="text-lg font-semibold tracking-tight text-gray-900 mb-1">로그인</h1>
+          <p className="text-[13px] text-gray-500 mb-5">세무사 사무소 계정으로 시작하세요</p>
 
           <form className="space-y-4" onSubmit={onSubmit}>
             <div>
-              <label className="block text-[12px] font-medium text-ink-2 mb-1.5">
+              <label className="block text-[12px] font-medium text-gray-700 mb-1.5">
                 이메일
               </label>
               <Input
@@ -60,7 +60,7 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="block text-[12px] font-medium text-ink-2 mb-1.5">
+              <label className="block text-[12px] font-medium text-gray-700 mb-1.5">
                 비밀번호
               </label>
               <Input
@@ -70,7 +70,7 @@ export default function LoginPage() {
                 required
               />
             </div>
-            {err && <p className="text-[13px] text-alert">{err}</p>}
+            {err && <p className="text-[13px] text-red-600">{err}</p>}
             <Button className="w-full" disabled={loading}>
               {loading ? "로그인 중..." : "로그인"}
             </Button>
@@ -78,9 +78,9 @@ export default function LoginPage() {
 
           {/* Divider */}
           <div className="flex items-center gap-3 my-4">
-            <div className="flex-1 border-t border-ink-5" />
-            <span className="text-[11px] text-ink-3">또는</span>
-            <div className="flex-1 border-t border-ink-5" />
+            <div className="flex-1 border-t border-gray-200" />
+            <span className="text-[11px] text-gray-500">또는</span>
+            <div className="flex-1 border-t border-gray-200" />
           </div>
 
           {/* Kakao button (visual only) */}
@@ -96,7 +96,7 @@ export default function LoginPage() {
             카카오로 시작
           </button>
 
-          <p className="text-center text-[11px] text-ink-3 mt-4">
+          <p className="text-center text-[11px] text-gray-500 mt-4">
             비밀번호를 잊으셨나요?
           </p>
         </Card>
