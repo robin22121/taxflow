@@ -698,10 +698,10 @@ function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollE
 }
 
 function MatchBadge({ status }: { status: string }) {
-  if (status === "MATCHED") return <Badge tone="success">매칭</Badge>;
-  if (status === "NEW_HIRE_SUSPECTED") return <Badge tone="info">신규 의심</Badge>;
-  if (status === "RESIGNATION_SUSPECTED") return <Badge tone="warning">퇴사 의심</Badge>;
-  return <Badge tone="warning">모호</Badge>;
+  if (status === "MATCHED") return <Badge tone="success">기존직원</Badge>;
+  if (status === "NEW_HIRE_SUSPECTED") return <Badge tone="info">신규</Badge>;
+  if (status === "RESIGNATION_SUSPECTED") return <Badge tone="warning">퇴사</Badge>;
+  return <Badge tone="warning">확인필요</Badge>;
 }
 
 function formatKrw(n: number | null | undefined): string {

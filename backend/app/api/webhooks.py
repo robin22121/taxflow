@@ -190,9 +190,11 @@ async def kakao_webhook(
             text=utterance,
             channel="kakao",
         )
+        followup = result.ambiguous + result.needs_followup
         return _kakao_response(
             f"자료가 접수되었습니다.\n"
-            f"매칭 {result.matched}건, 신규 의심 {result.new_hire_suspected}건\n"
+            f"기존직원 {result.matched}명 · 신규 {result.new_hire_suspected}명 "
+            f"· 퇴사 {result.resignation_suspected}명 · 확인필요 {followup}명\n"
             f"세무사가 검증 후 추가 확인 사항이 있으면 연락드리겠습니다."
         )
     except Exception as e:

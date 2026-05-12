@@ -11,6 +11,7 @@ type SubmitResult = {
   new_hire_suspected: number;
   resignation_suspected: number;
   ambiguous: number;
+  needs_followup?: number;
 };
 
 export default function PublicCollectPage({
@@ -104,7 +105,7 @@ export default function PublicCollectPage({
           <Card className="bg-green-50 dark:bg-green-950/30 border-green-200">
             <p className="text-sm font-medium text-green-800 dark:text-green-300">전송 완료!</p>
             <p className="text-xs text-green-700 dark:text-green-400 mt-1">
-              매칭 {result.matched} · 신규 의심 {result.new_hire_suspected} · 퇴사 의심 {result.resignation_suspected} · 모호 {result.ambiguous}
+              기존직원 {result.matched}명 · 신규 {result.new_hire_suspected}명 · 퇴사 {result.resignation_suspected}명 · 확인필요 {result.ambiguous + (result.needs_followup ?? 0)}명
             </p>
             <p className="text-xs text-green-700 dark:text-green-400 mt-1">
               세무사가 검증 후 추가 확인 사항이 있으면 다시 연락드릴게요.

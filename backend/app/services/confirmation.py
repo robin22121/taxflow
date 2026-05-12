@@ -47,10 +47,10 @@ def _fmt_won(amount: int) -> str:
 
 def _status_label(s: str) -> str:
     return {
-        MatchStatus.MATCHED.value: "정상",
-        MatchStatus.NEW_HIRE_SUSPECTED.value: "신규 의심",
-        MatchStatus.RESIGNATION_SUSPECTED.value: "퇴사 의심",
-        MatchStatus.AMBIGUOUS.value: "확인 필요",
+        MatchStatus.MATCHED.value: "기존직원",
+        MatchStatus.NEW_HIRE_SUSPECTED.value: "신규",
+        MatchStatus.RESIGNATION_SUSPECTED.value: "퇴사",
+        MatchStatus.AMBIGUOUS.value: "확인필요",
     }.get(s, s)
 
 
