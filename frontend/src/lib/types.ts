@@ -33,7 +33,7 @@ export type ChannelAttempt = {
 export type ClientInviteResult = {
   sent: boolean;
   channels: string[];
-  attempts: ChannelAttempt[];
+  attempts?: ChannelAttempt[];  // 옛 백엔드 응답엔 없음 (배포 타이밍 대비)
   filing_period: string;
   detail: string | null;
 };

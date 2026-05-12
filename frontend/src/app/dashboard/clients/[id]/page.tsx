@@ -319,7 +319,7 @@ function InviteResultBanner({ result }: { result: ClientInviteResult }) {
   const stubChannels = result.channels.filter((c) => c.endsWith("_stub"));
   const realChannels = result.channels.filter((c) => !c.endsWith("_stub"));
   const allStub = stubChannels.length > 0 && realChannels.length === 0;
-  const failedAttempts = result.attempts.filter(
+  const failedAttempts = (result.attempts ?? []).filter(
     (a) => !a.accepted && a.channel !== "alimtalk_skipped",
   );
 
