@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models._base import Base, IdMixin, TimestampMixin
 from app.models.client import Client
-from app.models.collection import CollectionSession
+from app.models.collection import CollectionEvent, CollectionSession
 from app.models.employee import Employee
 from app.models.monthly_filing import MonthlyFiling
 
@@ -38,6 +38,7 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
 
     monthly_filing_id: Mapped[str] = mapped_column(ForeignKey("monthly_filings.id"))
     collection_session_id: Mapped[str] = mapped_column(ForeignKey("collection_sessions.id"))
+    collection_event_id: Mapped[str | None] = mapped_column(ForeignKey("collection_events.id"))
     client_id: Mapped[str] = mapped_column(ForeignKey("clients.id"))
     employee_id: Mapped[str | None] = mapped_column(ForeignKey("employees.id"))
 
@@ -81,5 +82,6 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
 
     monthly_filing: Mapped[MonthlyFiling] = relationship()
     collection_session: Mapped[CollectionSession] = relationship()
+    collection_event: Mapped[CollectionEvent | None] = relationship()
     client: Mapped[Client] = relationship()
     employee: Mapped[Employee | None] = relationship()

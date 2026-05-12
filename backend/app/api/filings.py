@@ -422,16 +422,34 @@ async def list_entries(
     filing_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[PayrollEntry]:
+) -> list[PayrollEntryOut]:
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
     rows = (
         await db.execute(
-            select(PayrollEntry).where(PayrollEntry.monthly_filing_id == filing_id)
+            select(PayrollEntry)
+            .where(PayrollEntry.monthly_filing_id == filing_id)
+            .options(selectinload(PayrollEntry.collection_event))
         )
     ).scalars().all()
-    return list(rows)
+
+    from app.schemas.filings import SourceEventOut
+    out: list[PayrollEntryOut] = []
+    for r in rows:
+        entry_out = PayrollEntryOut.model_validate(r)
+        if r.collection_event:
+            ev = r.collection_event
+            entry_out.source_event = SourceEventOut(
+                id=ev.id,
+                channel=ev.channel,
+                sender_name=ev.sender_name,
+                received_date=ev.received_date,
+                raw_text=ev.raw_text[:500] if ev.raw_text else None,
+                created_at=ev.created_at.isoformat() if ev.created_at else None,
+            )
+        out.append(entry_out)
+    return out
 
 
 @router.patch("/{filing_id}/entries/{entry_id}", response_model=PayrollEntryOut)

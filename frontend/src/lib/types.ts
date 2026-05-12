@@ -100,10 +100,20 @@ export type ImportPayrollResult = {
   errors: string[];
 };
 
+export type SourceEvent = {
+  id: string;
+  channel: string | null;
+  sender_name: string | null;
+  received_date: string | null;
+  raw_text: string | null;
+  created_at: string | null;
+};
+
 export type PayrollEntry = {
   id: string;
   client_id: string;
   employee_id: string | null;
+  collection_event_id: string | null;
   raw_name: string;
   income_type: string;
   a_code: string | null;
@@ -127,4 +137,5 @@ export type PayrollEntry = {
   prev_amount: number | null;
   anomaly_notes: Record<string, unknown> | null;
   approved: boolean;
+  source_event: SourceEvent | null;
 };

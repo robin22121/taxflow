@@ -238,10 +238,21 @@ export function useRequestCollection(filingId: string) {
 export function useSubmitMessage(filingId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { sessionId: string; text: string }) =>
+    mutationFn: (vars: {
+      sessionId: string;
+      text: string;
+      channel: string;
+      sender_name: string;
+      received_date: string;
+    }) =>
       api(`/api/v1/collect/sessions/${vars.sessionId}/messages`, {
         method: "POST",
-        json: { text: vars.text, channel: "manual" },
+        json: {
+          text: vars.text,
+          channel: vars.channel,
+          sender_name: vars.sender_name,
+          received_date: vars.received_date,
+        },
       }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["filings", filingId] }),

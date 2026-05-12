@@ -7,7 +7,7 @@ The full pipeline:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime as _dt
+from datetime import UTC, date, datetime as _dt
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -63,6 +63,8 @@ async def submit_message(
         filing=session.monthly_filing,
         text=payload.text,
         channel=payload.channel,
+        sender_name=payload.sender_name,
+        received_date=payload.received_date,
     )
 
 
@@ -169,6 +171,8 @@ async def _persist_results(
     text: str,
     channel: str,
     attachments: list[dict] | None = None,
+    sender_name: str | None = None,
+    received_date: "date | None" = None,
 ) -> CollectMessageOut:
     """Save collection event and payroll entries to DB."""
     payload: dict = {
@@ -181,16 +185,18 @@ async def _persist_results(
         # 세무사 대시보드에서 AI 결과와 원본을 대조할 수 있도록 첨부 메타 보존
         payload["attachments"] = attachments
 
-    # Record event
-    db.add(
-        CollectionEvent(
-            session_id=session.id,
-            event_type=f"RECEIVE_{channel.upper()}",
-            channel=channel,
-            raw_text=text,
-            raw_payload=payload,
-        )
+    # Record event — flush immediately to get ID for entry linking
+    event = CollectionEvent(
+        session_id=session.id,
+        event_type=f"RECEIVE_{channel.upper()}",
+        channel=channel,
+        raw_text=text,
+        raw_payload=payload,
+        sender_name=sender_name,
+        received_date=received_date,
     )
+    db.add(event)
+    await db.flush()
 
     # Deduplicate: skip if same session + same employee (or same raw_name for unmatched) already exists
     existing_entries = list(
@@ -233,6 +239,7 @@ async def _persist_results(
         entry = PayrollEntry(
             monthly_filing_id=filing.id,
             collection_session_id=session.id,
+            collection_event_id=event.id,
             client_id=client.id,
             employee_id=cand.employee_id,
             raw_name=cand.raw_name,
@@ -300,6 +307,8 @@ async def _ingest_message(
     channel: str,
     images: list[tuple[bytes, str]] | None = None,
     attachments: list[dict] | None = None,
+    sender_name: str | None = None,
+    received_date: "date | None" = None,
 ) -> CollectMessageOut:
     """
     attachments: 원본 파일 메타 [{"filename":..., "storage_key":..., "kind":..., "mime":...}]
@@ -307,12 +316,14 @@ async def _ingest_message(
     """
     # Safety net: 텍스트가 placeholder만 있고 이미지도 없으면 AI 환각 방지를 위해 스킵
     if not images and _is_only_placeholder(text):
-        return await _record_unparseable(db, session, text, channel, attachments)
+        return await _record_unparseable(db, session, text, channel, attachments,
+                                         sender_name=sender_name, received_date=received_date)
 
     employees, prev_entries = await _build_context(db, client, filing)
     matching = await _parse_and_match(text, client, filing, employees, prev_entries, images=images)
     return await _persist_results(
         db, session, client, filing, matching, employees, text, channel, attachments,
+        sender_name=sender_name, received_date=received_date,
     )
 
 
@@ -337,6 +348,8 @@ async def _record_unparseable(
     text: str,
     channel: str,
     attachments: list[dict] | None = None,
+    sender_name: str | None = None,
+    received_date: "date | None" = None,
 ) -> CollectMessageOut:
     """본문이 비어있거나 placeholder뿐일 때 — AI 호출 없이 세션만 검토 대기로 표시."""
     payload: dict = {"reason": "no parseable content"}
@@ -349,6 +362,8 @@ async def _record_unparseable(
             channel=channel,
             raw_text=text,
             raw_payload=payload,
+            sender_name=sender_name,
+            received_date=received_date,
         )
     )
     session.status = CollectionSessionStatus.NEEDS_REVIEW

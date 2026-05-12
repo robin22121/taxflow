@@ -14,8 +14,8 @@ import {
   useUpdateEntry,
 } from "@/lib/queries";
 import { apiBlob, getToken } from "@/lib/api";
-import { Badge, Button, Card, Modal, Textarea } from "@/components/ui";
-import type { CollectionSession, PayrollEntry, SessionAttachment } from "@/lib/types";
+import { Badge, Button, Card, Input, Modal, Textarea } from "@/components/ui";
+import type { CollectionSession, PayrollEntry, SessionAttachment, SourceEvent } from "@/lib/types";
 
 export default function FilingDetailPage({
   params,
@@ -177,11 +177,17 @@ function SessionDetail({
   const confirmWithClient = useConfirmWithClient(filingId);
   const requestCollection = useRequestCollection(filingId);
   const [text, setText] = useState("");
+  const [senderName, setSenderName] = useState("");
+  const [channel, setChannel] = useState("kakao");
+  const [receivedDate, setReceivedDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
   const [confirmResult, setConfirmResult] = useState<{
     sent: boolean;
     channel: string;
     error: string | null;
   } | null>(null);
+  const [sourceModal, setSourceModal] = useState<SourceEvent | null>(null);
 
   return (
     <Card className="space-y-4">
@@ -249,10 +255,48 @@ function SessionDetail({
 
       <AttachmentPanel filingId={filingId} sessionId={session.id} />
 
-      <div className="space-y-2">
+      <div className="space-y-3 border-t border-gray-200 dark:border-gray-800 pt-3">
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
-          거래처가 보낸 카톡/이메일 텍스트를 붙여넣고 AI 파싱 실행
+          거래처가 보낸 메시지 원본 입력
         </label>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-0.5">
+              발신자 <span className="text-red-500">*</span>
+            </label>
+            <Input
+              placeholder="홍길동 대표"
+              value={senderName}
+              onChange={(e) => setSenderName(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-0.5">
+              수신 경로 <span className="text-red-500">*</span>
+            </label>
+            <select
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              value={channel}
+              onChange={(e) => setChannel(e.target.value)}
+            >
+              <option value="kakao">카카오톡</option>
+              <option value="email">이메일</option>
+              <option value="sms">문자(SMS)</option>
+              <option value="voice">전화/음성</option>
+              <option value="manual">직접 입력</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-0.5">
+              보낸 날짜 <span className="text-red-500">*</span>
+            </label>
+            <Input
+              type="date"
+              value={receivedDate}
+              onChange={(e) => setReceivedDate(e.target.value)}
+            />
+          </div>
+        </div>
         <Textarea
           rows={5}
           value={text}
@@ -261,25 +305,47 @@ function SessionDetail({
         />
         <Button
           onClick={() => {
-            if (!text.trim()) return;
+            if (!text.trim() || !senderName.trim() || !receivedDate) return;
             submit.mutate(
-              { sessionId: session.id, text },
+              {
+                sessionId: session.id,
+                text,
+                channel,
+                sender_name: senderName.trim(),
+                received_date: receivedDate,
+              },
               {
                 onSuccess: () => setText(""),
                 onError: (e) => alert((e as Error).message),
               },
             );
           }}
-          disabled={submit.isPending || !text.trim()}
+          disabled={
+            submit.isPending ||
+            !text.trim() ||
+            !senderName.trim() ||
+            !receivedDate
+          }
         >
           {submit.isPending ? "AI 파싱 중..." : "AI 파싱 실행"}
         </Button>
       </div>
 
       {entries.length > 0 ? (
-        <EntryTable filingId={filingId} entries={entries} />
+        <EntryTable
+          filingId={filingId}
+          entries={entries}
+          onShowSource={setSourceModal}
+        />
       ) : (
         <p className="text-sm text-gray-500">아직 파싱된 항목이 없습니다.</p>
+      )}
+
+      {sourceModal && (
+        <SourceEventModal
+          event={sourceModal}
+          onClose={() => setSourceModal(null)}
+        />
       )}
     </Card>
   );
@@ -475,7 +541,15 @@ function AttachmentZoomModal({
   );
 }
 
-function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollEntry[] }) {
+function EntryTable({
+  filingId,
+  entries,
+  onShowSource,
+}: {
+  filingId: string;
+  entries: PayrollEntry[];
+  onShowSource?: (event: SourceEvent) => void;
+}) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -552,6 +626,7 @@ function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollE
             <th className="text-left py-2 pr-3">상태</th>
             <th className="text-left py-2 pr-3">이름</th>
             <th className="text-left py-2 pr-3">소득구분</th>
+            <th className="text-center py-2 pr-3">출처</th>
             <th className="text-right py-2 pr-3">총지급액</th>
             <th className="text-right py-2 pr-3">전월</th>
             <th className="text-right py-2 pr-3">소득세</th>
@@ -614,6 +689,28 @@ function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollE
                     </select>
                   ) : (
                     e.income_type
+                  )}
+                </td>
+                <td
+                  className="py-2 pr-3 text-center"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    if (e.source_event && onShowSource) onShowSource(e.source_event);
+                  }}
+                >
+                  {e.source_event ? (
+                    <button
+                      className="text-[11px] text-blue-600 hover:underline leading-tight"
+                      title="클릭하여 원본 메시지 보기"
+                    >
+                      {channelLabel(e.source_event.channel)}
+                      <br />
+                      <span className="text-gray-500">
+                        {e.source_event.sender_name || "—"}
+                      </span>
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-gray-400">—</span>
                   )}
                 </td>
                 <td className="py-2 pr-3 text-right">
@@ -735,6 +832,59 @@ function MatchBadge({ status }: { status: string }) {
 function formatKrw(n: number | null | undefined): string {
   if (!n) return "—";
   return n.toLocaleString("ko-KR") + "원";
+}
+
+function channelLabel(ch: string | null): string {
+  const map: Record<string, string> = {
+    kakao: "카톡",
+    email: "이메일",
+    sms: "문자",
+    voice: "전화",
+    manual: "직접입력",
+    public_url: "URL폼",
+  };
+  if (!ch) return "—";
+  return map[ch] ?? ch;
+}
+
+function SourceEventModal({
+  event,
+  onClose,
+}: {
+  event: SourceEvent;
+  onClose: () => void;
+}) {
+  return (
+    <Modal open={true} onClose={onClose} title="원본 메시지 상세">
+      <div className="space-y-3 text-sm">
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <div className="text-[11px] text-gray-500 mb-0.5">발신자</div>
+            <div className="font-medium">{event.sender_name || "—"}</div>
+          </div>
+          <div>
+            <div className="text-[11px] text-gray-500 mb-0.5">경로</div>
+            <div className="font-medium">{channelLabel(event.channel)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] text-gray-500 mb-0.5">보낸 날짜</div>
+            <div className="font-medium">{event.received_date || "—"}</div>
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] text-gray-500 mb-1">원본 텍스트</div>
+          <pre className="whitespace-pre-wrap bg-gray-50 dark:bg-gray-900 rounded p-3 text-xs max-h-60 overflow-auto border border-gray-200 dark:border-gray-800">
+            {event.raw_text || "(텍스트 없음)"}
+          </pre>
+        </div>
+        {event.created_at && (
+          <div className="text-[11px] text-gray-400">
+            시스템 수신: {new Date(event.created_at).toLocaleString("ko-KR")}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
 }
 
 void getToken; // ensure side-effects (browser-only file)

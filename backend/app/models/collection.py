@@ -1,7 +1,7 @@
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models._base import Base, IdMixin, TimestampMixin
@@ -53,5 +53,7 @@ class CollectionEvent(Base, IdMixin, TimestampMixin):
     raw_text: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict | None] = mapped_column(JSON)
     file_ref: Mapped[str | None] = mapped_column(String(255))
+    sender_name: Mapped[str | None] = mapped_column(String(100))
+    received_date: Mapped[date | None] = mapped_column(Date)
 
     session: Mapped[CollectionSession] = relationship()

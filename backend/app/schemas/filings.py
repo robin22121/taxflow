@@ -33,10 +33,22 @@ class FilingDashboard(BaseModel):
     sessions: list[CollectionSessionOut]
 
 
+class SourceEventOut(BaseModel):
+    id: str
+    channel: str | None
+    sender_name: str | None
+    received_date: date | None
+    raw_text: str | None
+    created_at: str | None
+
+    model_config = {"from_attributes": True}
+
+
 class PayrollEntryOut(BaseModel):
     id: str
     client_id: str
     employee_id: str | None
+    collection_event_id: str | None = None
     raw_name: str
     income_type: str
     a_code: str | None
@@ -60,6 +72,7 @@ class PayrollEntryOut(BaseModel):
     prev_amount: int | None
     anomaly_notes: dict | None
     approved: bool
+    source_event: SourceEventOut | None = None
 
     model_config = {"from_attributes": True}
 
@@ -88,6 +101,8 @@ class PayrollEntryUpdate(BaseModel):
 class CollectMessageIn(BaseModel):
     text: str
     channel: str = "manual"  # 'kakao' | 'email' | 'voice' | 'manual'
+    sender_name: str = Field(min_length=1, max_length=100, description="발신자 (거래처 담당자 이름)")
+    received_date: date = Field(description="거래처가 보낸 날짜")
 
 
 class CollectMessageOut(BaseModel):
