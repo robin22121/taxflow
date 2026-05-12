@@ -431,12 +431,18 @@ async def download_payroll_excel(
     client_name = client.business_name if client else ""
 
     blob = generate_payroll_excel(list(entries), period=filing.period, client_name=client_name)
-    safe_name = client_name or "급여대장"
+    from urllib.parse import quote
+    korean_name = f"{client_name or '급여대장'}-{filing.period}.xlsx"
+    ascii_fallback = f"payroll_{filing.period}.xlsx"
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": f'attachment; filename="{safe_name}-{filing.period}.xlsx"',
+            # RFC 5987: ASCII fallback + UTF-8 percent-encoded for non-Latin-1
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_fallback}"; '
+                f"filename*=UTF-8''{quote(korean_name)}"
+            ),
         },
     )
 
