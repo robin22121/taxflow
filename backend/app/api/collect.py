@@ -264,7 +264,7 @@ async def _persist_results(
             prev_amount=cand.prev_amount,
             anomaly_notes=cand.anomaly_notes or None,
         )
-        if cand.needs_followup:
+        if cand.needs_followup and cand.match_status != MatchStatus.UNCONFIRMED:
             needs_followup_count += 1
         db.add(entry)
 
