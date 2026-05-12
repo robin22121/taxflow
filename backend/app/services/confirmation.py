@@ -51,6 +51,7 @@ def _status_label(s: str) -> str:
         MatchStatus.NEW_HIRE_SUSPECTED.value: "신규",
         MatchStatus.RESIGNATION_SUSPECTED.value: "퇴사",
         MatchStatus.AMBIGUOUS.value: "확인필요",
+        MatchStatus.UNCONFIRMED.value: "⚠ 미확인",
     }.get(s, s)
 
 
@@ -75,11 +76,27 @@ def build_confirmation_text(
     if not entries:
         lines.append("(아직 파싱된 항목이 없습니다)")
     else:
-        for e in entries:
-            biz = _INCOME_LABEL.get(IncomeType(e.income_type), e.income_type)
-            tag = _status_label(e.match_status)
-            name = e.raw_name or "(이름 미상)"
-            lines.append(f"· {name} ({biz}) {_fmt_won(e.total_amount)} — {tag}")
+        confirmed = [e for e in entries if e.match_status != MatchStatus.UNCONFIRMED.value]
+        unconfirmed = [e for e in entries if e.match_status == MatchStatus.UNCONFIRMED.value]
+
+        if confirmed:
+            lines.append("[이번달 급여]")
+            for e in confirmed:
+                biz = _INCOME_LABEL.get(IncomeType(e.income_type), e.income_type)
+                tag = _status_label(e.match_status)
+                name = e.raw_name or "(이름 미상)"
+                lines.append(f"· {name} ({biz}) {_fmt_won(e.total_amount)} — {tag}")
+
+        if unconfirmed:
+            lines.append("")
+            lines.append(f"[확인 필요 — 지난달 근무자 {len(unconfirmed)}명]")
+            lines.append("아래 직원은 이번달 자료에 없습니다.")
+            lines.append("계속 근무 중이면 이번달 급여를 보내주세요.")
+            lines.append("퇴사했으면 '퇴사'라고 알려주세요.")
+            lines.append("")
+            for e in unconfirmed:
+                name = e.raw_name or "(이름 미상)"
+                lines.append(f"· {name} (전월 {_fmt_won(e.total_amount)}) — 계속근무? 퇴사?")
 
     lines.append("")
     lines.append("회신 주실 곳:")
@@ -102,24 +119,54 @@ def build_confirmation_html(
 ) -> str:
     """이메일용 — 표 형식."""
     if entries:
-        rows = "".join(
-            f"<tr>"
-            f"<td style='padding:4px 8px;border-bottom:1px solid #eee'>{e.raw_name or '-'}</td>"
-            f"<td style='padding:4px 8px;border-bottom:1px solid #eee'>{_INCOME_LABEL.get(IncomeType(e.income_type), e.income_type)}</td>"
-            f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{_fmt_won(e.total_amount)}</td>"
-            f"<td style='padding:4px 8px;border-bottom:1px solid #eee'>{_status_label(e.match_status)}</td>"
-            f"</tr>"
-            for e in entries
-        )
-        table = (
-            f"<table style='border-collapse:collapse;width:100%;margin-top:8px'>"
-            f"<thead><tr style='background:#f5f5f5'>"
-            f"<th style='padding:4px 8px;text-align:left'>성명</th>"
-            f"<th style='padding:4px 8px;text-align:left'>구분</th>"
-            f"<th style='padding:4px 8px;text-align:right'>총지급액</th>"
-            f"<th style='padding:4px 8px;text-align:left'>상태</th>"
-            f"</tr></thead><tbody>{rows}</tbody></table>"
-        )
+        confirmed = [e for e in entries if e.match_status != MatchStatus.UNCONFIRMED.value]
+        unconfirmed = [e for e in entries if e.match_status == MatchStatus.UNCONFIRMED.value]
+
+        table = ""
+        if confirmed:
+            rows = "".join(
+                f"<tr>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee'>{e.raw_name or '-'}</td>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee'>{_INCOME_LABEL.get(IncomeType(e.income_type), e.income_type)}</td>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{_fmt_won(e.total_amount)}</td>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee'>{_status_label(e.match_status)}</td>"
+                f"</tr>"
+                for e in confirmed
+            )
+            table += (
+                f"<h3 style='margin-top:16px;font-size:14px'>이번달 급여</h3>"
+                f"<table style='border-collapse:collapse;width:100%;margin-top:8px'>"
+                f"<thead><tr style='background:#f5f5f5'>"
+                f"<th style='padding:4px 8px;text-align:left'>성명</th>"
+                f"<th style='padding:4px 8px;text-align:left'>구분</th>"
+                f"<th style='padding:4px 8px;text-align:right'>총지급액</th>"
+                f"<th style='padding:4px 8px;text-align:left'>상태</th>"
+                f"</tr></thead><tbody>{rows}</tbody></table>"
+            )
+
+        if unconfirmed:
+            uc_rows = "".join(
+                f"<tr>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee'>{e.raw_name or '-'}</td>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{_fmt_won(e.total_amount)}</td>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee;color:#d97706'>계속근무? 퇴사?</td>"
+                f"</tr>"
+                for e in unconfirmed
+            )
+            table += (
+                f"<div style='margin-top:16px;padding:12px;background:#fffbeb;border:1px solid #fbbf24;border-radius:8px'>"
+                f"<h3 style='margin:0 0 8px;font-size:14px;color:#d97706'>⚠ 확인 필요 — 지난달 근무자 {len(unconfirmed)}명</h3>"
+                f"<p style='margin:0 0 8px;font-size:13px;color:#92400e'>"
+                f"아래 직원이 이번달 자료에 없습니다.<br>"
+                f"계속 근무 중이면 <b>이번달 급여</b>를, 퇴사했으면 <b>'퇴사'</b>라고 알려주세요.</p>"
+                f"<table style='border-collapse:collapse;width:100%'>"
+                f"<thead><tr style='background:#fef3c7'>"
+                f"<th style='padding:4px 8px;text-align:left'>성명</th>"
+                f"<th style='padding:4px 8px;text-align:right'>전월 지급액</th>"
+                f"<th style='padding:4px 8px;text-align:left'>상태</th>"
+                f"</tr></thead><tbody>{uc_rows}</tbody></table>"
+                f"</div>"
+            )
     else:
         table = "<p style='color:#666'>아직 파싱된 항목이 없습니다.</p>"
 

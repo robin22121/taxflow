@@ -289,6 +289,7 @@ async def _persist_results(
         resignation_suspected=len(matching.resignation_followups),
         ambiguous=len(matching.ambiguous_followups),
         needs_followup=needs_followup_count,
+        unconfirmed=len(matching.unconfirmed_followups),
     )
 
 

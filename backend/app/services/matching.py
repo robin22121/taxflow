@@ -24,6 +24,8 @@ from app.services.ai_parser import PayrollParsingResult
 _FUZZY_MATCH_THRESHOLD = 85
 _LARGE_CHANGE_RATIO = 1.5  # 이전월 대비 50% 이상 변동
 _LARGE_CHANGE_FLOOR_KRW = 300_000  # 이 금액 이하 변동은 anomaly로 보지 않음
+_ABNORMAL_HIGH_KRW = 100_000_000  # 1억 이상이면 비정상 금액 플래그
+_ABNORMAL_LOW_KRW = 10_000  # 1만원 이하이면 비정상 금액 플래그
 
 
 @dataclass(slots=True)
@@ -58,6 +60,7 @@ class MatchingResult:
     new_hire_followups: list[dict[str, Any]]
     resignation_followups: list[dict[str, Any]]
     ambiguous_followups: list[dict[str, Any]]
+    unconfirmed_followups: list[dict[str, Any]] = field(default_factory=list)
 
 
 def reconcile(
@@ -95,6 +98,7 @@ def reconcile(
                     "current": m.amount,
                     "ratio": round(ratio, 2),
                 }
+        _flag_abnormal_amount(anomaly, m.amount, m.name)
         entries.append(
             PayrollEntryCandidate(
                 raw_name=m.name,
@@ -116,6 +120,8 @@ def reconcile(
     # 2. new_hire_suspected — these stay unmatched until 주민번호 등록됨
     new_hire_followups: list[dict[str, Any]] = []
     for n in parsed.new_hire_suspected:
+        nh_anomaly: dict[str, Any] = {}
+        _flag_abnormal_amount(nh_anomaly, n.amount, n.name)
         entries.append(
             PayrollEntryCandidate(
                 raw_name=n.name,
@@ -127,6 +133,7 @@ def reconcile(
                 car_amount=getattr(n, "car_amount", 0),
                 childcare_amount=getattr(n, "childcare_amount", 0),
                 match_status=MatchStatus.NEW_HIRE_SUSPECTED,
+                anomaly_notes=nh_anomaly,
                 needs_followup=True,
                 followup_reason="new_hire_rrn",
             )
@@ -143,7 +150,9 @@ def reconcile(
             {"employee_id": r.employee_id, "name": r.name, "reason": r.reason}
         )
 
-    # 4. master members the AI didn't mention at all → likely resignation/leave
+    # 4. master members the AI didn't mention → UNCONFIRMED (계속근무/퇴사 확인 필요)
+    #    자동 퇴사 처리하지 않음. 거래처에 확인 요청 후 세무사가 판단.
+    unconfirmed_followups: list[dict[str, Any]] = []
     unmentioned = [
         e for e in master
         if e.id not in seen_ids
@@ -151,13 +160,29 @@ def reconcile(
         and previous_month.get(e.id, 0) > 0
     ]
     for emp in unmentioned:
-        resignation_followups.append(
-            {
-                "employee_id": emp.id,
-                "name": emp.name,
-                "reason": "이번달 자료에 누락 (이전월 지급 이력 있음)",
-            }
+        prev_amt = previous_month[emp.id]
+        entries.append(
+            PayrollEntryCandidate(
+                raw_name=emp.name,
+                employee_id=emp.id,
+                income_type=IncomeType.WAGE,
+                total_amount=prev_amt,
+                non_taxable=0,
+                match_status=MatchStatus.UNCONFIRMED,
+                prev_amount=prev_amt,
+                anomaly_notes={"unconfirmed": {
+                    "reason": "이번달 자료에 누락 — 계속근무 여부 확인 필요",
+                    "prev_amount": prev_amt,
+                }},
+                needs_followup=True,
+                followup_reason="unconfirmed_status",
+            )
         )
+        unconfirmed_followups.append({
+            "employee_id": emp.id,
+            "name": emp.name,
+            "prev_amount": prev_amt,
+        })
 
     # 5. ambiguous items — pass through for human review
     ambiguous_followups = [
@@ -169,7 +194,27 @@ def reconcile(
         new_hire_followups=new_hire_followups,
         resignation_followups=resignation_followups,
         ambiguous_followups=ambiguous_followups,
+        unconfirmed_followups=unconfirmed_followups,
     )
+
+
+def _flag_abnormal_amount(anomaly: dict[str, Any], amount: int, name: str) -> None:
+    """비정상 금액 플래그 — 세무사에게 확인 요청."""
+    if amount >= _ABNORMAL_HIGH_KRW:
+        anomaly["abnormal_amount"] = {
+            "amount": amount,
+            "reason": f"금액 비정상 (₩{amount:,} — 1억 이상)",
+        }
+    elif 0 < amount <= _ABNORMAL_LOW_KRW:
+        anomaly["abnormal_amount"] = {
+            "amount": amount,
+            "reason": f"금액 비정상 (₩{amount:,} — 1만원 이하)",
+        }
+    elif amount == 0:
+        anomaly["abnormal_amount"] = {
+            "amount": 0,
+            "reason": "금액 0원",
+        }
 
 
 def _validate_or_rescue(

@@ -112,3 +112,4 @@ class CollectMessageOut(BaseModel):
     resignation_suspected: int
     ambiguous: int
     needs_followup: int
+    unconfirmed: int = 0  # 전월 대비 미언급 직원 — 계속근무/퇴사 확인 필요

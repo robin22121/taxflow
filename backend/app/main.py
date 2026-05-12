@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="TaxFlow AI",
+        title="이지원천",
         version="0.1.0",
         debug=settings.app_debug,
         lifespan=lifespan,
@@ -42,6 +42,43 @@ def create_app() -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/healthz/storage")
+    async def healthz_storage() -> dict:
+        """Storage diagnostic — Render Shell이나 브라우저에서 디스크 상태 확인용."""
+        from pathlib import Path
+        import os
+
+        render_disk = Path("/data/uploads")
+        local_disk = Path("data/uploads")
+
+        def _dir_info(p: Path) -> dict:
+            if not p.exists():
+                return {"exists": False}
+            try:
+                files = list(p.rglob("*"))
+                file_count = sum(1 for f in files if f.is_file())
+                total_bytes = sum(f.stat().st_size for f in files if f.is_file())
+            except Exception as e:
+                return {"exists": True, "error": str(e)}
+            return {
+                "exists": True,
+                "is_dir": p.is_dir(),
+                "file_count": file_count,
+                "total_bytes": total_bytes,
+                "sample_files": [str(f.relative_to(p)) for f in files if f.is_file()][:10],
+            }
+
+        from app.services.storage import get_storage
+        storage = get_storage()
+
+        return {
+            "active_storage": storage.name,
+            "active_base": str(getattr(storage, "base", "n/a")),
+            "render_disk_mount": _dir_info(render_disk),
+            "local_fallback": _dir_info(local_disk),
+            "cwd": os.getcwd(),
+        }
 
     from app.api import register_routes
 

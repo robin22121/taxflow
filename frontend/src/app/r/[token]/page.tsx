@@ -12,6 +12,7 @@ type SubmitResult = {
   resignation_suspected: number;
   ambiguous: number;
   needs_followup?: number;
+  unconfirmed?: number;
 };
 
 export default function PublicCollectPage({
@@ -215,18 +216,18 @@ export default function PublicCollectPage({
                     <span className="text-[13px] font-bold text-blue-600">정리 완료</span>
                   </div>
                   <div className="text-[11.5px] text-gray-500">
-                    {session.period} {session.client_name} 급여 · 직원 {result.matched + result.new_hire_suspected + result.resignation_suspected + result.ambiguous}명 확인
+                    {session.period} {session.client_name} 급여 · 직원 {result.matched + result.new_hire_suspected}명 확인
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 py-2.5 px-1 border-b border-gray-200">
+                <div className={`grid py-2.5 px-1 border-b border-gray-200 ${result.resignation_suspected > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
                   {([
                     ["기존", result.matched, "gray-900"],
                     ["신규", result.new_hire_suspected, "blue-600"],
-                    ["퇴사", result.resignation_suspected, "gray-500"],
+                    ...(result.resignation_suspected > 0 ? [["퇴사", result.resignation_suspected, "gray-500"] as const] : []),
                     ["확인", result.ambiguous + (result.needs_followup ?? 0), "red-600"],
-                  ] as const).map(([label, val, tone], i) => (
-                    <div key={i} className="flex flex-col items-center gap-0.5" style={{ borderRight: i < 3 ? "1px solid #E3E3E5" : "none" }}>
+                  ] as const).map(([label, val, tone], i, arr) => (
+                    <div key={i} className="flex flex-col items-center gap-0.5" style={{ borderRight: i < arr.length - 1 ? "1px solid #E3E3E5" : "none" }}>
                       <span className={`text-xl font-extrabold tabular-nums text-${tone}`}>{val}</span>
                       <span className="text-[11px] text-gray-500">{label}</span>
                     </div>
@@ -234,7 +235,15 @@ export default function PublicCollectPage({
                 </div>
 
                 <div className="px-3.5 py-2.5 bg-gray-50 text-[12.5px] text-gray-700">
-                  세무사가 검증 후 추가 확인 사항이 있으면 다시 연락드릴게요.
+                  {(result.unconfirmed ?? 0) > 0 ? (
+                    <>
+                      <span className="text-amber-600 font-semibold">지난달 근무자 중 {result.unconfirmed}명</span>이 이번달 자료에 없어요.
+                      <br />계속 근무 중이라면 해당 직원의 급여도 보내주세요.
+                      <br />퇴사한 직원이 있다면 알려주세요.
+                    </>
+                  ) : (
+                    <>세무사가 검증 후 추가 확인 사항이 있으면 다시 연락드릴게요.</>
+                  )}
                 </div>
               </div>
             </div>

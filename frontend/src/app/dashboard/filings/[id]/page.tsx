@@ -266,22 +266,28 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
+  const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
+
+  const isReview = (s: CollectionSession) => {
+    const se = entries.filter((e) => e.client_id === s.client_id);
+    return se.length > 0 && se.some((e) => {
+      if (e.approved) return false;
+      if (e.match_status === "UNCONFIRMED") return true;
+      const notes = e.anomaly_notes;
+      return (notes && Object.keys(notes).length > 0) || e.match_status === "AMBIGUOUS";
+    });
+  };
+  const isWaiting = (s: CollectionSession) => !s.has_responses;
 
   const filtered = sessions.filter((s) => {
     if (search && !s.client_name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filter === "review") {
-      const se = entries.filter((e) => e.client_id === s.client_id);
-      return se.some((e) => (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) || e.match_status === "AMBIGUOUS");
-    }
-    if (filter === "waiting") return s.status === "SENT" || s.status === "PENDING" || s.status === "DRAFT";
+    if (filter === "review") return isReview(s);
+    if (filter === "waiting") return isWaiting(s);
     return true;
   });
 
-  const reviewCount = sessions.filter((s) => {
-    const se = entries.filter((e) => e.client_id === s.client_id);
-    return se.some((e) => (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) || e.match_status === "AMBIGUOUS");
-  }).length;
-  const waitingCount = sessions.filter((s) => s.status === "SENT" || s.status === "PENDING" || s.status === "DRAFT").length;
+  const reviewCount = sessions.filter(isReview).length;
+  const waitingCount = sessions.filter(isWaiting).length;
 
   return (
     <div className="flex flex-1 min-h-0 bg-gray-50">
@@ -320,7 +326,8 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
       {/* CENTER — Original docs (compact thumbnails) */}
       <div className="w-[280px] border-r border-gray-200 bg-white flex flex-col shrink-0">
         {selectedSession ? (
-          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
+            highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">거래처 선택</div>
         )}
@@ -329,7 +336,8 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
       {/* RIGHT — AI table */}
       <div className="flex-1 min-w-0 bg-white flex flex-col">
         {selectedSession ? (
-          <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+          <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
+            highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">AI 추출 결과</div>
         )}
@@ -349,8 +357,14 @@ function SessionItem({ session, entries, active, onClick }: {
   const se = entries.filter((e) => e.client_id === session.client_id);
   const newHire = se.filter((e) => e.match_status === "NEW_HIRE_SUSPECTED").length;
   const resigned = se.filter((e) => e.match_status === "RESIGNATION_SUSPECTED").length;
+  const unconfirmed = se.filter((e) => e.match_status === "UNCONFIRMED").length;
   const review = se.filter(
-    (e) => (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) || e.match_status === "AMBIGUOUS",
+    (e) => {
+      if (e.approved) return false;
+      if (e.match_status === "UNCONFIRMED") return true;
+      const notes = e.anomaly_notes;
+      return (notes && Object.keys(notes).length > 0) || e.match_status === "AMBIGUOUS";
+    },
   ).length;
 
   const status = (() => {
@@ -384,6 +398,7 @@ function SessionItem({ session, entries, active, onClick }: {
         {se.length > 0 && <span className="tabular-nums">{se.length}명</span>}
         {newHire > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">신규 {newHire}</span></>}
         {resigned > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">퇴사 {resigned}</span></>}
+        {unconfirmed > 0 && <><span className="opacity-50">·</span><span className="tabular-nums text-amber-600 font-bold">미확인 {unconfirmed}</span></>}
         {review > 0 && <><span className="opacity-50">·</span><span className="tabular-nums text-red-600 font-bold">확인 {review}</span></>}
         {se.length === 0 && <span>미수신</span>}
       </div>
@@ -393,10 +408,12 @@ function SessionItem({ session, entries, active, onClick }: {
 
 /* ═══ Center Pane (Original Docs) ═══ */
 
-function CenterPane({ filingId, session, entries }: {
+function CenterPane({ filingId, session, entries, highlightEventId, onHighlight }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
+  highlightEventId: string | null;
+  onHighlight: (id: string | null) => void;
 }) {
   const { data: attachments } = useSessionAttachments(filingId, session.id);
   const submit = useSubmitMessage(filingId);
@@ -409,6 +426,8 @@ function CenterPane({ filingId, session, entries }: {
   const [zoomKey, setZoomKey] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SessionAttachment | null>(null);
   const [deletedKeys, setDeletedKeys] = useState<Set<string>>(new Set());
+  const [deleteEventTarget, setDeleteEventTarget] = useState<SourceEvent | null>(null);
+  const [deletedEventIds, setDeletedEventIds] = useState<Set<string>>(new Set());
 
   const sourceTexts = useMemo(() => {
     const seen = new Set<string>();
@@ -419,8 +438,9 @@ function CenterPane({ filingId, session, entries }: {
         if (seen.has(se.id)) return false;
         seen.add(se.id);
         return true;
-      });
-  }, [entries]);
+      })
+      .filter((se) => !deletedEventIds.has(se.id));
+  }, [entries, deletedEventIds]);
 
   const visibleAttachments = (attachments ?? []).filter((a) => !deletedKeys.has(a.storage_key));
   const publicUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`;
@@ -447,16 +467,30 @@ function CenterPane({ filingId, session, entries }: {
         {visibleAttachments.length > 0 && (
           <div className="grid grid-cols-3 gap-1.5">
             {visibleAttachments.map((a) => (
-              <AttachmentThumb key={a.storage_key} filingId={filingId} sessionId={session.id} att={a}
-                onClick={() => setZoomKey(a.storage_key)}
-                onDelete={() => setDeleteTarget(a)} />
+              <div key={a.storage_key}
+                className={`rounded-lg transition-all ${highlightEventId === a.event_id ? "ring-2 ring-blue-400" : ""}`}
+                onClick={() => onHighlight(highlightEventId === a.event_id ? null : a.event_id)}>
+                <AttachmentThumb filingId={filingId} sessionId={session.id} att={a}
+                  onClick={() => setZoomKey(a.storage_key)}
+                  onDelete={() => setDeleteTarget(a)} />
+              </div>
             ))}
           </div>
         )}
 
         {sourceTexts.map((se) => (
-          <div key={se.id} className="p-2 rounded-lg bg-gray-50 border border-gray-200">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">텍스트</span>
+          <div key={se.id}
+            onClick={() => onHighlight(highlightEventId === se.id ? null : se.id)}
+            className={`group relative p-2 rounded-lg border cursor-pointer transition-all ${
+              highlightEventId === se.id
+                ? "bg-blue-50 border-blue-400 ring-1 ring-blue-400"
+                : "bg-gray-50 border-gray-200 hover:border-gray-300"
+            }`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">텍스트</span>
+              <button onClick={(ev) => { ev.stopPropagation(); setDeleteEventTarget(se); }}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-red-500 hover:text-red-700">삭제</button>
+            </div>
             <div className="text-[12px] leading-relaxed text-gray-700 whitespace-pre-wrap mt-1 max-h-32 overflow-y-auto">{se.raw_text}</div>
           </div>
         ))}
@@ -508,8 +542,19 @@ function CenterPane({ filingId, session, entries }: {
           onConfirm={(deletedBy) => {
             setDeletedKeys((prev) => new Set([...prev, deleteTarget.storage_key]));
             setDeleteTarget(null);
-            // Fire-and-forget backend call (best effort)
             api(`/api/v1/filings/${filingId}/sessions/${session.id}/attachments?key=${encodeURIComponent(deleteTarget.storage_key)}&deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" }).catch(() => {});
+          }}
+        />
+      )}
+
+      {deleteEventTarget && (
+        <DeleteAttachmentModal
+          filename={`텍스트 메시지 (${(deleteEventTarget.raw_text ?? "").slice(0, 20)}...)`}
+          onClose={() => setDeleteEventTarget(null)}
+          onConfirm={(deletedBy) => {
+            setDeletedEventIds((prev) => new Set([...prev, deleteEventTarget.id]));
+            setDeleteEventTarget(null);
+            api(`/api/v1/filings/${filingId}/sessions/${session.id}/events/${deleteEventTarget.id}?deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" }).catch(() => {});
           }}
         />
       )}
@@ -519,10 +564,12 @@ function CenterPane({ filingId, session, entries }: {
 
 /* ═══ Right Pane (AI Table) ═══ */
 
-function RightPane({ filingId, session, entries }: {
+function RightPane({ filingId, session, entries, highlightEventId, onHighlight }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
+  highlightEventId: string | null;
+  onHighlight: (id: string | null) => void;
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
@@ -642,9 +689,14 @@ function RightPane({ filingId, session, entries }: {
                 const diff = computeDiff(e);
                 return (
                   <tr key={e.id}
-                    className={`border-b border-gray-50 transition-colors ${hasFlag ? "bg-red-50/60" : isEditing ? "bg-blue-50/60" : "hover:bg-gray-50"}`}>
+                    onClick={() => e.collection_event_id && onHighlight(highlightEventId === e.collection_event_id ? null : e.collection_event_id)}
+                    className={`border-b border-gray-50 transition-colors cursor-pointer ${
+                      highlightEventId && e.collection_event_id === highlightEventId
+                        ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
+                        : hasFlag ? "bg-red-50/60" : isEditing ? "bg-blue-50/60" : "hover:bg-gray-50"
+                    }`}>
                     <td className="py-3 pl-4">
-                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="h-3.5 w-3.5 accent-blue-600" />
+                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} onClick={(ev) => ev.stopPropagation()} className="h-3.5 w-3.5 accent-blue-600" />
                     </td>
                     <td className="py-3 pl-2">
                       {isEditing ? (
@@ -680,11 +732,13 @@ function RightPane({ filingId, session, entries }: {
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600">신규</span>
                       ) : e.match_status === "RESIGNATION_SUSPECTED" ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600">퇴사</span>
+                      ) : e.match_status === "UNCONFIRMED" ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-600">미확인</span>
                       ) : (
                         <span className="text-[11px] text-gray-400">—</span>
                       )}
                     </td>
-                    <td className="py-3 pr-3 text-right">
+                    <td className="py-3 pr-3 text-right" onClick={(ev) => ev.stopPropagation()}>
                       {isEditing ? (
                         <div className="flex gap-1 justify-end">
                           <button onClick={() => save(e)} className="px-2 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium" disabled={update.isPending}>저장</button>
@@ -733,16 +787,19 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
   const update = useUpdateEntry(filingId);
   const total = entries.length;
   const processed = entries.filter((e) => e.approved).length;
-  const [filterType, setFilterType] = useState<"all" | "anomaly" | "name" | "amount">("all");
+  const [filterType, setFilterType] = useState<"all" | "anomaly" | "name" | "unconfirmed">("all");
+
+  const hasAnomaly = (e: PayrollEntry) => !!(e.anomaly_notes?.large_change || e.anomaly_notes?.abnormal_amount);
+  const unconfirmedCount = entries.filter((e) => e.match_status === "UNCONFIRMED").length;
 
   const filteredEntries = entries.filter((e) => {
-    if (filterType === "anomaly") return !!e.anomaly_notes?.large_change;
+    if (filterType === "anomaly") return hasAnomaly(e);
     if (filterType === "name") return e.match_status === "AMBIGUOUS";
-    if (filterType === "amount") return !!e.anomaly_notes?.missing_amount;
+    if (filterType === "unconfirmed") return e.match_status === "UNCONFIRMED";
     return true;
   });
 
-  const anomalyCount = entries.filter((e) => e.anomaly_notes?.large_change).length;
+  const anomalyCount = entries.filter(hasAnomaly).length;
   const nameCount = entries.filter((e) => e.match_status === "AMBIGUOUS").length;
 
   if (total === 0) {
@@ -759,7 +816,7 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
           </div>
           <div className="h-9 w-px bg-gray-200" />
           <div className="flex items-center gap-1.5">
-            {([["all", `전체 ${total}`], ["anomaly", `이상치 ${anomalyCount}`], ["name", `이름매칭 ${nameCount}`]] as const).map(([key, label]) => (
+            {([["all", `전체 ${total}`], ["unconfirmed", `미확인 ${unconfirmedCount}`], ["anomaly", `이상치 ${anomalyCount}`], ["name", `이름매칭 ${nameCount}`]] as const).map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setFilterType(key)}
@@ -787,14 +844,22 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
           const prev = e.prev_amount ?? 0;
           const curr = e.total_amount;
           const pctChange = prev ? Math.round(((curr - prev) / prev) * 100) : null;
-          const anomalyType = e.anomaly_notes?.large_change
-            ? `이상치 ${pctChange != null && pctChange > 0 ? "+" : ""}${pctChange}%`
-            : e.match_status === "AMBIGUOUS" ? "이름매칭" : "확인필요";
-          const reason = e.anomaly_notes?.large_change
-            ? `전월 대비 임계치(±30%) 초과. 변동 비율: ${pctChange}%`
-            : e.match_status === "AMBIGUOUS"
-              ? "기존 직원 목록에서 정확히 매칭되는 이름을 찾지 못했습니다."
-              : "확인이 필요한 항목입니다.";
+          const anomalyType = e.match_status === "UNCONFIRMED"
+            ? "미확인"
+            : e.anomaly_notes?.abnormal_amount
+              ? "비정상 금액"
+              : e.anomaly_notes?.large_change
+                ? `이상치 ${pctChange != null && pctChange > 0 ? "+" : ""}${pctChange}%`
+                : e.match_status === "AMBIGUOUS" ? "이름매칭" : "확인필요";
+          const reason = e.match_status === "UNCONFIRMED"
+            ? `전월에 ₩${(e.prev_amount ?? 0).toLocaleString()} 지급. 이번달 자료에 없음 — 계속근무 시 정확한 급여를, 퇴사 시 퇴사일을 확인하세요.`
+            : e.anomaly_notes?.abnormal_amount
+              ? (e.anomaly_notes.abnormal_amount as { reason?: string }).reason ?? "금액을 확인해주세요."
+              : e.anomaly_notes?.large_change
+                ? `전월 대비 임계치(±30%) 초과. 변동 비율: ${pctChange}%`
+                : e.match_status === "AMBIGUOUS"
+                  ? "기존 직원 목록에서 정확히 매칭되는 이름을 찾지 못했습니다."
+                  : "확인이 필요한 항목입니다.";
 
           if (e.approved) {
             return (

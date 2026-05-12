@@ -108,9 +108,16 @@ def get_storage() -> ObjectStorage:
     if s.ncp_object_storage_access_key and s.ncp_object_storage_secret_key:
         return NcpObjectStorage()
     # Render Persistent Disk는 /data/uploads에 마운트됨
+    render_disk = Path("/data/uploads")
+    if render_disk.is_dir():
+        logger.info("[storage] Using Render Persistent Disk at %s", render_disk)
+        return LocalFileStorage(base_dir=render_disk)
     # 로컬 개발 시에는 data/uploads (상대경로) 사용
-    upload_dir = Path("/data/uploads") if Path("/data/uploads").is_dir() else None
-    return LocalFileStorage(base_dir=upload_dir)
+    logger.warning(
+        "[storage] /data/uploads not found — falling back to local data/uploads. "
+        "On Render, ensure Persistent Disk is created and mounted."
+    )
+    return LocalFileStorage()
 
 
 __all__ = ["LocalFileStorage", "NcpObjectStorage", "ObjectStorage", "get_storage"]

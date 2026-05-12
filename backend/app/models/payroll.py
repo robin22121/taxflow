@@ -24,6 +24,7 @@ class MatchStatus(str, enum.Enum):
     NEW_HIRE_SUSPECTED = "NEW_HIRE_SUSPECTED"
     RESIGNATION_SUSPECTED = "RESIGNATION_SUSPECTED"
     AMBIGUOUS = "AMBIGUOUS"
+    UNCONFIRMED = "UNCONFIRMED"  # 전월 대비 미언급 — 계속근무/퇴사 확인 필요
 
 
 class PayrollEntry(Base, IdMixin, TimestampMixin):
