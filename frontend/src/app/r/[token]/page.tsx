@@ -70,24 +70,6 @@ export default function PublicCollectPage({
     }
   }
 
-  async function submitSameAsPrev() {
-    setSubmitting(true);
-    setMode("processing");
-    setError(null);
-    try {
-      const res = await api<SubmitResult>(`/api/v1/public/r/${token}/submit`, {
-        method: "POST",
-        json: { text: "전월과 동일합니다" },
-      });
-      setResult(res);
-      setMode("idle");
-    } catch (e) {
-      setError((e as Error).message);
-      setMode("idle");
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   if (error && !session) {
     return (
@@ -149,25 +131,11 @@ export default function PublicCollectPage({
           {session.period} 직원 급여 자료 부탁드려요 🙏
         </ChatBubbleThem>
         <ChatBubbleThem>
-          아래 <b>편한 방법</b>으로 보내주시면 돼요.<br />
-          제일 빠른 건 <b>&quot;전월과 똑같아요&quot;</b> 한 번 탭이에요.
+          아래 <b>편한 방법</b>으로 보내주시면 돼요.
         </ChatBubbleThem>
 
         {/* Quick actions */}
         <div className="pl-10 space-y-2 mb-3">
-          <button
-            onClick={submitSameAsPrev}
-            disabled={submitting}
-            className="flex items-center gap-3 w-full max-w-[78%] p-3.5 rounded-2xl bg-gradient-to-r from-blue-100 to-blue-200 border border-blue-200 text-left shadow-sm hover:shadow-md transition-shadow disabled:opacity-50"
-          >
-            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 text-lg">⭐</div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[14px] font-bold text-blue-900">전월과 똑같아요</div>
-              <div className="text-[11.5px] text-blue-700">저번 달 자료 그대로 제출 · 한 번 탭</div>
-            </div>
-            <span className="text-blue-400 text-lg shrink-0">›</span>
-          </button>
-
           <div className="flex gap-2 max-w-[78%]">
             <label className="flex-1 flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-gray-200 rounded-xl cursor-pointer hover:border-gray-300 transition-colors">
               <span className="text-lg">📷</span>
