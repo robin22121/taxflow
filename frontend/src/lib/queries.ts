@@ -44,6 +44,24 @@ export function useFilingDashboard(filingId: string) {
   });
 }
 
+export function useConfirmWithClient(filingId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { sessionId: string; channel?: "auto" | "email" | "kakao" | "sms" }) =>
+      api<{
+        sent: boolean;
+        channel: string;
+        error: string | null;
+        entry_count: number;
+      }>(
+        `/api/v1/filings/${filingId}/sessions/${vars.sessionId}/confirm-with-client${vars.channel ? `?channel=${vars.channel}` : ""}`,
+        { method: "POST", json: {} },
+      ),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["filings", filingId, "dashboard"] }),
+  });
+}
+
 export function useSessionAttachments(filingId: string, sessionId: string | null) {
   return useQuery({
     queryKey: ["filings", filingId, "sessions", sessionId, "attachments"],

@@ -29,6 +29,7 @@ from app.schemas.filings import (
     PayrollEntryOut,
     PayrollEntryUpdate,
 )
+from app.services.confirmation import send_confirmation
 from app.services.invite import (
     get_or_create_session as _get_or_create_session,
     send_invite_to_client,
@@ -165,6 +166,60 @@ async def request_collection(
     filing.total_clients = len(out)
     await db.commit()
     return out
+
+
+@router.post("/{filing_id}/sessions/{session_id}/confirm-with-client")
+async def confirm_with_client(
+    filing_id: str,
+    session_id: str,
+    channel: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """AI 인식 결과를 거래처에 같은 채널로 회신해 검증 요청.
+
+    channel: "auto"(기본) | "email" | "kakao" | "sms"
+    """
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    session = await db.get(
+        CollectionSession,
+        session_id,
+        options=[selectinload(CollectionSession.client)],
+    )
+    if not session or session.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+
+    entries = (
+        await db.execute(
+            select(PayrollEntry)
+            .where(PayrollEntry.collection_session_id == session_id)
+            .order_by(PayrollEntry.id)
+        )
+    ).scalars().all()
+
+    from app.models import TaxOffice
+    office = await db.get(TaxOffice, user.tax_office_id)
+    office_name = office.name if office else "세무사사무소"
+
+    sent, used_channel, error = await send_confirmation(
+        db,
+        session=session,
+        client=session.client,
+        filing=filing,
+        entries=list(entries),
+        office_name=office_name,
+        channel=channel or "auto",
+    )
+    await db.commit()
+    return {
+        "sent": sent,
+        "channel": used_channel,
+        "error": error,
+        "entry_count": len(entries),
+    }
 
 
 @router.get("/{filing_id}/sessions/{session_id}/attachments")

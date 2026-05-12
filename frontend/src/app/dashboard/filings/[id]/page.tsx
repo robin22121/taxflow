@@ -3,6 +3,7 @@
 import { use, useEffect, useMemo, useState } from "react";
 
 import {
+  useConfirmWithClient,
   useDeleteEntry,
   useFilingDashboard,
   useFilingEntries,
@@ -153,20 +154,70 @@ function SessionDetail({
   entries: PayrollEntry[];
 }) {
   const submit = useSubmitMessage(filingId);
+  const confirmWithClient = useConfirmWithClient(filingId);
   const [text, setText] = useState("");
+  const [confirmResult, setConfirmResult] = useState<{
+    sent: boolean;
+    channel: string;
+    error: string | null;
+  } | null>(null);
 
   return (
     <Card className="space-y-4">
       <div className="flex items-baseline justify-between">
         <h3 className="font-medium">{session.client_name} — 자료 입력 / 검증</h3>
-        <a
-          href={`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`}
-          target="_blank"
-          className="text-xs text-blue-600 hover:underline"
-        >
-          공개 입력 URL 열기 ↗
-        </a>
+        <div className="flex items-center gap-3 text-xs">
+          <a
+            href={`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`}
+            target="_blank"
+            className="text-blue-600 hover:underline"
+          >
+            공개 입력 URL ↗
+          </a>
+          <Button
+            variant="secondary"
+            disabled={confirmWithClient.isPending || entries.length === 0}
+            onClick={() => {
+              setConfirmResult(null);
+              confirmWithClient.mutate(
+                { sessionId: session.id, channel: "auto" },
+                {
+                  onSuccess: (res) => setConfirmResult(res),
+                  onError: (e) =>
+                    setConfirmResult({
+                      sent: false,
+                      channel: "error",
+                      error: (e as Error).message,
+                    }),
+                },
+              );
+            }}
+            title={
+              entries.length === 0
+                ? "파싱된 항목이 있어야 발송 가능합니다"
+                : "거래처에 AI 인식 결과를 같은 채널로 회신"
+            }
+          >
+            {confirmWithClient.isPending
+              ? "발송 중..."
+              : "거래처에 인식 결과 확인 요청"}
+          </Button>
+        </div>
       </div>
+
+      {confirmResult && (
+        <div
+          className={
+            confirmResult.sent
+              ? "text-xs text-green-700 dark:text-green-300"
+              : "text-xs text-amber-700 dark:text-amber-300"
+          }
+        >
+          {confirmResult.sent
+            ? `✅ ${confirmResult.channel}로 발송 완료`
+            : `⚠️ 발송 실패 (${confirmResult.channel}) — ${confirmResult.error ?? "알 수 없는 오류"}`}
+        </div>
+      )}
 
       <AttachmentPanel filingId={filingId} sessionId={session.id} />
 
