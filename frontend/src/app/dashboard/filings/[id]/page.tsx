@@ -1,6 +1,7 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 
 import {
@@ -415,6 +416,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
   highlightEventId: string | null;
   onHighlight: (id: string | null) => void;
 }) {
+  const qc = useQueryClient();
   const { data: attachments } = useSessionAttachments(filingId, session.id);
   const submit = useSubmitMessage(filingId);
   const requestCollection = useRequestCollection(filingId);
@@ -542,7 +544,12 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
           onConfirm={(deletedBy) => {
             setDeletedKeys((prev) => new Set([...prev, deleteTarget.storage_key]));
             setDeleteTarget(null);
-            api(`/api/v1/filings/${filingId}/sessions/${session.id}/attachments?key=${encodeURIComponent(deleteTarget.storage_key)}&deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" }).catch(() => {});
+            api(`/api/v1/filings/${filingId}/sessions/${session.id}/attachments?key=${encodeURIComponent(deleteTarget.storage_key)}&deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" })
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ["filings", filingId, "sessions", session.id, "attachments"] });
+                qc.invalidateQueries({ queryKey: ["filings", filingId, "entries"] });
+              })
+              .catch(() => {});
           }}
         />
       )}
@@ -554,7 +561,12 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
           onConfirm={(deletedBy) => {
             setDeletedEventIds((prev) => new Set([...prev, deleteEventTarget.id]));
             setDeleteEventTarget(null);
-            api(`/api/v1/filings/${filingId}/sessions/${session.id}/events/${deleteEventTarget.id}?deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" }).catch(() => {});
+            api(`/api/v1/filings/${filingId}/sessions/${session.id}/events/${deleteEventTarget.id}?deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" })
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ["filings", filingId, "entries"] });
+                qc.invalidateQueries({ queryKey: ["filings", filingId, "dashboard"] });
+              })
+              .catch(() => {});
           }}
         />
       )}

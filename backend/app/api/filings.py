@@ -338,6 +338,98 @@ async def get_attachment(
     return Response(content=blob, media_type=media_type)
 
 
+@router.delete("/{filing_id}/sessions/{session_id}/attachments")
+async def delete_attachment(
+    filing_id: str,
+    session_id: str,
+    key: str,
+    deleted_by: str = "",
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """첨부파일 soft-delete — 이벤트의 raw_payload에서 해당 attachment를 제거."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    events = (
+        await db.execute(
+            select(CollectionEvent).where(CollectionEvent.session_id == session_id)
+        )
+    ).scalars().all()
+
+    found = False
+    for ev in events:
+        payload = ev.raw_payload or {}
+        atts = payload.get("attachments", [])
+        new_atts = [a for a in atts if a.get("storage_key") != key]
+        if len(new_atts) < len(atts):
+            found = True
+            # 삭제 이력 보존
+            deleted = [a for a in atts if a.get("storage_key") == key]
+            payload["attachments"] = new_atts
+            payload.setdefault("deleted_attachments", []).extend(
+                {**d, "deleted_by": deleted_by} for d in deleted
+            )
+            ev.raw_payload = payload
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(ev, "raw_payload")
+
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
+
+    # 연결된 PayrollEntry도 삭제
+    linked_entries = (
+        await db.execute(
+            select(PayrollEntry).where(
+                PayrollEntry.collection_session_id == session_id,
+                PayrollEntry.monthly_filing_id == filing_id,
+            )
+        )
+    ).scalars().all()
+    for entry in linked_entries:
+        # 이벤트에 첨부만 있고 텍스트 입력이 없었던 경우 — 엔트리도 함께 삭제
+        ev = next((e for e in events if e.id == entry.collection_event_id), None)
+        if ev and not (ev.raw_payload or {}).get("attachments"):
+            await db.delete(entry)
+
+    await db.commit()
+    return {"deleted": True}
+
+
+@router.delete("/{filing_id}/sessions/{session_id}/events/{event_id}")
+async def delete_event(
+    filing_id: str,
+    session_id: str,
+    event_id: str,
+    deleted_by: str = "",
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """텍스트 이벤트 삭제 — 이벤트 + 연결된 PayrollEntry 삭제."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    event = await db.get(CollectionEvent, event_id)
+    if not event or event.session_id != session_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+
+    # 연결된 PayrollEntry 삭제
+    linked = (
+        await db.execute(
+            select(PayrollEntry).where(PayrollEntry.collection_event_id == event_id)
+        )
+    ).scalars().all()
+    for entry in linked:
+        await db.delete(entry)
+
+    # 이벤트 자체 삭제
+    await db.delete(event)
+    await db.commit()
+    return {"deleted": True, "entries_removed": len(linked)}
+
+
 def _attachment_mime(kind: str | None, filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if kind == "image":
