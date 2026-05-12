@@ -24,6 +24,13 @@ export type Client = {
   invite_sent: boolean;
 };
 
+export type ClientInviteResult = {
+  sent: boolean;
+  channels: string[];
+  filing_period: string;
+  detail: string | null;
+};
+
 export type Filing = {
   id: string;
   period: string;

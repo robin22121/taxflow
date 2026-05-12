@@ -1,19 +1,13 @@
 """Monthly filing endpoints — create, request collection, dashboard, excel download."""
 
-from datetime import UTC, datetime as _dt, timedelta
+from datetime import UTC, datetime as _dt
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.channels import (
-    MessageRecipient,
-    SendResult,
-    get_alimtalk_channel,
-    get_email_channel,
-    get_sms_channel,
-)
+from app.channels import MessageRecipient, get_alimtalk_channel
 from app.config import get_settings
 from app.core.deps import get_current_user, get_db
 from app.models import (
@@ -35,7 +29,10 @@ from app.schemas.filings import (
     PayrollEntryOut,
     PayrollEntryUpdate,
 )
-from app.services.secure_tokens import issue_token, public_url
+from app.services.invite import (
+    get_or_create_session as _get_or_create_session,
+    send_invite_to_client,
+)
 from app.services.simple_statement_excel import (
     generate_business_statement,
     generate_wage_statement,
@@ -49,42 +46,6 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_or_create_session(
-    db: AsyncSession,
-    filing: MonthlyFiling,
-    client: Client,
-    ttl_days: int = 14,
-) -> CollectionSession:
-    """Return existing session or create a new one with a secure token."""
-    existing = (
-        await db.execute(
-            select(CollectionSession).where(
-                CollectionSession.monthly_filing_id == filing.id,
-                CollectionSession.client_id == client.id,
-            )
-        )
-    ).scalar_one_or_none()
-    if existing:
-        return existing
-
-    token = await issue_token(
-        db,
-        client_id=client.id,
-        purpose="COLLECTION_REQUEST",
-        ttl=timedelta(days=ttl_days),
-        context={"filing_id": filing.id},
-    )
-    session = CollectionSession(
-        monthly_filing_id=filing.id,
-        client_id=client.id,
-        request_token=token.token,
-    )
-    db.add(session)
-    await db.flush()
-    token.collection_session_id = session.id
-    return session
 
 
 def _session_out(session: CollectionSession, client: Client) -> CollectionSessionOut:
@@ -553,118 +514,9 @@ async def send_invite(
         )
     ).scalars().all()
 
-    alimtalk = get_alimtalk_channel()
-    email_ch = get_email_channel()
-    sms = get_sms_channel()
-    settings = get_settings()
     out: list[CollectionSessionOut] = []
-
     for client in clients:
-        session = await _get_or_create_session(db, filing, client, ttl_days=30)
-        url = f"{settings.app_public_url}/r/{session.request_token}"
-
-        invite_body = (
-            f"안녕하세요, {office_name}입니다.\n\n"
-            f"{filing.period} 원천세 자료를 요청드립니다.\n\n"
-            f"아래 방법 중 편한 방법으로 보내주세요:\n\n"
-            f"1) 카카오톡 채팅으로 직접 답장\n"
-            f"2) 이메일: {client.collect_email}\n"
-            f"3) 입력 폼: {url}\n\n"
-            f"이 메일에 바로 회신하셔도 자동 접수됩니다."
-        )
-
-        # 알림톡은 비즈채널·템플릿 등록이 끝난 운영 provider 일 때만 시도.
-        # stub 상태에서는 건너뛰고 SMS / 이메일만 발송.
-        if settings.kakao_alimtalk_provider in ("aligo", "nhn_cloud"):
-            alimtalk_result = await alimtalk.send(
-                MessageRecipient(
-                    name=client.business_name,
-                    phone=client.contact_phone,
-                    email=client.contact_email,
-                ),
-                body=invite_body,
-                template_code="COLLECTION_INVITE",
-                url=url,
-            )
-        else:
-            alimtalk_result = SendResult(
-                channel="alimtalk_skipped",
-                accepted=False,
-                provider_msg_id=None,
-                error="알림톡 provider 미설정 (KAKAO_ALIMTALK_PROVIDER)",
-            )
-
-        # SMS fallback — 알림톡이 거부됐거나 건너뛴 경우
-        sms_result = None
-        if not alimtalk_result.accepted and client.contact_phone:
-            sms_body = f"[{office_name}] {filing.period} 원천세 자료 요청: {url}"
-            sms_result = await sms.send(
-                MessageRecipient(
-                    name=client.business_name,
-                    phone=client.contact_phone,
-                ),
-                body=sms_body,
-                url=url,
-            )
-
-        # 이메일은 contact_email 있으면 항상
-        email_result = None
-        if client.contact_email:
-            email_body = (
-                f"<p>안녕하세요, <b>{office_name}</b>입니다.</p>"
-                f"<p><b>{filing.period}</b> 원천세 자료를 요청드립니다.</p>"
-                f"<hr>"
-                f"<p>아래 방법 중 편한 방법으로 보내주세요:</p>"
-                f"<ol>"
-                f"<li><b>이 메일에 바로 회신</b> (엑셀 첨부 가능)</li>"
-                f"<li>전용 이메일: <a href='mailto:{client.collect_email}'>{client.collect_email}</a></li>"
-                f"<li>입력 폼: <a href='{url}'>{url}</a></li>"
-                f"</ol>"
-                f"<p style='color:#666;font-size:12px;'>회신하시면 자동으로 접수됩니다.</p>"
-            )
-            email_result = await email_ch.send(
-                MessageRecipient(
-                    name=client.business_name,
-                    phone=client.contact_phone,
-                    email=client.contact_email,
-                ),
-                body=email_body,
-                url=url,
-            )
-
-        sent = (
-            alimtalk_result.accepted
-            or (sms_result is not None and sms_result.accepted)
-            or (email_result is not None and email_result.accepted)
-        )
-        session.status = (
-            CollectionSessionStatus.SENT if sent else CollectionSessionStatus.PENDING
-        )
-        if sent:
-            session.request_sent_at = _dt.now(UTC)
-            client.invite_sent = True
-
-        channels_used = ["alimtalk"]
-        if sms_result is not None:
-            channels_used.append("sms")
-        if email_result is not None:
-            channels_used.append("email")
-
-        db.add(CollectionEvent(
-            session_id=session.id,
-            event_type="SEND_INVITE",
-            channel="+".join(channels_used),
-            raw_text=invite_body,
-            raw_payload={
-                "alimtalk_ok": alimtalk_result.accepted,
-                "alimtalk_error": alimtalk_result.error,
-                "sms_ok": sms_result.accepted if sms_result else None,
-                "sms_error": sms_result.error if sms_result else None,
-                "email_ok": email_result.accepted if email_result else None,
-                "email_error": email_result.error if email_result else None,
-                "collect_email": client.collect_email,
-            },
-        ))
+        session, _ = await send_invite_to_client(db, filing, client, office_name)
         out.append(_session_out(session, client))
 
     filing.status = MonthlyFilingStatus.COLLECTING

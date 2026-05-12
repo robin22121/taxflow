@@ -10,6 +10,7 @@ import { api } from "./api";
 import { apiUpload } from "./api";
 import type {
   Client,
+  ClientInviteResult,
   CurrentUser,
   Employee,
   Filing,
@@ -56,10 +57,53 @@ export function useClients() {
   });
 }
 
+export function useCreateClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      business_name: string;
+      business_number?: string | null;
+      representative?: string | null;
+      contact_phone?: string | null;
+      contact_email?: string | null;
+      is_corporation?: boolean;
+    }) =>
+      api<Client>("/api/v1/clients", { method: "POST", json: payload }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
+  });
+}
+
 export function useClientDetail(clientId: string) {
   return useQuery({
     queryKey: ["clients", clientId],
     queryFn: () => api<Client>(`/api/v1/clients/${clientId}`),
+  });
+}
+
+export function useUpdateClient(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<Client>) =>
+      api<Client>(`/api/v1/clients/${clientId}`, { method: "PATCH", json: patch }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clients", clientId] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+export function useSendClientInvite(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<ClientInviteResult>(`/api/v1/clients/${clientId}/invite`, {
+        method: "POST",
+        json: {},
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clients", clientId] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
   });
 }
 

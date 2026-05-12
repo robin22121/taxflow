@@ -8,9 +8,16 @@ import {
   useClientEmployees,
   useImportEmployees,
   useImportPayroll,
+  useSendClientInvite,
+  useUpdateClient,
 } from "@/lib/queries";
-import { Badge, Button, Card } from "@/components/ui";
-import type { ImportEmployeeResult, ImportPayrollResult } from "@/lib/types";
+import { Badge, Button, Card, Input, Modal } from "@/components/ui";
+import type {
+  Client,
+  ClientInviteResult,
+  ImportEmployeeResult,
+  ImportPayrollResult,
+} from "@/lib/types";
 
 export default function ClientDetailPage({
   params,
@@ -22,6 +29,8 @@ export default function ClientDetailPage({
   const { data: employees } = useClientEmployees(id);
   const importEmp = useImportEmployees(id);
   const importPay = useImportPayroll(id);
+  const updateClient = useUpdateClient(id);
+  const sendInvite = useSendClientInvite(id);
 
   const empFileRef = useRef<HTMLInputElement>(null);
   const payFileRef = useRef<HTMLInputElement>(null);
@@ -29,6 +38,9 @@ export default function ClientDetailPage({
   const [empResult, setEmpResult] = useState<ImportEmployeeResult | null>(null);
   const [payResult, setPayResult] = useState<ImportPayrollResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [inviteResult, setInviteResult] = useState<ClientInviteResult | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   if (isLoading || !client) return <p className="p-6">로딩 중...</p>;
 
@@ -43,7 +55,32 @@ export default function ClientDetailPage({
       </div>
 
       <Card>
-        <h1 className="text-2xl font-semibold mb-2">{client.business_name}</h1>
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <h1 className="text-2xl font-semibold">{client.business_name}</h1>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setEditOpen(true)}>
+              연락처 편집
+            </Button>
+            <Button
+              onClick={async () => {
+                setInviteError(null);
+                setInviteResult(null);
+                try {
+                  const res = await sendInvite.mutateAsync();
+                  setInviteResult(res);
+                } catch (err) {
+                  setInviteError((err as Error).message);
+                }
+              }}
+              disabled={
+                sendInvite.isPending ||
+                (!client.contact_phone && !client.contact_email)
+              }
+            >
+              {sendInvite.isPending ? "발송 중..." : "초대장 발송"}
+            </Button>
+          </div>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div>
             <span className="text-gray-500">사업자번호</span>
@@ -73,7 +110,35 @@ export default function ClientDetailPage({
             </p>
           </div>
         )}
+        {inviteResult && (
+          <div
+            className={
+              inviteResult.sent
+                ? "mt-3 text-sm text-green-700 dark:text-green-300"
+                : "mt-3 text-sm text-amber-700 dark:text-amber-300"
+            }
+          >
+            {inviteResult.sent
+              ? `✅ ${inviteResult.filing_period} 초대장 발송 완료 (${inviteResult.channels.join(", ")})`
+              : `⚠️ 발송 실패 — ${inviteResult.detail ?? "알 수 없는 오류"}`}
+          </div>
+        )}
+        {inviteError && (
+          <p className="mt-3 text-sm text-red-600">{inviteError}</p>
+        )}
       </Card>
+
+      {editOpen && (
+        <ClientEditModal
+          client={client}
+          onClose={() => setEditOpen(false)}
+          onSubmit={async (patch) => {
+            await updateClient.mutateAsync(patch);
+            setEditOpen(false);
+          }}
+          pending={updateClient.isPending}
+        />
+      )}
 
       {/* Import Section */}
       <Card>
@@ -260,4 +325,81 @@ function StatusBadge({ status }: { status: string }) {
   if (status === "ACTIVE") return <Badge tone="success">재직</Badge>;
   if (status === "RESIGNED") return <Badge tone="danger">퇴사</Badge>;
   return <Badge tone="warning">대기</Badge>;
+}
+
+function ClientEditModal({
+  client,
+  onClose,
+  onSubmit,
+  pending,
+}: {
+  client: Client;
+  onClose: () => void;
+  onSubmit: (patch: Partial<Client>) => Promise<void>;
+  pending: boolean;
+}) {
+  const [phone, setPhone] = useState(client.contact_phone ?? "");
+  const [email, setEmail] = useState(client.contact_email ?? "");
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="거래처 연락처 편집"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            취소
+          </Button>
+          <Button
+            onClick={async () => {
+              setErr(null);
+              try {
+                await onSubmit({
+                  contact_phone: phone.trim() || null,
+                  contact_email: email.trim() || null,
+                });
+              } catch (e) {
+                setErr((e as Error).message);
+              }
+            }}
+            disabled={pending}
+          >
+            {pending ? "저장 중..." : "저장"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">
+            전화번호 (휴대폰)
+          </label>
+          <Input
+            type="tel"
+            placeholder="010-1234-5678"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            알림톡·SMS 발송에 사용됩니다.
+          </p>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">이메일</label>
+          <Input
+            type="email"
+            placeholder="contact@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            초대장 이메일이 이 주소로 발송됩니다.
+          </p>
+        </div>
+        {err && <p className="text-red-600">{err}</p>}
+      </div>
+    </Modal>
+  );
 }

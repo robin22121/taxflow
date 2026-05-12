@@ -26,6 +26,22 @@ class ClientOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ClientUpdate(BaseModel):
+    business_name: str | None = None
+    business_number: str | None = None
+    representative: str | None = None
+    contact_phone: str | None = None
+    contact_email: EmailStr | None = None
+    is_corporation: bool | None = None
+
+
+class ClientInviteResult(BaseModel):
+    sent: bool
+    channels: list[str]  # ["alimtalk", "sms", "email"] 중 실제 accepted된 채널
+    filing_period: str
+    detail: str | None = None
+
+
 class EmployeeCreate(BaseModel):
     name: str
     rrn: str | None = None  # 평문 — 백엔드가 받자마자 암호화 후 폐기

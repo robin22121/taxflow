@@ -552,6 +552,16 @@ def generate_wehago_excel(
   - 카카오 i 오픈빌더 웹훅 (`POST /webhooks/kakao`)
   - SendGrid Inbound Parse 웹훅 (`POST /webhooks/email`)
   - 발신자 → Client → 활성 세션 자동 매칭 → `_ingest_message()` 파이프라인 합류
+- [x] **거래처 연락처 편집 + 단일 초대장 발송** — 완료
+  - `PATCH /clients/{id}` (연락처 수정), `POST /clients/{id}/invite` (단일 발송)
+  - 거래처 상세 페이지 "연락처 편집" 모달 + "초대장 발송" 버튼
+  - `send_invite_to_client()` 헬퍼로 일괄/단일 발송 로직 통합 (filings.py와 공유)
+  - 알림톡 stub 상태에서 SMS+이메일 폴백 자동 동작
+- [ ] **거래처 연락처/초대장 후속 확장** (단일 발송 완료 후)
+  - 편집 모달에 추가 필드: `business_name`, `representative`, `is_corporation` (백엔드 `ClientUpdate`는 이미 지원, input만 추가)
+  - 특정 월 발송: `POST /clients/{id}/invite?filing_id=` 쿼리 지원 (현재는 최신 filing 고정)
+  - 발송 이력 보기: `CollectionEvent` 조회 API + 거래처 상세에서 채널별 성공 이력 표시
+  - 재발송 확인: `invite_sent=true`인 거래처에는 모달로 "이미 발송됨, 재발송하시겠습니까?" 확인
 - [ ] NKS 클러스터 + GitHub Actions → Container Registry 배포 파이프라인
 
 ### 9~12주차
