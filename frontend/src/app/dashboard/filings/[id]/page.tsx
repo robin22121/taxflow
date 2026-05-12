@@ -513,20 +513,20 @@ function RightPane({ filingId, session, entries }: {
 
       <div className="flex-1 overflow-auto">
         {entries.length > 0 ? (
-          <table className="w-full text-[12px]">
-            <thead className="text-[11px] text-ink-3 border-b border-ink-4 sticky top-0 bg-paper">
+          <table className="w-full text-[13px]">
+            <thead className="text-[12px] text-ink-2 font-medium border-b-2 border-ink-4 sticky top-0 bg-paper">
               <tr>
-                <th className="w-7 py-2 pl-4">
+                <th className="w-7 py-2.5 pl-4">
                   <input type="checkbox" checked={entries.length > 0 && entries.every((e) => e.approved)}
                     onChange={() => {
                       const all = entries.every((e) => e.approved);
                       entries.forEach((e) => { if (e.approved !== !all) update.mutate({ id: e.id, patch: { approved: !all } }); });
                     }} />
                 </th>
-                <th className="text-left py-2 pl-2">직원 · 구분</th>
-                <th className="text-right py-2 pr-3">전월</th>
-                <th className="text-right py-2 pr-3">이번달</th>
-                <th className="text-right py-2 pr-4">변동</th>
+                <th className="text-left py-2.5 pl-2">직원 · 구분</th>
+                <th className="text-right py-2.5 pr-4">전월</th>
+                <th className="text-right py-2.5 pr-4">이번달</th>
+                <th className="text-right py-2.5 pr-4">변동</th>
               </tr>
             </thead>
             <tbody>
@@ -536,50 +536,50 @@ function RightPane({ filingId, session, entries }: {
                 const diff = computeDiff(e);
                 return (
                   <tr key={e.id} onClick={() => !isEditing && startEdit(e)}
-                    className={`border-b border-paper-2 cursor-pointer transition-colors ${hasFlag ? "bg-alert-50/20" : isEditing ? "bg-accent-50/30" : "hover:bg-paper-2"}`}>
-                    <td className="py-2 pl-4" onClick={(ev) => ev.stopPropagation()}>
-                      <input type="checkbox" checked={e.approved} onChange={(ev) => update.mutate({ id: e.id, patch: { approved: ev.target.checked } })} />
+                    className={`border-b border-ink-5 cursor-pointer transition-colors ${hasFlag ? "bg-red-50" : isEditing ? "bg-blue-50" : "hover:bg-gray-50"}`}>
+                    <td className="py-3 pl-4" onClick={(ev) => ev.stopPropagation()}>
+                      <input type="checkbox" checked={e.approved} onChange={(ev) => update.mutate({ id: e.id, patch: { approved: ev.target.checked } })} className="h-4 w-4" />
                     </td>
-                    <td className="py-2 pl-2">
+                    <td className="py-3 pl-2">
                       {isEditing ? (
                         <div className="space-y-1" onClick={(ev) => ev.stopPropagation()}>
-                          <input className="w-20 px-1 py-0.5 border rounded text-xs" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
-                          <select className="px-1 py-0.5 border rounded text-xs" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
+                          <input className="w-24 px-1.5 py-1 border border-gray-300 rounded text-sm" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
+                          <select className="px-1.5 py-1 border border-gray-300 rounded text-sm" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
                             <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
                           </select>
                         </div>
                       ) : (
                         <div>
-                          <div className="font-semibold text-[12px]">{e.raw_name}</div>
-                          <div className="text-[11px] text-ink-3">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
+                          <div className="font-bold text-[13px] text-gray-900">{e.raw_name}</div>
+                          <div className="text-[12px] text-gray-500">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
                         </div>
                       )}
                     </td>
-                    <td className="py-2 pr-3 text-right text-ink-3 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">
+                    <td className="py-3 pr-4 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
+                    <td className="py-3 pr-4 text-right tabular-nums font-semibold">
                       {isEditing ? (
-                        <input type="number" className="w-20 px-1 py-0.5 border rounded text-xs text-right" value={draft.total_amount ?? 0}
+                        <input type="number" className="w-24 px-1.5 py-1 border border-gray-300 rounded text-sm text-right" value={draft.total_amount ?? 0}
                           onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })} onClick={(ev) => ev.stopPropagation()} />
                       ) : (
-                        <span className={hasFlag ? "text-alert font-semibold" : ""}>{formatKrw(e.total_amount)}</span>
+                        <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
                       )}
                     </td>
-                    <td className="py-2 pr-4 text-right">
+                    <td className="py-3 pr-4 text-right">
                       {isEditing ? (
                         <div className="flex gap-1 justify-end" onClick={(ev) => ev.stopPropagation()}>
-                          <button onClick={() => save(e)} className="px-2 py-0.5 text-[11px] bg-accent text-white rounded-full" disabled={update.isPending}>저장</button>
-                          <button onClick={cancelEdit} className="px-2 py-0.5 text-[11px] border rounded-full hover:bg-paper-2">취소</button>
+                          <button onClick={() => save(e)} className="px-2.5 py-1 text-[12px] bg-blue-600 text-white rounded-md font-medium" disabled={update.isPending}>저장</button>
+                          <button onClick={cancelEdit} className="px-2.5 py-1 text-[12px] border border-gray-300 rounded-md hover:bg-gray-50">취소</button>
                           <button onClick={() => { if (window.confirm(`${e.raw_name} 삭제?`)) { remove.mutate(e.id); cancelEdit(); } }}
-                            className="px-2 py-0.5 text-[11px] text-alert border border-alert/25 rounded-full">삭제</button>
+                            className="px-2.5 py-1 text-[12px] text-red-600 border border-red-200 rounded-md hover:bg-red-50">삭제</button>
                         </div>
                       ) : diff ? (
-                        <span className={`text-[11px] font-semibold tabular-nums ${hasFlag ? "text-alert" : "text-ink-3"}`}>{diff}</span>
+                        <span className={`text-[12px] font-bold tabular-nums ${hasFlag ? "text-red-600" : "text-gray-400"}`}>{diff}</span>
                       ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
-                        <span className="text-[11px] text-accent font-semibold">신규</span>
+                        <span className="text-[12px] text-blue-600 font-bold">신규</span>
                       ) : e.match_status === "RESIGNATION_SUSPECTED" ? (
-                        <span className="text-[11px] text-ink-3 font-semibold">퇴사</span>
+                        <span className="text-[12px] text-gray-500 font-semibold">퇴사</span>
                       ) : (
-                        <span className="text-[11px] text-ink-3">—</span>
+                        <span className="text-[12px] text-gray-400">—</span>
                       )}
                     </td>
                   </tr>

@@ -12,6 +12,7 @@ import {
   useUpdateClient,
 } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
+import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
 import type {
   Client,
   ClientInviteResult,
@@ -84,7 +85,7 @@ export default function ClientDetailPage({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div>
             <span className="text-ink-3">사업자번호</span>
-            <p>{client.business_number || "—"}</p>
+            <p>{client.business_number ? formatBizNumber(client.business_number) : "—"}</p>
           </div>
           <div>
             <span className="text-ink-3">대표자</span>
@@ -92,7 +93,7 @@ export default function ClientDetailPage({
           </div>
           <div>
             <span className="text-ink-3">연락처</span>
-            <p>{client.contact_phone || "—"}</p>
+            <p>{client.contact_phone ? formatPhone(client.contact_phone) : "—"}</p>
           </div>
           <div>
             <span className="text-ink-3">이메일</span>
@@ -378,7 +379,7 @@ function ClientEditModal({
   onSubmit: (patch: Partial<Client>) => Promise<void>;
   pending: boolean;
 }) {
-  const [phone, setPhone] = useState(client.contact_phone ?? "");
+  const [phone, setPhone] = useState(digitsOnly(client.contact_phone ?? ""));
   const [email, setEmail] = useState(client.contact_email ?? "");
   const [err, setErr] = useState<string | null>(null);
 
@@ -397,7 +398,7 @@ function ClientEditModal({
               setErr(null);
               try {
                 await onSubmit({
-                  contact_phone: phone.trim() || null,
+                  contact_phone: digitsOnly(phone) || null,
                   contact_email: email.trim() || null,
                 });
               } catch (e) {
@@ -419,8 +420,8 @@ function ClientEditModal({
           <Input
             type="tel"
             placeholder="010-1234-5678"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            value={formatPhone(phone)}
+            onChange={(e) => setPhone(digitsOnly(e.target.value))}
           />
           <p className="text-xs text-ink-4 mt-1">
             알림톡·SMS 발송에 사용됩니다.

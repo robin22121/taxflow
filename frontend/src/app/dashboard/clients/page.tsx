@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { useBulkUploadClients, useClients, useCreateClient, useSendClientInvite } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
+import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
 
 export default function ClientsPage() {
   const { data, isLoading } = useClients();
@@ -86,9 +87,9 @@ export default function ClientsPage() {
                       {c.business_name}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-ink-2 t-num">{c.business_number || "—"}</td>
+                  <td className="px-4 py-3 text-ink-2 t-num">{c.business_number ? formatBizNumber(c.business_number) : "—"}</td>
                   <td className="px-4 py-3 text-ink-2">{c.representative || "—"}</td>
-                  <td className="px-4 py-3 text-ink-2">{c.contact_phone || "—"}</td>
+                  <td className="px-4 py-3 text-ink-2">{c.contact_phone ? formatPhone(c.contact_phone) : "—"}</td>
                   <td className="px-4 py-3 text-ink-2">{c.contact_email || "—"}</td>
                 </tr>
               ))}
@@ -191,9 +192,9 @@ function CreateClientModal({ onClose }: { onClose: () => void }) {
     try {
       const created = await create.mutateAsync({
         business_name: businessName.trim(),
-        business_number: businessNumber.trim() || null,
+        business_number: digitsOnly(businessNumber) || null,
         representative: representative.trim() || null,
-        contact_phone: contactPhone.trim() || null,
+        contact_phone: digitsOnly(contactPhone) || null,
         contact_email: contactEmail.trim() || null,
         is_corporation: isCorporation,
       });
@@ -244,8 +245,8 @@ function CreateClientModal({ onClose }: { onClose: () => void }) {
           <label className="block text-[12px] text-ink-3 mb-1">사업자번호</label>
           <Input
             placeholder="123-45-67890"
-            value={businessNumber}
-            onChange={(e) => setBusinessNumber(e.target.value)}
+            value={formatBizNumber(businessNumber)}
+            onChange={(e) => setBusinessNumber(digitsOnly(e.target.value))}
           />
         </div>
         <div>
@@ -261,8 +262,8 @@ function CreateClientModal({ onClose }: { onClose: () => void }) {
           <Input
             type="tel"
             placeholder="010-1234-5678"
-            value={contactPhone}
-            onChange={(e) => setContactPhone(e.target.value)}
+            value={formatPhone(contactPhone)}
+            onChange={(e) => setContactPhone(digitsOnly(e.target.value))}
           />
           <p className="text-[11px] text-ink-3 mt-1">알림톡·SMS 발송에 사용됩니다.</p>
         </div>
