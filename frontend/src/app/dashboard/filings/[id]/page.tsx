@@ -29,29 +29,13 @@ export default function FilingDetailPage({
   if (isLoading || !data) return <p>로딩 중...</p>;
 
   const filing = data.filing;
-  async function downloadFile(path: string, filename: string) {
-    try {
-      const blob = await apiBlob(path);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  }
-
   async function downloadExcel() {
     try {
-      const blob = await apiBlob(`/api/v1/filings/${id}/wehago-excel`);
+      const blob = await apiBlob(`/api/v1/filings/${id}/payroll-excel`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `wehago_${filing.period}.xlsx`;
+      a.download = `급여대장_${filing.period}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -85,19 +69,7 @@ export default function FilingDetailPage({
           >
             {requestCollection.isPending ? "발송중..." : "자료 요청 알림톡"}
           </Button>
-          <Button onClick={downloadExcel}>위하고T 엑셀 다운로드</Button>
-          <Button
-            variant="secondary"
-            onClick={() => downloadFile(`/api/v1/filings/${id}/statement-wage`, `간이지급명세서_근로_${filing.period}.xlsx`)}
-          >
-            근로소득 명세서
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => downloadFile(`/api/v1/filings/${id}/statement-business`, `간이지급명세서_사업_${filing.period}.xlsx`)}
-          >
-            사업소득 명세서
-          </Button>
+          <Button onClick={downloadExcel}>최종엑셀전송</Button>
         </div>
       </div>
 
@@ -232,6 +204,47 @@ function SessionDetail({
 
 function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollEntry[] }) {
   const update = useUpdateEntry(filingId);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Partial<PayrollEntry>>({});
+
+  function startEdit(e: PayrollEntry) {
+    setEditingId(e.id);
+    setDraft({
+      raw_name: e.raw_name,
+      income_type: e.income_type,
+      total_amount: e.total_amount,
+      income_tax: e.income_tax,
+      local_tax: e.local_tax,
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setDraft({});
+  }
+
+  function save(e: PayrollEntry) {
+    const patch: Partial<PayrollEntry> = {};
+    if (draft.raw_name !== undefined && draft.raw_name !== e.raw_name)
+      patch.raw_name = draft.raw_name;
+    if (draft.income_type !== undefined && draft.income_type !== e.income_type)
+      patch.income_type = draft.income_type;
+    if (draft.total_amount !== undefined && draft.total_amount !== e.total_amount)
+      patch.total_amount = draft.total_amount;
+    if (draft.income_tax !== undefined && draft.income_tax !== e.income_tax)
+      patch.income_tax = draft.income_tax;
+    if (draft.local_tax !== undefined && draft.local_tax !== e.local_tax)
+      patch.local_tax = draft.local_tax;
+    if (Object.keys(patch).length === 0) {
+      cancelEdit();
+      return;
+    }
+    update.mutate(
+      { id: e.id, patch },
+      { onSuccess: cancelEdit, onError: (err) => alert((err as Error).message) },
+    );
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -245,37 +258,151 @@ function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollE
             <th className="text-right py-2 pr-3">소득세</th>
             <th className="text-right py-2 pr-3">지방세</th>
             <th className="text-center py-2 pr-3">승인</th>
+            <th className="text-center py-2 pr-3">수정</th>
             <th className="text-left py-2">메모</th>
           </tr>
         </thead>
         <tbody>
-          {entries.map((e) => (
-            <tr key={e.id} className="border-b border-gray-100 dark:border-gray-900">
-              <td className="py-2 pr-3"><MatchBadge status={e.match_status} /></td>
-              <td className="py-2 pr-3 font-medium">{e.raw_name}</td>
-              <td className="py-2 pr-3">{e.income_type}</td>
-              <td className="py-2 pr-3 text-right">{formatKrw(e.total_amount)}</td>
-              <td className={"py-2 pr-3 text-right " + (e.anomaly_notes?.large_change ? "text-amber-600 font-medium" : "text-gray-500")}>
-                {e.prev_amount ? formatKrw(e.prev_amount) : "—"}
-              </td>
-              <td className="py-2 pr-3 text-right">{formatKrw(e.income_tax)}</td>
-              <td className="py-2 pr-3 text-right">{formatKrw(e.local_tax)}</td>
-              <td className="py-2 pr-3 text-center">
-                <input
-                  type="checkbox"
-                  checked={e.approved}
-                  onChange={(ev) =>
-                    update.mutate({ id: e.id, patch: { approved: ev.target.checked } })
+          {entries.map((e) => {
+            const isEditing = editingId === e.id;
+            return (
+              <tr
+                key={e.id}
+                onClick={() => !isEditing && startEdit(e)}
+                className={
+                  "border-b border-gray-100 dark:border-gray-900 cursor-pointer " +
+                  (isEditing
+                    ? "bg-blue-50 dark:bg-blue-950/30"
+                    : "hover:bg-gray-50 dark:hover:bg-gray-900/30")
+                }
+              >
+                <td className="py-2 pr-3">
+                  <MatchBadge status={e.match_status} />
+                </td>
+                <td className="py-2 pr-3 font-medium">
+                  {isEditing ? (
+                    <input
+                      className="w-24 px-1 py-0.5 border rounded text-sm"
+                      value={draft.raw_name ?? ""}
+                      onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })}
+                      onClick={(ev) => ev.stopPropagation()}
+                    />
+                  ) : (
+                    e.raw_name
+                  )}
+                </td>
+                <td className="py-2 pr-3">
+                  {isEditing ? (
+                    <select
+                      className="px-1 py-0.5 border rounded text-sm"
+                      value={draft.income_type ?? "WAGE"}
+                      onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}
+                      onClick={(ev) => ev.stopPropagation()}
+                    >
+                      <option value="WAGE">근로</option>
+                      <option value="BUSINESS">사업</option>
+                      <option value="OTHER">기타</option>
+                      <option value="DAILY">일용</option>
+                      <option value="RETIREMENT">퇴직</option>
+                    </select>
+                  ) : (
+                    e.income_type
+                  )}
+                </td>
+                <td className="py-2 pr-3 text-right">
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      className="w-24 px-1 py-0.5 border rounded text-sm text-right"
+                      value={draft.total_amount ?? 0}
+                      onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })}
+                      onClick={(ev) => ev.stopPropagation()}
+                    />
+                  ) : (
+                    formatKrw(e.total_amount)
+                  )}
+                </td>
+                <td
+                  className={
+                    "py-2 pr-3 text-right " +
+                    (e.anomaly_notes?.large_change ? "text-amber-600 font-medium" : "text-gray-500")
                   }
-                />
-              </td>
-              <td className="py-2 text-xs text-gray-500">
-                {e.anomaly_notes?.large_change
-                  ? `전월 대비 ${(e.anomaly_notes.large_change as { ratio: number }).ratio}배 변동`
-                  : ""}
-              </td>
-            </tr>
-          ))}
+                >
+                  {e.prev_amount ? formatKrw(e.prev_amount) : "—"}
+                </td>
+                <td className="py-2 pr-3 text-right">
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      className="w-20 px-1 py-0.5 border rounded text-sm text-right"
+                      value={draft.income_tax ?? 0}
+                      onChange={(ev) => setDraft({ ...draft, income_tax: Number(ev.target.value) || 0 })}
+                      onClick={(ev) => ev.stopPropagation()}
+                    />
+                  ) : (
+                    formatKrw(e.income_tax)
+                  )}
+                </td>
+                <td className="py-2 pr-3 text-right">
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      className="w-20 px-1 py-0.5 border rounded text-sm text-right"
+                      value={draft.local_tax ?? 0}
+                      onChange={(ev) => setDraft({ ...draft, local_tax: Number(ev.target.value) || 0 })}
+                      onClick={(ev) => ev.stopPropagation()}
+                    />
+                  ) : (
+                    formatKrw(e.local_tax)
+                  )}
+                </td>
+                <td className="py-2 pr-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={e.approved}
+                    onClick={(ev) => ev.stopPropagation()}
+                    onChange={(ev) =>
+                      update.mutate({ id: e.id, patch: { approved: ev.target.checked } })
+                    }
+                  />
+                </td>
+                <td
+                  className="py-2 pr-3 text-center"
+                  onClick={(ev) => ev.stopPropagation()}
+                >
+                  {isEditing ? (
+                    <div className="flex gap-1 justify-center">
+                      <button
+                        onClick={() => save(e)}
+                        className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                        disabled={update.isPending}
+                      >
+                        저장
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        className="px-2 py-0.5 text-xs border rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+                      >
+                        취소
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => startEdit(e)}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      수정
+                    </button>
+                  )}
+                </td>
+                <td className="py-2 text-xs text-gray-500">
+                  {e.anomaly_notes?.large_change
+                    ? `전월 대비 ${(e.anomaly_notes.large_change as { ratio: number }).ratio}배 변동`
+                    : ""}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

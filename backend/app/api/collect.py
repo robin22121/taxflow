@@ -180,22 +180,9 @@ async def _persist_results(
         )
     )
 
-    # Replace existing entries (never delete approved ones)
-    existing = (
-        await db.execute(
-            select(PayrollEntry).where(PayrollEntry.collection_session_id == session.id)
-        )
-    ).scalars().all()
-    if any(e.approved for e in existing):
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "이미 승인된 엔트리가 있습니다. 승인을 취소한 후 재수집하세요.",
-        )
-    for e in existing:
-        await db.delete(e)
-    await db.flush()
-
-    # Create new entries
+    # Append new entries — preserve existing rows.
+    # Same employee may end up with multiple entries; UI surfaces duplicates
+    # so the tax accountant can pick the correct one.
     emp_by_id = {e.id: e for e in employees}
     needs_followup_count = 0
 

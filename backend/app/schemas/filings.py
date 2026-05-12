@@ -58,9 +58,12 @@ class PayrollEntryOut(BaseModel):
 
 
 class PayrollEntryUpdate(BaseModel):
+    raw_name: str | None = None
     total_amount: int | None = None
     non_taxable: int | None = None
     income_type: str | None = None
+    income_tax: int | None = None
+    local_tax: int | None = None
     payment_date: date | None = None
     employee_id: str | None = None
     approved: bool | None = None

@@ -296,15 +296,18 @@ async def update_entry(
     if filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN)
 
-    for field_name, value in payload.model_dump(exclude_unset=True).items():
+    patch = payload.model_dump(exclude_unset=True)
+    for field_name, value in patch.items():
         if field_name == "income_type" and value is not None:
             from app.models.payroll import IncomeType
             entry.income_type = IncomeType(value)
             continue
         setattr(entry, field_name, value)
 
-    # Recompute taxes if money fields changed
-    if any(k in payload.model_dump(exclude_unset=True) for k in ("total_amount", "non_taxable", "income_type")):
+    # Recompute taxes only if money fields changed AND user did not manually
+    # set income_tax/local_tax in the same PATCH (manual values win).
+    manual_tax = "income_tax" in patch or "local_tax" in patch
+    if not manual_tax and any(k in patch for k in ("total_amount", "non_taxable", "income_type")):
         from app.services.tax_calc import calculate_withholding_tax
         entry.taxable = entry.total_amount - entry.non_taxable
         tax = calculate_withholding_tax(
