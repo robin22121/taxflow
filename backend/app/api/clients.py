@@ -5,7 +5,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
-from app.models import Client, Employee, EmploymentStatus, MonthlyFiling, TaxOffice, User
+from app.models import (
+    Client,
+    Employee,
+    EmploymentStatus,
+    MonthlyFiling,
+    MonthlyFilingStatus,
+    TaxOffice,
+    User,
+)
 from app.schemas.clients import (
     ClientCreate,
     ClientInviteResult,
@@ -15,7 +23,15 @@ from app.schemas.clients import (
     EmployeeOut,
 )
 from app.services.crypto import encrypt_rrn, mask_rrn
-from app.services.invite import send_invite_to_client
+from app.services.invite import get_or_create_session, send_invite_to_client
+
+
+# 신규 거래처가 자동 추가될 수 있는 활성 filing 상태 (제출·완료된 filing은 제외)
+_ACTIVE_FILING_STATUSES = (
+    MonthlyFilingStatus.DRAFT,
+    MonthlyFilingStatus.COLLECTING,
+    MonthlyFilingStatus.REVIEWING,
+)
 
 router = APIRouter()
 
@@ -46,8 +62,26 @@ async def create_client(
         representative=payload.representative,
         contact_phone=payload.contact_phone,
         contact_email=str(payload.contact_email) if payload.contact_email else None,
+        is_corporation=payload.is_corporation,
     )
     db.add(client)
+    await db.flush()  # client.id 확보
+
+    # 활성 월별신고가 있으면 자동으로 수집 세션 생성 → 신고 대시보드에 즉시 노출
+    active_filing = (
+        await db.execute(
+            select(MonthlyFiling)
+            .where(
+                MonthlyFiling.tax_office_id == user.tax_office_id,
+                MonthlyFiling.status.in_(_ACTIVE_FILING_STATUSES),
+            )
+            .order_by(MonthlyFiling.period.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if active_filing is not None:
+        await get_or_create_session(db, active_filing, client, ttl_days=30)
+
     await db.commit()
     await db.refresh(client)
     return client
