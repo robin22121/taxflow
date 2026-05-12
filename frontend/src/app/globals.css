@@ -1,15 +1,67 @@
 @import "tailwindcss";
 
+/* ============================================================
+   TaxFlow AI (이지원천) — Design Tokens
+   Pretendard + Geist, Blue accent, Stone neutrals
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Neutrals — cool gray */
+  --ink:     #101112;
+  --ink-2:   #2D2E30;
+  --ink-3:   #6F7076;
+  --ink-4:   #BABBBF;
+  --ink-5:   #E3E3E5;
+  --paper:   #FFFFFF;
+  --paper-2: #F4F4F6;
+
+  /* Primary accent — Blue */
+  --accent-50:  #D8E3FE;
+  --accent-100: #9BBBFD;
+  --accent-300: #4995FC;
+  --accent:     #1370CE;
+  --accent-2:   #0A4E92;
+  --accent-900: #042E5A;
+
+  /* Alert — Red */
+  --red-50:  #FED4D2;
+  --red-100: #FD9C97;
+  --red-300: #FC5649;
+  --red:     #CE2A10;
+  --red-700: #901A08;
+
+  /* Tertiary — Ochre */
+  --ochre-50: #EFFC49;
+  --ochre:    #A1AA2E;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 0 rgba(28,25,23,0.04), 0 4px 12px -8px rgba(28,25,23,0.06);
+  --shadow:    0 1px 0 rgba(28,25,23,0.05), 0 18px 36px -22px rgba(28,25,23,0.12);
+
+  --background: var(--paper);
+  --foreground: var(--ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-accent: var(--accent);
+  --color-accent-50: var(--accent-50);
+  --color-accent-100: var(--accent-100);
+  --color-accent-300: var(--accent-300);
+  --color-accent-700: var(--accent-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-ink-5: var(--ink-5);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-alert: var(--red);
+  --color-alert-50: var(--red-50);
+  --color-alert-700: var(--red-700);
+  --font-sans: 'Pretendard', 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,5 +74,14 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.011em;
+  word-break: keep-all;
+}
+
+/* Tabular numbers for data tables */
+.t-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
 }

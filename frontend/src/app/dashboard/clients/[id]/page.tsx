@@ -46,7 +46,7 @@ export default function ClientDetailPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="flex items-center gap-2 text-sm text-ink-3">
         <Link href="/dashboard/clients" className="hover:underline">
           거래처 관리
         </Link>
@@ -83,36 +83,36 @@ export default function ClientDetailPage({
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div>
-            <span className="text-gray-500">사업자번호</span>
+            <span className="text-ink-3">사업자번호</span>
             <p>{client.business_number || "—"}</p>
           </div>
           <div>
-            <span className="text-gray-500">대표자</span>
+            <span className="text-ink-3">대표자</span>
             <p>{client.representative || "—"}</p>
           </div>
           <div>
-            <span className="text-gray-500">연락처</span>
+            <span className="text-ink-3">연락처</span>
             <p>{client.contact_phone || "—"}</p>
           </div>
           <div>
-            <span className="text-gray-500">이메일</span>
+            <span className="text-ink-3">이메일</span>
             <p>{client.contact_email || "—"}</p>
           </div>
         </div>
         {client.collect_email && (
-          <div className="mt-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
-            <p className="text-xs text-gray-500 mb-1">전용 수신 이메일 (거래처 안내용)</p>
-            <p className="font-mono text-sm text-blue-700 dark:text-blue-300">
+          <div className="mt-3 p-3 rounded-lg bg-accent-50/30 border border-accent/20">
+            <p className="text-xs text-ink-3 mb-1">전용 수신 이메일 (거래처 안내용)</p>
+            <p className="font-mono text-sm text-accent">
               {client.collect_email}
             </p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-ink-3 mt-1">
               {client.invite_sent ? "✅ 초대장 발송 완료" : "⏳ 초대장 미발송"}
             </p>
           </div>
         )}
         {inviteResult && <InviteResultBanner result={inviteResult} />}
         {inviteError && (
-          <p className="mt-3 text-sm text-red-600">{inviteError}</p>
+          <p className="mt-3 text-sm text-alert">{inviteError}</p>
         )}
       </Card>
 
@@ -133,9 +133,9 @@ export default function ClientDetailPage({
         <h2 className="text-lg font-semibold mb-3">데이터 임포트</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Employee Import */}
-          <div className="space-y-2 p-4 rounded-lg border border-gray-200 dark:border-gray-800">
+          <div className="space-y-2 p-4 rounded-lg border border-ink-4">
             <h3 className="font-medium">직원 마스터 업로드</h3>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ink-3">
               위하고T 인적사항 엑셀 또는 자유 양식 (.xlsx, .csv)
             </p>
             <input
@@ -182,21 +182,21 @@ export default function ClientDetailPage({
           </div>
 
           {/* Payroll Import */}
-          <div className="space-y-2 p-4 rounded-lg border border-gray-200 dark:border-gray-800">
+          <div className="space-y-2 p-4 rounded-lg border border-ink-4">
             <h3 className="font-medium">전월 급여 업로드</h3>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ink-3">
               위하고T 원천징수이행상황신고서 엑셀 (.xlsx, .csv)
             </p>
             <div className="flex gap-2 items-end">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">
+                <label className="block text-xs text-ink-3 mb-1">
                   지급년월
                 </label>
                 <input
                   type="month"
                   value={payPeriod}
                   onChange={(e) => setPayPeriod(e.target.value)}
-                  className="rounded border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-sm"
+                  className="rounded-lg border border-ink-4 bg-transparent px-2 py-1 text-sm"
                 />
               </div>
               <input
@@ -248,7 +248,7 @@ export default function ClientDetailPage({
           </div>
         </div>
         {error && (
-          <p className="text-sm text-red-600 mt-3">{error}</p>
+          <p className="text-sm text-alert mt-3">{error}</p>
         )}
       </Card>
 
@@ -262,7 +262,7 @@ export default function ClientDetailPage({
         {employees && employees.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-xs text-gray-500 border-b border-gray-200 dark:border-gray-800">
+              <thead className="text-xs text-ink-3 border-b border-ink-4">
                 <tr>
                   <th className="text-left py-2 pr-3">이름</th>
                   <th className="text-left py-2 pr-3">사번</th>
@@ -276,19 +276,19 @@ export default function ClientDetailPage({
                 {employees.map((e) => (
                   <tr
                     key={e.id}
-                    className="border-b border-gray-100 dark:border-gray-900"
+                    className="border-b border-paper-2"
                   >
                     <td className="py-2 pr-3 font-medium">{e.name}</td>
-                    <td className="py-2 pr-3 text-gray-500">
+                    <td className="py-2 pr-3 text-ink-3">
                       {e.employee_code || "—"}
                     </td>
-                    <td className="py-2 pr-3 text-gray-500">
+                    <td className="py-2 pr-3 text-ink-3">
                       {e.rrn_last4 ? `******-*${e.rrn_last4}` : "—"}
                     </td>
-                    <td className="py-2 pr-3 text-gray-500">
+                    <td className="py-2 pr-3 text-ink-3">
                       {e.hired_at || "—"}
                     </td>
-                    <td className="py-2 pr-3 text-gray-500">
+                    <td className="py-2 pr-3 text-ink-3">
                       {e.resigned_at || "—"}
                     </td>
                     <td className="py-2">
@@ -300,7 +300,7 @@ export default function ClientDetailPage({
             </table>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-ink-3">
             등록된 직원이 없습니다. 위에서 직원 마스터를 업로드하세요.
           </p>
         )}
@@ -413,7 +413,7 @@ function ClientEditModal({
     >
       <div className="space-y-3 text-sm">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="block text-xs text-ink-3 mb-1">
             전화번호 (휴대폰)
           </label>
           <Input
@@ -422,23 +422,23 @@ function ClientEditModal({
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-ink-4 mt-1">
             알림톡·SMS 발송에 사용됩니다.
           </p>
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">이메일</label>
+          <label className="block text-xs text-ink-3 mb-1">이메일</label>
           <Input
             type="email"
             placeholder="contact@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-ink-4 mt-1">
             초대장 이메일이 이 주소로 발송됩니다.
           </p>
         </div>
-        {err && <p className="text-red-600">{err}</p>}
+        {err && <p className="text-alert">{err}</p>}
       </div>
     </Modal>
   );

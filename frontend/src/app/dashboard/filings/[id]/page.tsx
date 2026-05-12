@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import {
   useConfirmWithClient,
@@ -14,8 +15,10 @@ import {
   useUpdateEntry,
 } from "@/lib/queries";
 import { apiBlob, getToken } from "@/lib/api";
-import { Badge, Button, Card, Input, Modal, Textarea } from "@/components/ui";
+import { Badge, Button, Modal } from "@/components/ui";
 import type { CollectionSession, PayrollEntry, SessionAttachment, SourceEvent } from "@/lib/types";
+
+/* ═══ Main Page ═══ */
 
 export default function FilingDetailPage({
   params,
@@ -27,11 +30,40 @@ export default function FilingDetailPage({
   const { data: entries } = useFilingEntries(id);
   const sendInvite = useSendInvite(id);
   const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [reviewOnly, setReviewOnly] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
 
-  if (isLoading || !data) return <p>로딩 중...</p>;
+  const allEntries = entries ?? [];
+  const sessions = data?.sessions ?? [];
+
+  useEffect(() => {
+    if (sessions.length === 0) return;
+    if (!activeSession || !sessions.find((s) => s.id === activeSession)) {
+      setActiveSession(sessions[0].id);
+    }
+  }, [activeSession, sessions]);
+
+  if (isLoading || !data) {
+    return (
+      <div className="space-y-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-20 rounded-[14px] bg-paper animate-pulse border border-ink-5" />
+        ))}
+      </div>
+    );
+  }
 
   const filing = data.filing;
+  const selectedSession = sessions.find((s) => s.id === activeSession) ?? null;
+  const selectedEntries = selectedSession
+    ? allEntries.filter((e) => e.client_id === selectedSession.client_id)
+    : [];
+  const flaggedEntries = allEntries.filter(
+    (e) =>
+      (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) ||
+      e.match_status === "AMBIGUOUS",
+  );
+
   async function downloadExcel() {
     try {
       const blob = await apiBlob(`/api/v1/filings/${id}/payroll-excel`);
@@ -49,357 +81,642 @@ export default function FilingDetailPage({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between flex-wrap gap-3">
+    <div className="-m-6 flex flex-col" style={{ height: "100dvh" }}>
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-ink-4 bg-paper shrink-0">
         <div>
-          <h1 className="text-2xl font-semibold">{filing.period} 원천세</h1>
-          <p className="text-sm text-gray-500">
-            거래처 {filing.total_clients} · 항목 {filing.total_entries}
-          </p>
+          <div className="flex items-center gap-2 text-xs text-ink-3 mb-0.5">
+            <Link href="/dashboard" className="hover:underline">월별 신고</Link>
+            <span>/</span>
+            <span>{filing.period}</span>
+          </div>
+          <h1 className="text-lg font-bold tracking-tight">{filing.period} 원천세 신고</h1>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => setShowBulkConfirm(true)}
-            disabled={sendInvite.isPending}
-          >
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-ink-3">거래처 {filing.total_clients} · 항목 {filing.total_entries}</span>
+          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending}>
             {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
           </Button>
-          <Button onClick={downloadExcel}>최종엑셀전송</Button>
+          <Button variant="secondary" onClick={downloadExcel}>위하고T 엑셀</Button>
+          <Button>신고 완료 처리</Button>
         </div>
-
-        {showBulkConfirm && (
-          <Modal
-            open={true}
-            onClose={() => setShowBulkConfirm(false)}
-            title="자료요청 일괄전송"
-            footer={
-              <>
-                <Button variant="ghost" onClick={() => setShowBulkConfirm(false)}>
-                  취소
-                </Button>
-                <Button
-                  onClick={() => {
-                    setShowBulkConfirm(false);
-                    sendInvite.mutate();
-                  }}
-                >
-                  확인
-                </Button>
-              </>
-            }
-          >
-            <p className="text-sm text-gray-700 dark:text-gray-300">
-              모든 거래처에 자료요청 안내문을 보냅니다. 진행하시겠습니까?
-            </p>
-          </Modal>
-        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {data.sessions.map((s) => (
-          <SessionCard
-            key={s.id}
-            session={s}
-            active={activeSession === s.id}
-            onClick={() => setActiveSession(activeSession === s.id ? null : s.id)}
-          />
-        ))}
+      {/* Workflow strip */}
+      <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
+
+      {/* Filter / toggle bar */}
+      <div className="flex items-center justify-between px-5 py-2.5 border-b border-ink-4 bg-paper shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-ink-3">표시:</span>
+          <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
+            확인필요만 보기
+            {flaggedEntries.length > 0 && (
+              <span className="tabular-nums font-bold opacity-85">{flaggedEntries.length}</span>
+            )}
+          </TogglePill>
+          {!reviewOnly && selectedSession && (
+            <span className="text-xs text-ink-3">
+              선택: {selectedSession.client_name}
+              {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length > 0 &&
+                ` · 이상치 ${selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length}건`}
+            </span>
+          )}
+        </div>
+        <span className="text-xs text-ink-3">AI 자동검증 ON · 임계치 ±30%</span>
       </div>
 
-      {activeSession && (
-        <SessionDetail
+      {/* Body */}
+      {reviewOnly ? (
+        <ReviewOnlyMode filingId={id} entries={flaggedEntries} sessions={sessions} />
+      ) : (
+        <DefaultMode
           filingId={id}
-          session={data.sessions.find((s) => s.id === activeSession)!}
-          entries={(entries ?? []).filter((e) => e.client_id === data.sessions.find((s) => s.id === activeSession)?.client_id)}
+          sessions={sessions}
+          entries={allEntries}
+          activeSession={activeSession}
+          setActiveSession={setActiveSession}
+          selectedSession={selectedSession}
+          selectedEntries={selectedEntries}
         />
       )}
 
-      {!activeSession && entries && entries.length > 0 && (
-        <Card>
-          <h3 className="font-medium mb-3">전체 항목</h3>
-          <EntryTable filingId={id} entries={entries} />
-        </Card>
+      {showBulkConfirm && (
+        <Modal open={true} onClose={() => setShowBulkConfirm(false)} title="자료요청 일괄전송"
+          footer={<>
+            <Button variant="ghost" onClick={() => setShowBulkConfirm(false)}>취소</Button>
+            <Button onClick={() => { setShowBulkConfirm(false); sendInvite.mutate(); }}>확인</Button>
+          </>}>
+          <p className="text-[13px] text-ink-2">모든 거래처에 자료요청 안내문을 보냅니다. 진행하시겠습니까?</p>
+        </Modal>
       )}
     </div>
   );
 }
 
-function SessionCard({
-  session,
-  active,
-  onClick,
-}: {
-  session: CollectionSession;
-  active: boolean;
-  onClick: () => void;
+/* ═══ Workflow Strip ═══ */
+
+function WorkflowStrip({ sessions, entries, filingStatus }: {
+  sessions: CollectionSession[];
+  entries: PayrollEntry[];
+  filingStatus: string;
 }) {
+  const total = sessions.length || 1;
+  const sent = sessions.filter((s) => s.status !== "PENDING" && s.status !== "DRAFT").length;
+  const received = sessions.filter((s) => s.has_responses).length;
+  const verified = sessions.filter((s) => {
+    const se = entries.filter((e) => e.client_id === s.client_id);
+    return se.length > 0 && se.every((e) => !e.anomaly_notes || Object.keys(e.anomaly_notes).length === 0 || e.approved);
+  }).length;
+  const approved = sessions.filter((s) => {
+    const se = entries.filter((e) => e.client_id === s.client_id);
+    return se.length > 0 && se.every((e) => e.approved);
+  }).length;
+  const filed = filingStatus === "FILED" || filingStatus === "COMPLETED" ? 1 : 0;
+
+  const stages: [string, string, number, number][] = [
+    ["1", "초대 발송", sent, total],
+    ["2", "수신", received, total],
+    ["3", "검증", verified, received || 1],
+    ["4", "승인", approved, received || 1],
+    ["5", "신고", filed, 1],
+  ];
+
+  return (
+    <div className="flex items-center px-5 py-2.5 border-b border-ink-4 bg-paper shrink-0">
+      {stages.map(([n, label, done, stageTotal], i) => {
+        const pct = stageTotal ? Math.round((done / stageTotal) * 100) : 0;
+        const isLast = i === stages.length - 1;
+        return (
+          <div key={n} className="flex items-center" style={{ flex: isLast ? "0 0 auto" : 1 }}>
+            <div className="flex flex-col gap-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-ink-3 tabular-nums">{n}</span>
+                <span className="text-[13px] font-semibold">{label}</span>
+                <span className="text-xs text-ink-3 tabular-nums">{done}/{stageTotal}</span>
+              </div>
+              <div className="h-[3px] bg-paper-2 rounded-full overflow-hidden w-40">
+                <div className="h-full bg-ink rounded-full transition-all" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+            {!isLast && <div className="flex-1 border-t border-dashed border-ink-4 mx-4 min-w-4" />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ═══ Toggle Pill ═══ */
+
+function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
-      className={
-        "text-left rounded-lg border p-4 shadow-sm transition-colors " +
-        (active
-          ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
-          : "border-gray-200 bg-white hover:border-blue-400 dark:border-gray-800 dark:bg-gray-950")
-      }
+      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
+        on ? "bg-accent text-white border-accent" : "bg-paper text-ink-2 border-ink-4 hover:border-ink-3"
+      }`}
     >
-      <div className="flex items-center justify-between mb-2">
-        <div className="font-medium">{session.client_name}</div>
-        <SessionStatusBadge session={session} />
+      <span className={`relative inline-block w-[22px] h-3 rounded-full transition-colors ${on ? "bg-white/35" : "bg-ink-4"}`}>
+        <span className={`absolute top-[1px] w-[10px] h-[10px] rounded-full bg-white transition-all ${on ? "left-[11px]" : "left-[1px]"}`} />
+      </span>
+      {children}
+    </button>
+  );
+}
+
+/* ═══ Default 3-Pane Mode ═══ */
+
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries }: {
+  filingId: string;
+  sessions: CollectionSession[];
+  entries: PayrollEntry[];
+  activeSession: string | null;
+  setActiveSession: (id: string | null) => void;
+  selectedSession: CollectionSession | null;
+  selectedEntries: PayrollEntry[];
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = search
+    ? sessions.filter((s) => s.client_name.toLowerCase().includes(search.toLowerCase()))
+    : sessions;
+
+  return (
+    <div className="flex flex-1 min-h-0">
+      {/* LEFT — Session list */}
+      <div className="w-64 border-r border-ink-4 bg-paper flex flex-col shrink-0">
+        <div className="px-3 pt-3 pb-2 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] font-semibold">거래처 {sessions.length}</span>
+            <span className="text-xs text-ink-3">확인 {sessions.filter((s) => s.has_anomalies).length}</span>
+          </div>
+          <input
+            type="text"
+            placeholder="거래처 검색…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-ink-4 bg-paper px-2.5 py-1.5 text-xs placeholder:text-ink-3 outline-none focus:border-accent"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto px-1.5 pb-3 space-y-0.5">
+          {filtered.map((s) => (
+            <SessionItem key={s.id} session={s} entries={entries} active={s.id === activeSession} onClick={() => setActiveSession(s.id)} />
+          ))}
+        </div>
       </div>
-      <div className="text-xs text-gray-500">
-        {session.has_responses ? `${session.entry_count}개 항목` : "미수신"}
+
+      {/* CENTER — Original docs */}
+      <div className="w-[300px] border-r border-ink-4 bg-paper flex flex-col shrink-0">
+        {selectedSession ? (
+          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-sm text-ink-3">좌측에서 거래처를 선택하세요</div>
+        )}
+      </div>
+
+      {/* RIGHT — AI table */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        {selectedSession ? (
+          <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-sm text-ink-3">거래처를 선택하면 AI 추출 결과가 표시됩니다</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══ Session List Item ═══ */
+
+function SessionItem({ session, entries, active, onClick }: {
+  session: CollectionSession;
+  entries: PayrollEntry[];
+  active: boolean;
+  onClick: () => void;
+}) {
+  const se = entries.filter((e) => e.client_id === session.client_id);
+  const newHire = se.filter((e) => e.match_status === "NEW_HIRE_SUSPECTED").length;
+  const resigned = se.filter((e) => e.match_status === "RESIGNATION_SUSPECTED").length;
+  const review = se.filter(
+    (e) => (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) || e.match_status === "AMBIGUOUS",
+  ).length;
+
+  const status = (() => {
+    if (review > 0) return "확인필요";
+    if (se.length > 0 && se.every((e) => e.approved)) return "완료";
+    if (se.length > 0) return "검토중";
+    if (session.status === "SENT") return "수신대기";
+    return "대기";
+  })();
+
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left px-3 py-2.5 rounded-[10px] transition-all ${
+        active ? "bg-paper-2 border border-ink-3" : "border border-transparent hover:bg-paper-2"
+      }`}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {review > 0 && <span className="w-1.5 h-1.5 rounded-full bg-alert shrink-0" />}
+          <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
+        </div>
+        <span className="text-[11px] text-ink-3 shrink-0">{status}</span>
+      </div>
+      <div className="flex gap-1.5 text-[11px] text-ink-3">
+        {se.length > 0 && <span className="tabular-nums">{se.length}명</span>}
+        {newHire > 0 && <><span>·</span><span className="tabular-nums">신규 {newHire}</span></>}
+        {resigned > 0 && <><span>·</span><span className="tabular-nums">퇴사 {resigned}</span></>}
+        {review > 0 && <><span>·</span><span className="tabular-nums text-alert font-semibold">확인 {review}</span></>}
+        {se.length === 0 && <span>미수신</span>}
       </div>
     </button>
   );
 }
 
-function SessionStatusBadge({ session }: { session: CollectionSession }) {
-  if (session.has_anomalies) return <Badge tone="warning">검증 필요</Badge>;
-  if (session.status === "RECEIVED" || session.status === "APPROVED")
-    return <Badge tone="success">수신완료</Badge>;
-  if (session.status === "SENT") return <Badge tone="info">대기중</Badge>;
-  if (session.status === "NEEDS_REVIEW") return <Badge tone="warning">검증 필요</Badge>;
-  return <Badge>대기</Badge>;
-}
+/* ═══ Center Pane (Original Docs) ═══ */
 
-function SessionDetail({
-  filingId,
-  session,
-  entries,
-}: {
+function CenterPane({ filingId, session, entries }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
 }) {
+  const { data: attachments } = useSessionAttachments(filingId, session.id);
   const submit = useSubmitMessage(filingId);
-  const confirmWithClient = useConfirmWithClient(filingId);
   const requestCollection = useRequestCollection(filingId);
+  const [showInput, setShowInput] = useState(false);
   const [text, setText] = useState("");
   const [senderName, setSenderName] = useState("");
   const [channel, setChannel] = useState("kakao");
-  const [receivedDate, setReceivedDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
-  const [confirmResult, setConfirmResult] = useState<{
-    sent: boolean;
-    channel: string;
-    error: string | null;
-  } | null>(null);
-  const [sourceModal, setSourceModal] = useState<SourceEvent | null>(null);
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [zoomKey, setZoomKey] = useState<string | null>(null);
+
+  const sourceTexts = useMemo(() => {
+    const seen = new Set<string>();
+    return entries
+      .filter((e) => e.source_event?.raw_text)
+      .map((e) => e.source_event!)
+      .filter((se) => {
+        if (seen.has(se.id)) return false;
+        seen.add(se.id);
+        return true;
+      });
+  }, [entries]);
+
+  const publicUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`;
 
   return (
-    <Card className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h3 className="font-medium">{session.client_name} — 자료 입력 / 검증</h3>
-        <div className="flex items-center gap-3 text-xs">
-          <a
-            href={`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`}
-            target="_blank"
-            className="text-blue-600 hover:underline"
-          >
-            공개 입력 URL ↗
-          </a>
-          <Button
-            variant="secondary"
-            disabled={requestCollection.isPending}
-            onClick={() => requestCollection.mutate(session.id)}
-          >
-            {requestCollection.isPending ? "발송중..." : "자료 요청 알림톡"}
-          </Button>
-          <Button
-            variant="secondary"
+    <>
+      <div className="flex items-center justify-between px-3.5 py-3 border-b border-ink-4 shrink-0">
+        <div>
+          <div className="text-[13px] font-semibold">원본 자료</div>
+          <div className="text-[11px] text-ink-3">
+            {session.client_name}
+            {sourceTexts.length > 0 && ` · ${channelLabel(sourceTexts[0].channel)} ${sourceTexts[0].received_date || ""}`}
+          </div>
+        </div>
+        <div className="flex gap-1.5 text-[11px]">
+          <a href={publicUrl} target="_blank" className="text-accent hover:underline">URL↗</a>
+          <span className="text-ink-4">|</span>
+          <button onClick={() => requestCollection.mutate(session.id)} disabled={requestCollection.isPending} className="text-accent hover:underline disabled:opacity-50">
+            {requestCollection.isPending ? "발송중..." : "자료요청"}
+          </button>
+          <span className="text-ink-4">|</span>
+          <button onClick={() => setShowInput((v) => !v)} className="text-accent hover:underline">수동입력</button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
+        {attachments && attachments.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            {attachments.map((a) => (
+              <AttachmentThumb key={a.storage_key} filingId={filingId} sessionId={session.id} att={a} onClick={() => setZoomKey(a.storage_key)} />
+            ))}
+          </div>
+        )}
+
+        {sourceTexts.map((se) => (
+          <div key={se.id} className="p-3 rounded-lg bg-paper-2">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className="text-xs">🤖</span>
+              <span className="text-xs font-semibold">AI 텍스트 추출</span>
+            </div>
+            <div className="text-[13px] leading-relaxed text-ink-2 whitespace-pre-wrap">{se.raw_text}</div>
+          </div>
+        ))}
+
+        {(!attachments || attachments.length === 0) && sourceTexts.length === 0 && (
+          <div className="text-center py-8 text-sm text-ink-3">아직 수신된 자료가 없습니다</div>
+        )}
+
+        {showInput && (
+          <div className="space-y-2 border-t border-ink-4 pt-3">
+            <label className="block text-xs font-medium text-ink-2">메시지 원본 입력</label>
+            <input placeholder="발신자명" value={senderName} onChange={(e) => setSenderName(e.target.value)}
+              className="w-full rounded-md border border-ink-4 bg-paper px-2.5 py-1.5 text-xs outline-none focus:border-accent" />
+            <div className="flex gap-1.5">
+              <select value={channel} onChange={(e) => setChannel(e.target.value)}
+                className="flex-1 rounded-md border border-ink-4 bg-paper px-2 py-1.5 text-xs">
+                <option value="kakao">카카오톡</option>
+                <option value="email">이메일</option>
+                <option value="sms">문자</option>
+                <option value="voice">전화</option>
+                <option value="manual">직접</option>
+              </select>
+              <input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)}
+                className="flex-1 rounded-md border border-ink-4 bg-paper px-2 py-1.5 text-xs" />
+            </div>
+            <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="메시지 원본을 붙여넣으세요..."
+              className="w-full rounded-md border border-ink-4 bg-paper px-2.5 py-1.5 text-xs outline-none focus:border-accent resize-none" />
+            <Button className="w-full" onClick={() => {
+              if (!text.trim() || !senderName.trim()) return;
+              submit.mutate(
+                { sessionId: session.id, text, channel, sender_name: senderName.trim(), received_date: receivedDate },
+                { onSuccess: () => { setText(""); setShowInput(false); }, onError: (e) => alert((e as Error).message) },
+              );
+            }} disabled={submit.isPending || !text.trim() || !senderName.trim()}>
+              {submit.isPending ? "AI 파싱 중..." : "AI 파싱 실행"}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {zoomKey && attachments && (
+        <AttachmentZoomModal filingId={filingId} sessionId={session.id} att={attachments.find((a) => a.storage_key === zoomKey)!} onClose={() => setZoomKey(null)} />
+      )}
+    </>
+  );
+}
+
+/* ═══ Right Pane (AI Table) ═══ */
+
+function RightPane({ filingId, session, entries }: {
+  filingId: string;
+  session: CollectionSession;
+  entries: PayrollEntry[];
+}) {
+  const update = useUpdateEntry(filingId);
+  const remove = useDeleteEntry(filingId);
+  const confirmWithClient = useConfirmWithClient(filingId);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Partial<PayrollEntry>>({});
+  const [confirmResult, setConfirmResult] = useState<{ sent: boolean; channel: string; error: string | null } | null>(null);
+
+  function startEdit(e: PayrollEntry) {
+    setEditingId(e.id);
+    setDraft({ raw_name: e.raw_name, income_type: e.income_type, total_amount: e.total_amount, income_tax: e.income_tax, local_tax: e.local_tax });
+  }
+  function cancelEdit() { setEditingId(null); setDraft({}); }
+  function save(e: PayrollEntry) {
+    const patch: Partial<PayrollEntry> = {};
+    if (draft.raw_name !== undefined && draft.raw_name !== e.raw_name) patch.raw_name = draft.raw_name;
+    if (draft.income_type !== undefined && draft.income_type !== e.income_type) patch.income_type = draft.income_type;
+    if (draft.total_amount !== undefined && draft.total_amount !== e.total_amount) patch.total_amount = draft.total_amount;
+    if (draft.income_tax !== undefined && draft.income_tax !== e.income_tax) patch.income_tax = draft.income_tax;
+    if (draft.local_tax !== undefined && draft.local_tax !== e.local_tax) patch.local_tax = draft.local_tax;
+    if (Object.keys(patch).length === 0) { cancelEdit(); return; }
+    update.mutate({ id: e.id, patch }, { onSuccess: cancelEdit, onError: (err) => alert((err as Error).message) });
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-ink-4 shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-semibold">AI 추출 결과</span>
+          {entries.length > 0 && <span className="text-xs text-ink-3">{entries.filter((e) => e.approved).length}/{entries.length} 승인</span>}
+        </div>
+        <div className="flex gap-1.5">
+          <Button variant="secondary" className="text-xs px-2.5 py-1.5"
             disabled={confirmWithClient.isPending || entries.length === 0}
             onClick={() => {
               setConfirmResult(null);
               confirmWithClient.mutate(
                 { sessionId: session.id, channel: "auto" },
-                {
-                  onSuccess: (res) => setConfirmResult(res),
-                  onError: (e) =>
-                    setConfirmResult({
-                      sent: false,
-                      channel: "error",
-                      error: (e as Error).message,
-                    }),
-                },
+                { onSuccess: (res) => setConfirmResult(res), onError: (e) => setConfirmResult({ sent: false, channel: "error", error: (e as Error).message }) },
               );
-            }}
-            title={
-              entries.length === 0
-                ? "파싱된 항목이 있어야 발송 가능합니다"
-                : "거래처에 AI 인식 결과를 같은 채널로 회신"
-            }
-          >
-            {confirmWithClient.isPending
-              ? "발송 중..."
-              : "거래처에 인식 결과 확인 요청"}
+            }}>
+            {confirmWithClient.isPending ? "발송중..." : "확인요청"}
+          </Button>
+          <Button className="text-xs px-2.5 py-1.5"
+            onClick={() => entries.filter((e) => !e.approved).forEach((e) => update.mutate({ id: e.id, patch: { approved: true } }))}
+            disabled={entries.every((e) => e.approved)}>
+            일괄 승인
           </Button>
         </div>
       </div>
 
       {confirmResult && (
-        <div
-          className={
-            confirmResult.sent
-              ? "text-xs text-green-700 dark:text-green-300"
-              : "text-xs text-amber-700 dark:text-amber-300"
-          }
-        >
-          {confirmResult.sent
-            ? `✅ ${confirmResult.channel}로 발송 완료`
-            : `⚠️ 발송 실패 (${confirmResult.channel}) — ${confirmResult.error ?? "알 수 없는 오류"}`}
+        <div className={`px-4 py-1.5 text-xs border-b border-ink-4 ${confirmResult.sent ? "text-accent" : "text-alert"}`}>
+          {confirmResult.sent ? `✅ ${confirmResult.channel}로 발송 완료` : `⚠️ 발송 실패 — ${confirmResult.error ?? "알 수 없는 오류"}`}
         </div>
       )}
 
-      <AttachmentPanel filingId={filingId} sessionId={session.id} />
-
-      <div className="space-y-3 border-t border-gray-200 dark:border-gray-800 pt-3">
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
-          거래처가 보낸 메시지 원본 입력
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="block text-[11px] text-gray-500 mb-0.5">
-              발신자 <span className="text-red-500">*</span>
-            </label>
-            <Input
-              placeholder="홍길동 대표"
-              value={senderName}
-              onChange={(e) => setSenderName(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] text-gray-500 mb-0.5">
-              수신 경로 <span className="text-red-500">*</span>
-            </label>
-            <select
-              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-              value={channel}
-              onChange={(e) => setChannel(e.target.value)}
-            >
-              <option value="kakao">카카오톡</option>
-              <option value="email">이메일</option>
-              <option value="sms">문자(SMS)</option>
-              <option value="voice">전화/음성</option>
-              <option value="manual">직접 입력</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-[11px] text-gray-500 mb-0.5">
-              보낸 날짜 <span className="text-red-500">*</span>
-            </label>
-            <Input
-              type="date"
-              value={receivedDate}
-              onChange={(e) => setReceivedDate(e.target.value)}
-            />
-          </div>
-        </div>
-        <Textarea
-          rows={5}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={"예) 이번달 김연호 100, 박민수는 신규입사 150, 이영수는 퇴사했어요"}
-        />
-        <Button
-          onClick={() => {
-            if (!text.trim() || !senderName.trim() || !receivedDate) return;
-            submit.mutate(
-              {
-                sessionId: session.id,
-                text,
-                channel,
-                sender_name: senderName.trim(),
-                received_date: receivedDate,
-              },
-              {
-                onSuccess: () => setText(""),
-                onError: (e) => alert((e as Error).message),
-              },
-            );
-          }}
-          disabled={
-            submit.isPending ||
-            !text.trim() ||
-            !senderName.trim() ||
-            !receivedDate
-          }
-        >
-          {submit.isPending ? "AI 파싱 중..." : "AI 파싱 실행"}
-        </Button>
+      <div className="flex-1 overflow-auto">
+        {entries.length > 0 ? (
+          <table className="w-full text-[12px]">
+            <thead className="text-[11px] text-ink-3 border-b border-ink-4 sticky top-0 bg-paper">
+              <tr>
+                <th className="w-7 py-2 pl-4">
+                  <input type="checkbox" checked={entries.length > 0 && entries.every((e) => e.approved)}
+                    onChange={() => {
+                      const all = entries.every((e) => e.approved);
+                      entries.forEach((e) => { if (e.approved !== !all) update.mutate({ id: e.id, patch: { approved: !all } }); });
+                    }} />
+                </th>
+                <th className="text-left py-2 pl-2">직원 · 구분</th>
+                <th className="text-right py-2 pr-3">전월</th>
+                <th className="text-right py-2 pr-3">이번달</th>
+                <th className="text-right py-2 pr-4">변동</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => {
+                const isEditing = editingId === e.id;
+                const hasFlag = !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved);
+                const diff = computeDiff(e);
+                return (
+                  <tr key={e.id} onClick={() => !isEditing && startEdit(e)}
+                    className={`border-b border-paper-2 cursor-pointer transition-colors ${hasFlag ? "bg-alert-50/20" : isEditing ? "bg-accent-50/30" : "hover:bg-paper-2"}`}>
+                    <td className="py-2 pl-4" onClick={(ev) => ev.stopPropagation()}>
+                      <input type="checkbox" checked={e.approved} onChange={(ev) => update.mutate({ id: e.id, patch: { approved: ev.target.checked } })} />
+                    </td>
+                    <td className="py-2 pl-2">
+                      {isEditing ? (
+                        <div className="space-y-1" onClick={(ev) => ev.stopPropagation()}>
+                          <input className="w-20 px-1 py-0.5 border rounded text-xs" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
+                          <select className="px-1 py-0.5 border rounded text-xs" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
+                            <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
+                          </select>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-semibold text-[12px]">{e.raw_name}</div>
+                          <div className="text-[11px] text-ink-3">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-right text-ink-3 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">
+                      {isEditing ? (
+                        <input type="number" className="w-20 px-1 py-0.5 border rounded text-xs text-right" value={draft.total_amount ?? 0}
+                          onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })} onClick={(ev) => ev.stopPropagation()} />
+                      ) : (
+                        <span className={hasFlag ? "text-alert font-semibold" : ""}>{formatKrw(e.total_amount)}</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4 text-right">
+                      {isEditing ? (
+                        <div className="flex gap-1 justify-end" onClick={(ev) => ev.stopPropagation()}>
+                          <button onClick={() => save(e)} className="px-2 py-0.5 text-[11px] bg-accent text-white rounded-full" disabled={update.isPending}>저장</button>
+                          <button onClick={cancelEdit} className="px-2 py-0.5 text-[11px] border rounded-full hover:bg-paper-2">취소</button>
+                          <button onClick={() => { if (window.confirm(`${e.raw_name} 삭제?`)) { remove.mutate(e.id); cancelEdit(); } }}
+                            className="px-2 py-0.5 text-[11px] text-alert border border-alert/25 rounded-full">삭제</button>
+                        </div>
+                      ) : diff ? (
+                        <span className={`text-[11px] font-semibold tabular-nums ${hasFlag ? "text-alert" : "text-ink-3"}`}>{diff}</span>
+                      ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
+                        <span className="text-[11px] text-accent font-semibold">신규</span>
+                      ) : e.match_status === "RESIGNATION_SUSPECTED" ? (
+                        <span className="text-[11px] text-ink-3 font-semibold">퇴사</span>
+                      ) : (
+                        <span className="text-[11px] text-ink-3">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <div className="flex items-center justify-center h-full text-sm text-ink-3">아직 파싱된 항목이 없습니다</div>
+        )}
       </div>
-
-      {entries.length > 0 ? (
-        <EntryTable
-          filingId={filingId}
-          entries={entries}
-          onShowSource={setSourceModal}
-        />
-      ) : (
-        <p className="text-sm text-gray-500">아직 파싱된 항목이 없습니다.</p>
-      )}
-
-      {sourceModal && (
-        <SourceEventModal
-          event={sourceModal}
-          onClose={() => setSourceModal(null)}
-        />
-      )}
-    </Card>
+    </>
   );
 }
 
-function AttachmentPanel({ filingId, sessionId }: { filingId: string; sessionId: string }) {
-  const { data: attachments } = useSessionAttachments(filingId, sessionId);
-  const [zoomKey, setZoomKey] = useState<string | null>(null);
+/* ═══ Review Only Mode ═══ */
 
-  if (!attachments || attachments.length === 0) return null;
+function ReviewOnlyMode({ filingId, entries, sessions }: {
+  filingId: string;
+  entries: PayrollEntry[];
+  sessions: CollectionSession[];
+}) {
+  const update = useUpdateEntry(filingId);
+  const total = entries.length;
+  const processed = entries.filter((e) => e.approved).length;
+
+  if (total === 0) {
+    return <div className="flex-1 flex items-center justify-center bg-paper-2 text-sm text-ink-3">확인이 필요한 항목이 없습니다</div>;
+  }
 
   return (
-    <div className="space-y-2 border-t border-gray-200 dark:border-gray-800 pt-3">
-      <div className="flex items-baseline justify-between">
-        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          거래처가 보낸 원본 첨부 ({attachments.length}개)
-        </h4>
-        <span className="text-xs text-gray-500">
-          AI 추출 결과가 원본과 일치하는지 확인하세요
-        </span>
+    <div className="flex-1 flex flex-col min-h-0 bg-paper-2">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-ink-4 bg-paper shrink-0">
+        <div className="flex items-center gap-4">
+          <span className="text-base font-bold text-alert">확인필요 {total}건</span>
+          <span className="text-xs text-ink-3">이상치 {entries.filter((e) => e.anomaly_notes?.large_change).length}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-[120px] h-1 bg-paper-2 border border-ink-4 rounded-full overflow-hidden">
+            <div className="h-full bg-ink rounded-full transition-all" style={{ width: `${total ? (processed / total) * 100 : 0}%` }} />
+          </div>
+          <span className="text-xs tabular-nums"><b>{processed}</b> / {total} 처리</span>
+        </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
-        {attachments.map((a) => (
-          <AttachmentThumb
-            key={a.storage_key}
-            filingId={filingId}
-            sessionId={sessionId}
-            att={a}
-            onClick={() => setZoomKey(a.storage_key)}
-          />
-        ))}
+
+      <div className="flex-1 overflow-y-auto p-5 space-y-3">
+        {entries.map((e, idx) => {
+          const clientName = sessions.find((s) => s.client_id === e.client_id)?.client_name ?? "—";
+          const prev = e.prev_amount ?? 0;
+          const curr = e.total_amount;
+          const pctChange = prev ? Math.round(((curr - prev) / prev) * 100) : null;
+          const anomalyType = e.anomaly_notes?.large_change
+            ? `이상치 ${pctChange != null && pctChange > 0 ? "+" : ""}${pctChange}%`
+            : e.match_status === "AMBIGUOUS" ? "이름매칭" : "확인필요";
+          const reason = e.anomaly_notes?.large_change
+            ? `전월 대비 임계치(±30%) 초과. 변동 비율: ${pctChange}%`
+            : e.match_status === "AMBIGUOUS"
+              ? "기존 직원 목록에서 정확히 매칭되는 이름을 찾지 못했습니다."
+              : "확인이 필요한 항목입니다.";
+
+          if (e.approved) {
+            return (
+              <div key={e.id} className="rounded-[14px] border border-ink-4 bg-paper p-4 opacity-60">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs tabular-nums text-ink-3">{idx + 1} / {total}</span>
+                  <span className="text-xs font-semibold text-ink-3">{clientName} · {e.raw_name}</span>
+                  <Badge tone="success">승인됨</Badge>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={e.id} className="rounded-[14px] border border-ink-4 bg-paper p-4 space-y-3 shadow-[0_1px_0_rgba(28,25,23,0.04),0_8px_24px_-16px_rgba(28,25,23,0.08)]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs tabular-nums text-ink-3">{idx + 1} / {total}</span>
+                  <span className="h-3 w-px bg-ink-4" />
+                  <span className="text-xs text-alert font-semibold">{anomalyType}</span>
+                  <span className="text-xs text-ink-3">{clientName} · {e.raw_name}</span>
+                </div>
+                <div className="flex gap-1.5">
+                  <Button variant="ghost" className="text-xs px-2.5 py-1">건너뛰기</Button>
+                  <Button variant="danger" className="text-xs px-2.5 py-1">거부</Button>
+                  <Button className="text-xs px-2.5 py-1" onClick={() => update.mutate({ id: e.id, patch: { approved: true } })} disabled={update.isPending}>
+                    승인 · 다음
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-ink-3 mb-1">전월</div>
+                  <div className="rounded-lg border border-ink-4 p-3">
+                    <div className="text-xl font-bold tabular-nums text-ink-3">{prev ? `₩ ${prev.toLocaleString()}` : "—"}</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-alert mb-1">이번달 · AI 추출</div>
+                  <div className="rounded-lg border border-alert/30 bg-alert-50/30 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xl font-bold tabular-nums text-alert">₩ {curr.toLocaleString()}</div>
+                      {pctChange != null && (
+                        <div className="text-lg font-bold tabular-nums text-alert">{pctChange > 0 ? "+" : ""}{pctChange}%</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-paper-2 p-3">
+                <div className="text-xs font-semibold mb-0.5">판단 근거</div>
+                <div className="text-[13px] text-ink-2">{reason}</div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-ink-3">빠른 수정:</span>
+                {prev > 0 && (
+                  <button onClick={() => update.mutate({ id: e.id, patch: { total_amount: prev, approved: true } })}
+                    className="px-2.5 py-1 rounded-full border border-ink-4 text-xs hover:bg-paper-2 transition-colors" disabled={update.isPending}>
+                    전월값 사용
+                  </button>
+                )}
+                <button className="px-2.5 py-1 rounded-full border border-ink-4 text-xs hover:bg-paper-2 transition-colors">직접 입력…</button>
+              </div>
+            </div>
+          );
+        })}
       </div>
-      {zoomKey && (
-        <AttachmentZoomModal
-          filingId={filingId}
-          sessionId={sessionId}
-          att={attachments.find((a) => a.storage_key === zoomKey)!}
-          onClose={() => setZoomKey(null)}
-        />
-      )}
     </div>
   );
 }
 
-function AttachmentThumb({
-  filingId,
-  sessionId,
-  att,
-  onClick,
-}: {
-  filingId: string;
-  sessionId: string;
-  att: SessionAttachment;
-  onClick: () => void;
+/* ═══ Attachment Components ═══ */
+
+function AttachmentThumb({ filingId, sessionId, att, onClick }: {
+  filingId: string; sessionId: string; att: SessionAttachment; onClick: () => void;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -409,79 +726,39 @@ function AttachmentThumb({
     if (!showInline) return;
     let cancelled = false;
     let url: string | null = null;
-    apiBlob(
-      `/api/v1/filings/${filingId}/sessions/${sessionId}/attachments/raw?key=${encodeURIComponent(att.storage_key)}`,
-    )
-      .then((blob) => {
-        if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setBlobUrl(url);
-      })
+    apiBlob(`/api/v1/filings/${filingId}/sessions/${sessionId}/attachments/raw?key=${encodeURIComponent(att.storage_key)}`)
+      .then((blob) => { if (cancelled) return; url = URL.createObjectURL(blob); setBlobUrl(url); })
       .catch((e) => !cancelled && setError((e as Error).message));
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [filingId, sessionId, att.storage_key, showInline]);
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex flex-col items-stretch text-left rounded-md border border-gray-200 dark:border-gray-800 overflow-hidden hover:border-blue-400 transition-colors"
-    >
-      <div className="aspect-square bg-gray-50 dark:bg-gray-900 flex items-center justify-center text-xs text-gray-500">
+    <button type="button" onClick={onClick}
+      className="group flex flex-col items-stretch text-left rounded-lg border border-ink-4 overflow-hidden hover:border-accent transition-colors">
+      <div className="aspect-square bg-paper-2 flex items-center justify-center text-xs text-ink-3">
         {showInline && blobUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={blobUrl}
-            alt={att.filename}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-          />
+          <img src={blobUrl} alt={att.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
         ) : showInline && !blobUrl && !error ? (
           <span>로딩...</span>
         ) : error ? (
-          <span className="text-red-600 px-2 text-center">{error}</span>
+          <span className="text-alert px-2 text-center">{error}</span>
         ) : (
           <KindIcon kind={att.kind} />
         )}
       </div>
-      <div className="px-2 py-1 text-xs truncate" title={att.filename}>
-        {att.filename}
-      </div>
-      <div className="px-2 pb-1 text-[10px] text-gray-500">
-        {att.kind} · {att.channel}
-      </div>
+      <div className="px-2 py-1 text-[11px] truncate">{att.filename}</div>
     </button>
   );
 }
 
 function KindIcon({ kind }: { kind: string }) {
-  const label = {
-    pdf: "PDF",
-    excel: "엑셀",
-    csv: "CSV",
-    audio: "음성",
-    image: "이미지",
-  }[kind] ?? kind;
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="text-2xl">📎</div>
-      <div className="text-xs font-medium">{label}</div>
-    </div>
-  );
+  const label = { pdf: "PDF", excel: "엑셀", csv: "CSV", audio: "음성", image: "이미지" }[kind] ?? kind;
+  return <div className="flex flex-col items-center gap-1"><div className="text-2xl">📎</div><div className="text-xs font-medium">{label}</div></div>;
 }
 
-function AttachmentZoomModal({
-  filingId,
-  sessionId,
-  att,
-  onClose,
-}: {
-  filingId: string;
-  sessionId: string;
-  att: SessionAttachment;
-  onClose: () => void;
+function AttachmentZoomModal({ filingId, sessionId, att, onClose }: {
+  filingId: string; sessionId: string; att: SessionAttachment; onClose: () => void;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -489,345 +766,50 @@ function AttachmentZoomModal({
   useEffect(() => {
     let cancelled = false;
     let url: string | null = null;
-    apiBlob(
-      `/api/v1/filings/${filingId}/sessions/${sessionId}/attachments/raw?key=${encodeURIComponent(att.storage_key)}`,
-    )
-      .then((blob) => {
-        if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setBlobUrl(url);
-      })
+    apiBlob(`/api/v1/filings/${filingId}/sessions/${sessionId}/attachments/raw?key=${encodeURIComponent(att.storage_key)}`)
+      .then((blob) => { if (cancelled) return; url = URL.createObjectURL(blob); setBlobUrl(url); })
       .catch((e) => !cancelled && setError((e as Error).message));
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [filingId, sessionId, att.storage_key]);
 
   return (
-    <Modal
-      open={true}
-      onClose={onClose}
-      title={att.filename}
-      footer={
-        blobUrl ? (
-          <a
-            href={blobUrl}
-            download={att.filename}
-            className="text-sm text-blue-600 hover:underline"
-          >
-            다운로드
-          </a>
-        ) : null
-      }
-    >
-      <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900 rounded">
-        {error ? (
-          <p className="text-red-600 p-4">{error}</p>
-        ) : !blobUrl ? (
-          <p className="p-8 text-gray-500">로딩 중...</p>
-        ) : att.kind === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={blobUrl} alt={att.filename} className="max-w-full" />
-        ) : att.kind === "pdf" ? (
-          <iframe src={blobUrl} className="w-full h-[70vh]" title={att.filename} />
-        ) : (
-          <p className="p-4 text-sm text-gray-600">
-            미리보기를 지원하지 않는 형식입니다. 다운로드 후 확인하세요.
-          </p>
-        )}
+    <Modal open={true} onClose={onClose} title={att.filename}
+      footer={blobUrl ? <a href={blobUrl} download={att.filename} className="text-sm text-accent hover:underline">다운로드</a> : null}>
+      <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-paper-2 rounded">
+        {error ? <p className="text-alert p-4">{error}</p>
+          : !blobUrl ? <p className="p-8 text-ink-3">로딩 중...</p>
+          : att.kind === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={blobUrl} alt={att.filename} className="max-w-full" />
+          ) : att.kind === "pdf" ? (
+            <iframe src={blobUrl} className="w-full h-[70vh]" title={att.filename} />
+          ) : (
+            <p className="p-4 text-sm text-ink-2">미리보기 미지원. 다운로드 후 확인하세요.</p>
+          )}
       </div>
     </Modal>
   );
 }
 
-function EntryTable({
-  filingId,
-  entries,
-  onShowSource,
-}: {
-  filingId: string;
-  entries: PayrollEntry[];
-  onShowSource?: (event: SourceEvent) => void;
-}) {
-  const update = useUpdateEntry(filingId);
-  const remove = useDeleteEntry(filingId);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Partial<PayrollEntry>>({});
-
-  const dupGroups = useMemo(() => {
-    const map = new Map<string, PayrollEntry[]>();
-    for (const e of entries) {
-      const key = e.employee_id ?? `__name:${e.raw_name}`;
-      const list = map.get(key) ?? [];
-      list.push(e);
-      map.set(key, list);
-    }
-    return map;
-  }, [entries]);
-
-  function dupInfoFor(e: PayrollEntry): { count: number; index: number } {
-    const key = e.employee_id ?? `__name:${e.raw_name}`;
-    const group = dupGroups.get(key) ?? [];
-    const idx = group.findIndex((x) => x.id === e.id);
-    return { count: group.length, index: idx + 1 };
-  }
-
-  function confirmDelete(e: PayrollEntry) {
-    if (!window.confirm(`${e.raw_name} 항목을 삭제할까요?`)) return;
-    remove.mutate(e.id, {
-      onError: (err) => alert((err as Error).message),
-    });
-  }
-
-  function startEdit(e: PayrollEntry) {
-    setEditingId(e.id);
-    setDraft({
-      raw_name: e.raw_name,
-      income_type: e.income_type,
-      total_amount: e.total_amount,
-      income_tax: e.income_tax,
-      local_tax: e.local_tax,
-    });
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setDraft({});
-  }
-
-  function save(e: PayrollEntry) {
-    const patch: Partial<PayrollEntry> = {};
-    if (draft.raw_name !== undefined && draft.raw_name !== e.raw_name)
-      patch.raw_name = draft.raw_name;
-    if (draft.income_type !== undefined && draft.income_type !== e.income_type)
-      patch.income_type = draft.income_type;
-    if (draft.total_amount !== undefined && draft.total_amount !== e.total_amount)
-      patch.total_amount = draft.total_amount;
-    if (draft.income_tax !== undefined && draft.income_tax !== e.income_tax)
-      patch.income_tax = draft.income_tax;
-    if (draft.local_tax !== undefined && draft.local_tax !== e.local_tax)
-      patch.local_tax = draft.local_tax;
-    if (Object.keys(patch).length === 0) {
-      cancelEdit();
-      return;
-    }
-    update.mutate(
-      { id: e.id, patch },
-      { onSuccess: cancelEdit, onError: (err) => alert((err as Error).message) },
-    );
-  }
-
+function SourceEventModal({ event, onClose }: { event: SourceEvent; onClose: () => void }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="text-xs text-gray-500 border-b border-gray-200 dark:border-gray-800">
-          <tr>
-            <th className="text-left py-2 pr-3">상태</th>
-            <th className="text-left py-2 pr-3">이름</th>
-            <th className="text-left py-2 pr-3">소득구분</th>
-            <th className="text-center py-2 pr-3">출처</th>
-            <th className="text-right py-2 pr-3">총지급액</th>
-            <th className="text-right py-2 pr-3">전월</th>
-            <th className="text-right py-2 pr-3">소득세</th>
-            <th className="text-right py-2 pr-3">지방세</th>
-            <th className="text-center py-2 pr-3">승인</th>
-            <th className="text-center py-2 pr-3">수정</th>
-            <th className="text-left py-2">메모</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => {
-            const isEditing = editingId === e.id;
-            const dup = dupInfoFor(e);
-            return (
-              <tr
-                key={e.id}
-                onClick={() => !isEditing && startEdit(e)}
-                className={
-                  "border-b border-gray-100 dark:border-gray-900 cursor-pointer " +
-                  (isEditing
-                    ? "bg-blue-50 dark:bg-blue-950/30"
-                    : dup.count > 1
-                      ? "bg-amber-50/40 hover:bg-amber-50 dark:bg-amber-950/10 dark:hover:bg-amber-950/30"
-                      : "hover:bg-gray-50 dark:hover:bg-gray-900/30")
-                }
-              >
-                <td className="py-2 pr-3">
-                  <div className="flex flex-col gap-0.5 items-start">
-                    <MatchBadge status={e.match_status} />
-                    {dup.count > 1 && (
-                      <Badge tone="warning">중복 {dup.index}/{dup.count}</Badge>
-                    )}
-                  </div>
-                </td>
-                <td className="py-2 pr-3 font-medium">
-                  {isEditing ? (
-                    <input
-                      className="w-24 px-1 py-0.5 border rounded text-sm"
-                      value={draft.raw_name ?? ""}
-                      onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })}
-                      onClick={(ev) => ev.stopPropagation()}
-                    />
-                  ) : (
-                    e.raw_name
-                  )}
-                </td>
-                <td className="py-2 pr-3">
-                  {isEditing ? (
-                    <select
-                      className="px-1 py-0.5 border rounded text-sm"
-                      value={draft.income_type ?? "WAGE"}
-                      onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}
-                      onClick={(ev) => ev.stopPropagation()}
-                    >
-                      <option value="WAGE">근로</option>
-                      <option value="BUSINESS">사업</option>
-                      <option value="OTHER">기타</option>
-                      <option value="DAILY">일용</option>
-                      <option value="RETIREMENT">퇴직</option>
-                    </select>
-                  ) : (
-                    e.income_type
-                  )}
-                </td>
-                <td
-                  className="py-2 pr-3 text-center"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    if (e.source_event && onShowSource) onShowSource(e.source_event);
-                  }}
-                >
-                  {e.source_event ? (
-                    <button
-                      className="text-[11px] text-blue-600 hover:underline leading-tight"
-                      title="클릭하여 원본 메시지 보기"
-                    >
-                      {channelLabel(e.source_event.channel)}
-                      <br />
-                      <span className="text-gray-500">
-                        {e.source_event.sender_name || "—"}
-                      </span>
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-gray-400">—</span>
-                  )}
-                </td>
-                <td className="py-2 pr-3 text-right">
-                  {isEditing ? (
-                    <input
-                      type="number"
-                      className="w-24 px-1 py-0.5 border rounded text-sm text-right"
-                      value={draft.total_amount ?? 0}
-                      onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })}
-                      onClick={(ev) => ev.stopPropagation()}
-                    />
-                  ) : (
-                    formatKrw(e.total_amount)
-                  )}
-                </td>
-                <td
-                  className={
-                    "py-2 pr-3 text-right " +
-                    (e.anomaly_notes?.large_change ? "text-amber-600 font-medium" : "text-gray-500")
-                  }
-                >
-                  {e.prev_amount ? formatKrw(e.prev_amount) : "—"}
-                </td>
-                <td className="py-2 pr-3 text-right">
-                  {isEditing ? (
-                    <input
-                      type="number"
-                      className="w-20 px-1 py-0.5 border rounded text-sm text-right"
-                      value={draft.income_tax ?? 0}
-                      onChange={(ev) => setDraft({ ...draft, income_tax: Number(ev.target.value) || 0 })}
-                      onClick={(ev) => ev.stopPropagation()}
-                    />
-                  ) : (
-                    formatKrw(e.income_tax)
-                  )}
-                </td>
-                <td className="py-2 pr-3 text-right">
-                  {isEditing ? (
-                    <input
-                      type="number"
-                      className="w-20 px-1 py-0.5 border rounded text-sm text-right"
-                      value={draft.local_tax ?? 0}
-                      onChange={(ev) => setDraft({ ...draft, local_tax: Number(ev.target.value) || 0 })}
-                      onClick={(ev) => ev.stopPropagation()}
-                    />
-                  ) : (
-                    formatKrw(e.local_tax)
-                  )}
-                </td>
-                <td className="py-2 pr-3 text-center">
-                  <input
-                    type="checkbox"
-                    checked={e.approved}
-                    onClick={(ev) => ev.stopPropagation()}
-                    onChange={(ev) =>
-                      update.mutate({ id: e.id, patch: { approved: ev.target.checked } })
-                    }
-                  />
-                </td>
-                <td
-                  className="py-2 pr-3 text-center"
-                  onClick={(ev) => ev.stopPropagation()}
-                >
-                  {isEditing ? (
-                    <div className="flex gap-1 justify-center">
-                      <button
-                        onClick={() => save(e)}
-                        className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                        disabled={update.isPending}
-                      >
-                        저장
-                      </button>
-                      <button
-                        onClick={cancelEdit}
-                        className="px-2 py-0.5 text-xs border rounded hover:bg-gray-100 dark:hover:bg-gray-800"
-                      >
-                        취소
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2 justify-center">
-                      <button
-                        onClick={() => startEdit(e)}
-                        className="text-xs text-blue-600 hover:underline"
-                      >
-                        수정
-                      </button>
-                      <button
-                        onClick={() => confirmDelete(e)}
-                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                        disabled={remove.isPending}
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  )}
-                </td>
-                <td className="py-2 text-xs text-gray-500">
-                  {e.anomaly_notes?.large_change
-                    ? `전월 대비 ${(e.anomaly_notes.large_change as { ratio: number }).ratio}배 변동`
-                    : ""}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <Modal open={true} onClose={onClose} title="원본 메시지 상세">
+      <div className="space-y-3 text-sm">
+        <div className="grid grid-cols-3 gap-3">
+          <div><div className="text-[11px] text-ink-3 mb-0.5">발신자</div><div className="font-medium">{event.sender_name || "—"}</div></div>
+          <div><div className="text-[11px] text-ink-3 mb-0.5">경로</div><div className="font-medium">{channelLabel(event.channel)}</div></div>
+          <div><div className="text-[11px] text-ink-3 mb-0.5">보낸 날짜</div><div className="font-medium">{event.received_date || "—"}</div></div>
+        </div>
+        <div>
+          <div className="text-[11px] text-ink-3 mb-1">원본 텍스트</div>
+          <pre className="whitespace-pre-wrap bg-paper-2 rounded p-3 text-xs max-h-60 overflow-auto border border-ink-4">{event.raw_text || "(텍스트 없음)"}</pre>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
-function MatchBadge({ status }: { status: string }) {
-  if (status === "MATCHED") return <Badge tone="success">기존직원</Badge>;
-  if (status === "NEW_HIRE_SUSPECTED") return <Badge tone="info">신규</Badge>;
-  if (status === "RESIGNATION_SUSPECTED") return <Badge tone="warning">퇴사</Badge>;
-  return <Badge tone="warning">확인필요</Badge>;
-}
+/* ═══ Utilities ═══ */
 
 function formatKrw(n: number | null | undefined): string {
   if (!n) return "—";
@@ -835,56 +817,19 @@ function formatKrw(n: number | null | undefined): string {
 }
 
 function channelLabel(ch: string | null): string {
-  const map: Record<string, string> = {
-    kakao: "카톡",
-    email: "이메일",
-    sms: "문자",
-    voice: "전화",
-    manual: "직접입력",
-    public_url: "URL폼",
-  };
   if (!ch) return "—";
-  return map[ch] ?? ch;
+  return { kakao: "카톡", email: "이메일", sms: "문자", voice: "전화", manual: "직접입력", public_url: "URL폼" }[ch] ?? ch;
 }
 
-function SourceEventModal({
-  event,
-  onClose,
-}: {
-  event: SourceEvent;
-  onClose: () => void;
-}) {
-  return (
-    <Modal open={true} onClose={onClose} title="원본 메시지 상세">
-      <div className="space-y-3 text-sm">
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <div className="text-[11px] text-gray-500 mb-0.5">발신자</div>
-            <div className="font-medium">{event.sender_name || "—"}</div>
-          </div>
-          <div>
-            <div className="text-[11px] text-gray-500 mb-0.5">경로</div>
-            <div className="font-medium">{channelLabel(event.channel)}</div>
-          </div>
-          <div>
-            <div className="text-[11px] text-gray-500 mb-0.5">보낸 날짜</div>
-            <div className="font-medium">{event.received_date || "—"}</div>
-          </div>
-        </div>
-        <div>
-          <div className="text-[11px] text-gray-500 mb-1">원본 텍스트</div>
-          <pre className="whitespace-pre-wrap bg-gray-50 dark:bg-gray-900 rounded p-3 text-xs max-h-60 overflow-auto border border-gray-200 dark:border-gray-800">
-            {event.raw_text || "(텍스트 없음)"}
-          </pre>
-        </div>
-        {event.created_at && (
-          <div className="text-[11px] text-gray-400">
-            시스템 수신: {new Date(event.created_at).toLocaleString("ko-KR")}
-          </div>
-        )}
-      </div>
-    </Modal>
-  );
+function incomeLabel(type: string): string {
+  return { WAGE: "일반근로", BUSINESS: "사업소득", OTHER: "기타소득", DAILY: "일용근로", RETIREMENT: "퇴직소득" }[type] ?? type;
 }
 
-void getToken; // ensure side-effects (browser-only file)
+function computeDiff(e: PayrollEntry): string | null {
+  if (!e.prev_amount || e.prev_amount === 0) return null;
+  if (e.total_amount === e.prev_amount) return "—";
+  const pct = Math.round(((e.total_amount - e.prev_amount) / e.prev_amount) * 100);
+  return pct > 0 ? `+${pct}%` : `${pct}%`;
+}
+
+void getToken;
