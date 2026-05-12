@@ -39,7 +39,7 @@ services:
       - key: APP_PUBLIC_URL
         value: https://www.easyonechon.co.kr
       - key: CORS_EXTRA_ORIGINS
-        value: https://easyonechon.co.kr
+        value: https://easyonechon.co.kr,https://taxflow-gamma.vercel.app
       - key: GEMINI_API_KEY
         sync: false
       - key: PYTHON_VERSION
