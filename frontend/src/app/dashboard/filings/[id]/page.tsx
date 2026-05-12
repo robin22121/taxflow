@@ -15,7 +15,7 @@ import {
   useUpdateEntry,
 } from "@/lib/queries";
 import { apiBlob, getToken } from "@/lib/api";
-import { Badge, Button, Modal } from "@/components/ui";
+import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
 import type { CollectionSession, PayrollEntry, SessionAttachment, SourceEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -47,7 +47,7 @@ export default function FilingDetailPage({
     return (
       <div className="space-y-4">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-20 rounded-[14px] bg-paper animate-pulse border border-ink-5" />
+          <div key={i} className="h-20 rounded-[14px] bg-gray-50 animate-pulse border border-gray-200" />
         ))}
       </div>
     );
@@ -63,6 +63,12 @@ export default function FilingDetailPage({
       (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) ||
       e.match_status === "AMBIGUOUS",
   );
+
+  // Deadline calculation
+  const deadlineDay = 10;
+  const [year, month] = filing.period.split("-").map(Number);
+  const deadlineDate = new Date(month === 12 ? year + 1 : year, month === 12 ? 0 : month, deadlineDay);
+  const daysLeft = Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
   async function downloadExcel() {
     try {
@@ -82,48 +88,69 @@ export default function FilingDetailPage({
 
   return (
     <div className="-m-6 flex flex-col" style={{ height: "100dvh" }}>
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-ink-4 bg-paper shrink-0">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-ink-3 mb-0.5">
-            <Link href="/dashboard" className="hover:underline">월별 신고</Link>
-            <span>/</span>
-            <span>{filing.period}</span>
+      {/* Top bar — Hi-fi style */}
+      <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-white shrink-0" style={{ height: 64 }}>
+        <div className="flex items-center gap-5">
+          <div>
+            <Eyebrow>월별 신고 · {filing.period}</Eyebrow>
+            <h1 className="text-[22px] font-bold tracking-tight leading-tight mt-0.5">
+              <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
+                {Number(filing.period.split("-")[1])}월 원천세 신고
+              </Link>
+            </h1>
           </div>
-          <h1 className="text-lg font-bold tracking-tight">{filing.period} 원천세 신고</h1>
+          <div className="h-8 w-px bg-gray-200" />
+          <div>
+            <span className={`text-[10.5px] font-semibold uppercase tracking-widest ${daysLeft <= 5 ? "text-red-600" : "text-gray-500"}`}>
+              마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
+            </span>
+            <div className="text-[13px] font-semibold mt-0.5">
+              {deadlineDate.getMonth() + 1}월 {deadlineDate.getDate()}일
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-ink-3">거래처 {filing.total_clients} · 항목 {filing.total_entries}</span>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={downloadExcel}>위하고T 엑셀</Button>
           <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending}>
             {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
           </Button>
-          <Button variant="secondary" onClick={downloadExcel}>위하고T 엑셀</Button>
           <Button>신고 완료 처리</Button>
         </div>
       </div>
 
-      {/* Workflow strip */}
+      {/* Workflow strip — 5-segment progress bars */}
       <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
 
       {/* Filter / toggle bar */}
-      <div className="flex items-center justify-between px-5 py-2.5 border-b border-ink-4 bg-paper shrink-0">
+      <div className="flex items-center justify-between px-6 py-2.5 border-b border-gray-200 bg-white shrink-0">
         <div className="flex items-center gap-3">
-          <span className="text-xs text-ink-3">표시:</span>
+          <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">표시 모드</span>
           <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
             확인필요만 보기
             {flaggedEntries.length > 0 && (
-              <span className="tabular-nums font-bold opacity-85">{flaggedEntries.length}</span>
+              <span className={`ml-1 px-1.5 py-px rounded-full text-[11px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
+                {flaggedEntries.length}
+              </span>
             )}
           </TogglePill>
           {!reviewOnly && selectedSession && (
-            <span className="text-xs text-ink-3">
-              선택: {selectedSession.client_name}
-              {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length > 0 &&
-                ` · 이상치 ${selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length}건`}
-            </span>
+            <div className="flex items-center gap-2 ml-2">
+              <span className="text-xs text-gray-500">선택</span>
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-600 border border-blue-100">
+                {selectedSession.client_name}
+              </span>
+              {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length > 0 && (
+                <span className="text-xs text-gray-500">
+                  이상치 {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length}건
+                </span>
+              )}
+            </div>
           )}
         </div>
-        <span className="text-xs text-ink-3">AI 자동검증 ON · 임계치 ±30%</span>
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-50 text-[11.5px] text-gray-600 border border-gray-200">
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+          AI 자동검증 ON · 임계치 ±30%
+        </span>
       </div>
 
       {/* Body */}
@@ -147,14 +174,14 @@ export default function FilingDetailPage({
             <Button variant="ghost" onClick={() => setShowBulkConfirm(false)}>취소</Button>
             <Button onClick={() => { setShowBulkConfirm(false); sendInvite.mutate(); }}>확인</Button>
           </>}>
-          <p className="text-[13px] text-ink-2">모든 거래처에 자료요청 안내문을 보냅니다. 진행하시겠습니까?</p>
+          <p className="text-[13px] text-gray-700">모든 거래처에 자료요청 안내문을 보냅니다. 진행하시겠습니까?</p>
         </Modal>
       )}
     </div>
   );
 }
 
-/* ═══ Workflow Strip ═══ */
+/* ═══ Workflow Strip — 5-segment grid ═══ */
 
 function WorkflowStrip({ sessions, entries, filingStatus }: {
   sessions: CollectionSession[];
@@ -174,32 +201,33 @@ function WorkflowStrip({ sessions, entries, filingStatus }: {
   }).length;
   const filed = filingStatus === "FILED" || filingStatus === "COMPLETED" ? 1 : 0;
 
-  const stages: [string, string, number, number][] = [
-    ["1", "초대 발송", sent, total],
-    ["2", "수신", received, total],
-    ["3", "검증", verified, received || 1],
-    ["4", "승인", approved, received || 1],
-    ["5", "신고", filed, 1],
+  const stages: { n: number; label: string; done: number; total: number; alert?: boolean }[] = [
+    { n: 1, label: "초대 발송", done: sent, total },
+    { n: 2, label: "수신", done: received, total },
+    { n: 3, label: "검증", done: verified, total: received || 1, alert: received > verified },
+    { n: 4, label: "승인", done: approved, total: received || 1 },
+    { n: 5, label: "신고", done: filed, total: 1 },
   ];
 
   return (
-    <div className="flex items-center px-5 py-2.5 border-b border-ink-4 bg-paper shrink-0">
-      {stages.map(([n, label, done, stageTotal], i) => {
-        const pct = stageTotal ? Math.round((done / stageTotal) * 100) : 0;
-        const isLast = i === stages.length - 1;
+    <div className="grid grid-cols-5 gap-1.5 px-6 py-3 border-b border-gray-200 bg-white shrink-0">
+      {stages.map((s) => {
+        const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
         return (
-          <div key={n} className="flex items-center" style={{ flex: isLast ? "0 0 auto" : 1 }}>
-            <div className="flex flex-col gap-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-ink-3 tabular-nums">{n}</span>
-                <span className="text-[13px] font-semibold">{label}</span>
-                <span className="text-xs text-ink-3 tabular-nums">{done}/{stageTotal}</span>
-              </div>
-              <div className="h-[3px] bg-paper-2 rounded-full overflow-hidden w-40">
-                <div className="h-full bg-ink rounded-full transition-all" style={{ width: `${pct}%` }} />
-              </div>
+          <div key={s.n} className="flex flex-col gap-1.5">
+            <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${s.alert ? "bg-red-500" : "bg-gray-900"}`}
+                style={{ width: `${pct}%` }}
+              />
             </div>
-            {!isLast && <div className="flex-1 border-t border-dashed border-ink-4 mx-4 min-w-4" />}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[13px] font-semibold">{s.label}</span>
+                {s.alert && <span className="w-[5px] h-[5px] rounded-full bg-red-500" />}
+              </div>
+              <span className="text-xs text-gray-500 tabular-nums">{s.done}/{s.total}</span>
+            </div>
           </div>
         );
       })}
@@ -214,11 +242,11 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
     <button
       onClick={onClick}
       className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
-        on ? "bg-accent text-white border-accent" : "bg-paper text-ink-2 border-ink-4 hover:border-ink-3"
+        on ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
       }`}
     >
-      <span className={`relative inline-block w-[22px] h-3 rounded-full transition-colors ${on ? "bg-white/35" : "bg-ink-4"}`}>
-        <span className={`absolute top-[1px] w-[10px] h-[10px] rounded-full bg-white transition-all ${on ? "left-[11px]" : "left-[1px]"}`} />
+      <span className={`relative inline-block w-[22px] h-3 rounded-full transition-colors ${on ? "bg-white/25" : "bg-gray-200"}`}>
+        <span className={`absolute top-[1px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all ${on ? "left-[11px]" : "left-[1px]"}`} />
       </span>
       {children}
     </button>
@@ -237,49 +265,78 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   selectedEntries: PayrollEntry[];
 }) {
   const [search, setSearch] = useState("");
-  const filtered = search
-    ? sessions.filter((s) => s.client_name.toLowerCase().includes(search.toLowerCase()))
-    : sessions;
+  const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
+
+  const filtered = sessions.filter((s) => {
+    if (search && !s.client_name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filter === "review") {
+      const se = entries.filter((e) => e.client_id === s.client_id);
+      return se.some((e) => (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) || e.match_status === "AMBIGUOUS");
+    }
+    if (filter === "waiting") return s.status === "SENT" || s.status === "PENDING" || s.status === "DRAFT";
+    return true;
+  });
+
+  const reviewCount = sessions.filter((s) => {
+    const se = entries.filter((e) => e.client_id === s.client_id);
+    return se.some((e) => (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) || e.match_status === "AMBIGUOUS");
+  }).length;
+  const waitingCount = sessions.filter((s) => s.status === "SENT" || s.status === "PENDING" || s.status === "DRAFT").length;
 
   return (
-    <div className="flex flex-1 min-h-0">
+    <div className="flex flex-1 min-h-0 bg-gray-50">
       {/* LEFT — Session list */}
-      <div className="w-64 border-r border-ink-4 bg-paper flex flex-col shrink-0">
-        <div className="px-3 pt-3 pb-2 space-y-2">
+      <div className="w-[280px] border-r border-gray-200 bg-white flex flex-col shrink-0">
+        <div className="px-3.5 pt-3.5 pb-2 space-y-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-[13px] font-semibold">거래처 {sessions.length}</span>
-            <span className="text-xs text-ink-3">확인 {sessions.filter((s) => s.has_anomalies).length}</span>
+            <span className="text-[15px] font-semibold">거래처 {sessions.length}</span>
+          </div>
+          {/* Filter chips */}
+          <div className="inline-flex items-center p-0.5 rounded-full bg-gray-50 border border-gray-200 text-[11.5px]">
+            {([["all", `전체`], ["review", `확인 ${reviewCount}`], ["waiting", `대기 ${waitingCount}`]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setFilter(key)}
+                className={`px-2.5 py-1 rounded-full font-medium transition-all ${filter === key ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           <input
             type="text"
-            placeholder="거래처 검색…"
+            placeholder="거래처 검색..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-ink-4 bg-paper px-2.5 py-1.5 text-xs placeholder:text-ink-3 outline-none focus:border-accent"
+            className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs placeholder:text-gray-400 outline-none focus:border-blue-500"
           />
         </div>
-        <div className="flex-1 overflow-y-auto px-1.5 pb-3 space-y-0.5">
+        <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
           {filtered.map((s) => (
             <SessionItem key={s.id} session={s} entries={entries} active={s.id === activeSession} onClick={() => setActiveSession(s.id)} />
           ))}
         </div>
       </div>
 
-      {/* CENTER — Original docs */}
-      <div className="w-[300px] border-r border-ink-4 bg-paper flex flex-col shrink-0">
+      {/* CENTER — Original docs (bezel card) */}
+      <div className="w-[320px] p-3 flex flex-col shrink-0">
         {selectedSession ? (
-          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+          <BezelCard className="flex-1 flex flex-col min-h-0">
+            <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+          </BezelCard>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-ink-3">좌측에서 거래처를 선택하세요</div>
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
         )}
       </div>
 
-      {/* RIGHT — AI table */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      {/* RIGHT — AI table (bezel card) */}
+      <div className="flex-1 min-w-0 p-3 pl-0 flex flex-col">
         {selectedSession ? (
-          <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+          <BezelCard className="flex-1 flex flex-col min-h-0">
+            <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+          </BezelCard>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-ink-3">거래처를 선택하면 AI 추출 결과가 표시됩니다</div>
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">거래처를 선택하면 AI 추출 결과가 표시됩니다</div>
         )}
       </div>
     </div>
@@ -309,25 +366,30 @@ function SessionItem({ session, entries, active, onClick }: {
     return "대기";
   })();
 
+  const isDotted = status === "수신대기" || status === "대기";
+
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-3 py-2.5 rounded-[10px] transition-all ${
-        active ? "bg-paper-2 border border-ink-3" : "border border-transparent hover:bg-paper-2"
+      className={`w-full text-left px-3 py-2.5 rounded-[12px] transition-all ${
+        active
+          ? "bg-white border border-gray-300 shadow-[0_1px_0_rgba(28,25,23,0.04),0_8px_22px_-14px_rgba(28,25,23,0.10)]"
+          : "border border-transparent hover:bg-gray-50"
       }`}
     >
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 min-w-0">
-          {review > 0 && <span className="w-1.5 h-1.5 rounded-full bg-alert shrink-0" />}
+          {review > 0 && <span className="w-[7px] h-[7px] rounded-full bg-red-500 shrink-0 shadow-[0_0_0_3px_rgba(185,28,28,0.10)]" />}
+          {isDotted && review === 0 && <span className="w-[7px] h-[7px] rounded-full bg-gray-300 shrink-0" />}
           <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
         </div>
-        <span className="text-[11px] text-ink-3 shrink-0">{status}</span>
+        <span className="text-[11px] text-gray-500 shrink-0">{status}</span>
       </div>
-      <div className="flex gap-1.5 text-[11px] text-ink-3">
+      <div className="flex gap-1.5 text-[11.5px] text-gray-500">
         {se.length > 0 && <span className="tabular-nums">{se.length}명</span>}
-        {newHire > 0 && <><span>·</span><span className="tabular-nums">신규 {newHire}</span></>}
-        {resigned > 0 && <><span>·</span><span className="tabular-nums">퇴사 {resigned}</span></>}
-        {review > 0 && <><span>·</span><span className="tabular-nums text-alert font-semibold">확인 {review}</span></>}
+        {newHire > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">신규 {newHire}</span></>}
+        {resigned > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">퇴사 {resigned}</span></>}
+        {review > 0 && <><span className="opacity-50">·</span><span className="tabular-nums text-red-600 font-bold">확인 {review}</span></>}
         {se.length === 0 && <span>미수신</span>}
       </div>
     </button>
@@ -367,22 +429,23 @@ function CenterPane({ filingId, session, entries }: {
 
   return (
     <>
-      <div className="flex items-center justify-between px-3.5 py-3 border-b border-ink-4 shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
         <div>
-          <div className="text-[13px] font-semibold">원본 자료</div>
-          <div className="text-[11px] text-ink-3">
-            {session.client_name}
-            {sourceTexts.length > 0 && ` · ${channelLabel(sourceTexts[0].channel)} ${sourceTexts[0].received_date || ""}`}
+          <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">원본 자료 · {session.client_name}</span>
+          <div className="text-[15px] font-semibold mt-0.5">
+            {sourceTexts.length > 0
+              ? `${sourceTexts.length}개 · ${sourceTexts[0].received_date || ""} ${channelLabel(sourceTexts[0].channel)}`
+              : "자료 대기중"}
           </div>
         </div>
         <div className="flex gap-1.5 text-[11px]">
-          <a href={publicUrl} target="_blank" className="text-accent hover:underline">URL↗</a>
-          <span className="text-ink-4">|</span>
-          <button onClick={() => requestCollection.mutate(session.id)} disabled={requestCollection.isPending} className="text-accent hover:underline disabled:opacity-50">
+          <a href={publicUrl} target="_blank" className="text-blue-600 hover:underline">URL</a>
+          <span className="text-gray-300">|</span>
+          <button onClick={() => requestCollection.mutate(session.id)} disabled={requestCollection.isPending} className="text-blue-600 hover:underline disabled:opacity-50">
             {requestCollection.isPending ? "발송중..." : "자료요청"}
           </button>
-          <span className="text-ink-4">|</span>
-          <button onClick={() => setShowInput((v) => !v)} className="text-accent hover:underline">수동입력</button>
+          <span className="text-gray-300">|</span>
+          <button onClick={() => setShowInput((v) => !v)} className="text-blue-600 hover:underline">수동입력</button>
         </div>
       </div>
 
@@ -396,27 +459,26 @@ function CenterPane({ filingId, session, entries }: {
         )}
 
         {sourceTexts.map((se) => (
-          <div key={se.id} className="p-3 rounded-lg bg-paper-2">
+          <div key={se.id} className="p-3 rounded-[10px] bg-gray-50 border border-gray-200">
             <div className="flex items-center gap-1.5 mb-1.5">
-              <span className="text-xs">🤖</span>
-              <span className="text-xs font-semibold">AI 텍스트 추출</span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 텍스트</span>
             </div>
-            <div className="text-[13px] leading-relaxed text-ink-2 whitespace-pre-wrap">{se.raw_text}</div>
+            <div className="text-[13px] leading-relaxed text-gray-700 whitespace-pre-wrap">{se.raw_text}</div>
           </div>
         ))}
 
         {(!attachments || attachments.length === 0) && sourceTexts.length === 0 && (
-          <div className="text-center py-8 text-sm text-ink-3">아직 수신된 자료가 없습니다</div>
+          <div className="text-center py-8 text-sm text-gray-400">아직 수신된 자료가 없습니다</div>
         )}
 
         {showInput && (
-          <div className="space-y-2 border-t border-ink-4 pt-3">
-            <label className="block text-xs font-medium text-ink-2">메시지 원본 입력</label>
+          <div className="space-y-2 border-t border-gray-200 pt-3">
+            <label className="block text-xs font-medium text-gray-700">메시지 원본 입력</label>
             <input placeholder="발신자명" value={senderName} onChange={(e) => setSenderName(e.target.value)}
-              className="w-full rounded-md border border-ink-4 bg-paper px-2.5 py-1.5 text-xs outline-none focus:border-accent" />
+              className="w-full rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-blue-500" />
             <div className="flex gap-1.5">
               <select value={channel} onChange={(e) => setChannel(e.target.value)}
-                className="flex-1 rounded-md border border-ink-4 bg-paper px-2 py-1.5 text-xs">
+                className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
                 <option value="kakao">카카오톡</option>
                 <option value="email">이메일</option>
                 <option value="sms">문자</option>
@@ -424,10 +486,10 @@ function CenterPane({ filingId, session, entries }: {
                 <option value="manual">직접</option>
               </select>
               <input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)}
-                className="flex-1 rounded-md border border-ink-4 bg-paper px-2 py-1.5 text-xs" />
+                className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs" />
             </div>
             <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="메시지 원본을 붙여넣으세요..."
-              className="w-full rounded-md border border-ink-4 bg-paper px-2.5 py-1.5 text-xs outline-none focus:border-accent resize-none" />
+              className="w-full rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 resize-none" />
             <Button className="w-full" onClick={() => {
               if (!text.trim() || !senderName.trim()) return;
               submit.mutate(
@@ -499,18 +561,25 @@ function RightPane({ filingId, session, entries }: {
 
   return (
     <>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-ink-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] font-semibold">AI 추출 결과</span>
-          {entries.length > 0 && <span className="text-xs text-ink-3">{entries.filter((e) => e.approved).length}/{entries.length} 승인</span>}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+        <div>
+          <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 결과</span>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[15px] font-semibold">{session.client_name} · {entries.length}명</span>
+            {entries.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
+                {entries.filter((e) => e.approved).length}/{entries.length} 승인
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex gap-1.5">
           {selected.size > 0 && (
-            <Button variant="danger" className="text-xs px-2.5 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
+            <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
               {remove.isPending ? "삭제중..." : `선택 삭제 (${selected.size})`}
             </Button>
           )}
-          <Button variant="secondary" className="text-xs px-2.5 py-1.5"
+          <Button variant="ghost" className="text-xs px-3 py-1.5"
             disabled={confirmWithClient.isPending || entries.length === 0}
             onClick={() => {
               setConfirmResult(null);
@@ -521,41 +590,41 @@ function RightPane({ filingId, session, entries }: {
             }}>
             {confirmWithClient.isPending ? "발송중..." : "확인요청"}
           </Button>
-          <Button className="text-xs px-2.5 py-1.5"
+          <Button className="text-xs px-3 py-1.5"
             onClick={() => entries.filter((e) => !e.approved).forEach((e) => update.mutate({ id: e.id, patch: { approved: true } }))}
             disabled={entries.every((e) => e.approved)}>
-            일괄 승인
+            일괄 승인 · {entries.filter((e) => !e.approved).length}건
           </Button>
         </div>
       </div>
 
       {confirmResult && (
-        <div className={`px-4 py-1.5 text-xs border-b border-ink-4 ${confirmResult.sent ? "text-accent" : "text-alert"}`}>
-          {confirmResult.sent ? `✅ ${confirmResult.channel}로 발송 완료` : `⚠️ 발송 실패 — ${confirmResult.error ?? "알 수 없는 오류"}`}
+        <div className={`px-4 py-1.5 text-xs border-b border-gray-100 ${confirmResult.sent ? "text-blue-600" : "text-red-600"}`}>
+          {confirmResult.sent ? `${confirmResult.channel}로 발송 완료` : `발송 실패 — ${confirmResult.error ?? "알 수 없는 오류"}`}
         </div>
       )}
 
       <div className="flex-1 overflow-auto">
         {entries.length > 0 ? (
-          <table className="w-full text-[13px]">
-            <thead className="text-[12px] text-ink-2 font-medium border-b-2 border-ink-4 sticky top-0 bg-paper">
-              <tr>
+          <table className="w-full text-[12px]">
+            <thead className="sticky top-0 bg-white">
+              <tr className="border-b border-gray-200">
                 <th className="w-7 py-2.5 pl-4">
                   <input type="checkbox" checked={entries.length > 0 && selected.size === entries.length}
-                    onChange={toggleSelectAll} title="전체 선택" />
+                    onChange={toggleSelectAll} title="전체 선택" className="h-3.5 w-3.5" />
                 </th>
                 <th className="w-7 py-2.5">
                   <input type="checkbox" checked={entries.length > 0 && entries.every((e) => e.approved)}
                     onChange={() => {
                       const all = entries.every((e) => e.approved);
                       entries.forEach((e) => { if (e.approved !== !all) update.mutate({ id: e.id, patch: { approved: !all } }); });
-                    }} title="전체 승인" />
+                    }} title="전체 승인" className="h-3.5 w-3.5" />
                 </th>
-                <th className="text-left py-2.5 pl-2">직원 · 구분</th>
-                <th className="text-right py-2.5 pr-4">전월</th>
-                <th className="text-right py-2.5 pr-4">이번달</th>
-                <th className="text-right py-2.5 pr-4">변동</th>
-                <th className="text-right py-2.5 pr-3">액션</th>
+                <th className="text-left py-2.5 pl-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">직원 · 구분</th>
+                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">전월</th>
+                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">이번달</th>
+                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">변동</th>
+                <th className="text-right py-2.5 pr-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">액션</th>
               </tr>
             </thead>
             <tbody>
@@ -565,12 +634,12 @@ function RightPane({ filingId, session, entries }: {
                 const diff = computeDiff(e);
                 return (
                   <tr key={e.id}
-                    className={`border-b border-ink-5 transition-colors ${hasFlag ? "bg-red-50" : isEditing ? "bg-blue-50" : "hover:bg-gray-50"}`}>
+                    className={`border-b border-gray-50 transition-colors ${hasFlag ? "bg-red-50/60" : isEditing ? "bg-blue-50/60" : "hover:bg-gray-50"}`}>
                     <td className="py-3 pl-4">
-                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="h-4 w-4" />
+                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="h-3.5 w-3.5" />
                     </td>
                     <td className="py-3">
-                      <input type="checkbox" checked={e.approved} onChange={(ev) => update.mutate({ id: e.id, patch: { approved: ev.target.checked } })} className="h-4 w-4" />
+                      <input type="checkbox" checked={e.approved} onChange={(ev) => update.mutate({ id: e.id, patch: { approved: ev.target.checked } })} className="h-3.5 w-3.5" />
                     </td>
                     <td className="py-3 pl-2">
                       {isEditing ? (
@@ -582,13 +651,13 @@ function RightPane({ filingId, session, entries }: {
                         </div>
                       ) : (
                         <div>
-                          <div className="font-bold text-[13px] text-gray-900">{e.raw_name}</div>
-                          <div className="text-[12px] text-gray-500">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
+                          <div className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
                         </div>
                       )}
                     </td>
-                    <td className="py-3 pr-4 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
-                    <td className="py-3 pr-4 text-right tabular-nums font-semibold">
+                    <td className="py-3 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
+                    <td className="py-3 pr-3.5 text-right tabular-nums font-semibold">
                       {isEditing ? (
                         <input type="number" className="w-24 px-1.5 py-1 border border-gray-300 rounded text-sm text-right" value={draft.total_amount ?? 0}
                           onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })} />
@@ -596,28 +665,28 @@ function RightPane({ filingId, session, entries }: {
                         <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
                       )}
                     </td>
-                    <td className="py-3 pr-4 text-right">
+                    <td className="py-3 pr-3.5 text-right">
                       {diff ? (
-                        <span className={`text-[12px] font-bold tabular-nums ${hasFlag ? "text-red-600" : "text-gray-400"}`}>{diff}</span>
+                        <DiffPill diff={diff} hasFlag={hasFlag} />
                       ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
-                        <span className="text-[12px] text-blue-600 font-bold">신규</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600">신규</span>
                       ) : e.match_status === "RESIGNATION_SUSPECTED" ? (
-                        <span className="text-[12px] text-gray-500 font-semibold">퇴사</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600">퇴사</span>
                       ) : (
-                        <span className="text-[12px] text-gray-400">—</span>
+                        <span className="text-[11px] text-gray-400">—</span>
                       )}
                     </td>
                     <td className="py-3 pr-3 text-right">
                       {isEditing ? (
                         <div className="flex gap-1 justify-end">
-                          <button onClick={() => save(e)} className="px-2 py-1 text-[12px] bg-blue-600 text-white rounded-md font-medium" disabled={update.isPending}>저장</button>
-                          <button onClick={cancelEdit} className="px-2 py-1 text-[12px] border border-gray-300 rounded-md hover:bg-gray-50">취소</button>
+                          <button onClick={() => save(e)} className="px-2 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium" disabled={update.isPending}>저장</button>
+                          <button onClick={cancelEdit} className="px-2 py-1 text-[11px] border border-gray-300 rounded-full hover:bg-gray-50">취소</button>
                         </div>
                       ) : (
                         <div className="flex gap-1 justify-end">
-                          <button onClick={() => startEdit(e)} className="px-2 py-1 text-[12px] text-blue-600 border border-blue-200 rounded-md hover:bg-blue-50" title="수정">수정</button>
+                          <button onClick={() => startEdit(e)} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">수정</button>
                           <button onClick={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }}
-                            className="px-2 py-1 text-[12px] text-red-600 border border-red-200 rounded-md hover:bg-red-50" title="삭제">삭제</button>
+                            className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
                         </div>
                       )}
                     </td>
@@ -627,10 +696,22 @@ function RightPane({ filingId, session, entries }: {
             </tbody>
           </table>
         ) : (
-          <div className="flex items-center justify-center h-full text-sm text-ink-3">아직 파싱된 항목이 없습니다</div>
+          <div className="flex items-center justify-center h-full text-sm text-gray-400">아직 파싱된 항목이 없습니다</div>
         )}
       </div>
     </>
+  );
+}
+
+/* ═══ Diff Pill ═══ */
+
+function DiffPill({ diff, hasFlag }: { diff: string; hasFlag: boolean }) {
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums ${
+      hasFlag ? "bg-red-50 text-red-600" : "bg-gray-100 text-gray-500"
+    }`}>
+      {diff}
+    </span>
   );
 }
 
@@ -644,28 +725,56 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
   const update = useUpdateEntry(filingId);
   const total = entries.length;
   const processed = entries.filter((e) => e.approved).length;
+  const [filterType, setFilterType] = useState<"all" | "anomaly" | "name" | "amount">("all");
+
+  const filteredEntries = entries.filter((e) => {
+    if (filterType === "anomaly") return !!e.anomaly_notes?.large_change;
+    if (filterType === "name") return e.match_status === "AMBIGUOUS";
+    if (filterType === "amount") return !!e.anomaly_notes?.missing_amount;
+    return true;
+  });
+
+  const anomalyCount = entries.filter((e) => e.anomaly_notes?.large_change).length;
+  const nameCount = entries.filter((e) => e.match_status === "AMBIGUOUS").length;
 
   if (total === 0) {
-    return <div className="flex-1 flex items-center justify-center bg-paper-2 text-sm text-ink-3">확인이 필요한 항목이 없습니다</div>;
+    return <div className="flex-1 flex items-center justify-center bg-gray-50 text-sm text-gray-400">확인이 필요한 항목이 없습니다</div>;
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-paper-2">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-ink-4 bg-paper shrink-0">
+    <div className="flex-1 flex flex-col min-h-0 bg-gray-50">
+      <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-white shrink-0">
         <div className="flex items-center gap-4">
-          <span className="text-base font-bold text-alert">확인필요 {total}건</span>
-          <span className="text-xs text-ink-3">이상치 {entries.filter((e) => e.anomaly_notes?.large_change).length}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-[120px] h-1 bg-paper-2 border border-ink-4 rounded-full overflow-hidden">
-            <div className="h-full bg-ink rounded-full transition-all" style={{ width: `${total ? (processed / total) * 100 : 0}%` }} />
+          <div>
+            <span className="text-[10.5px] font-semibold uppercase tracking-widest text-red-600">확인필요 큐</span>
+            <div className="text-[20px] font-bold tracking-tight">{total}건 남음</div>
           </div>
-          <span className="text-xs tabular-nums"><b>{processed}</b> / {total} 처리</span>
+          <div className="h-9 w-px bg-gray-200" />
+          <div className="flex items-center gap-1.5">
+            {([["all", `전체 ${total}`], ["anomaly", `이상치 ${anomalyCount}`], ["name", `이름매칭 ${nameCount}`]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setFilterType(key)}
+                className={`px-2.5 py-1 rounded-full text-[12px] font-medium transition-all ${
+                  filterType === key ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-500">처리</span>
+          <div className="w-[120px] h-1.5 bg-gray-100 border border-gray-200 rounded-full overflow-hidden">
+            <div className="h-full bg-gray-900 rounded-full transition-all" style={{ width: `${total ? (processed / total) * 100 : 0}%` }} />
+          </div>
+          <span className="text-sm tabular-nums"><b>{processed}</b> <span className="text-gray-500">/ {total}</span></span>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5 space-y-3">
-        {entries.map((e, idx) => {
+      <div className="flex-1 overflow-y-auto p-5 space-y-3.5">
+        {filteredEntries.map((e, idx) => {
           const clientName = sessions.find((s) => s.client_id === e.client_id)?.client_name ?? "—";
           const prev = e.prev_amount ?? 0;
           const curr = e.total_amount;
@@ -681,10 +790,10 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
 
           if (e.approved) {
             return (
-              <div key={e.id} className="rounded-[14px] border border-ink-4 bg-paper p-4 opacity-60">
+              <div key={e.id} className="rounded-[14px] border border-gray-200 bg-white p-4 opacity-60">
                 <div className="flex items-center gap-3">
-                  <span className="text-xs tabular-nums text-ink-3">{idx + 1} / {total}</span>
-                  <span className="text-xs font-semibold text-ink-3">{clientName} · {e.raw_name}</span>
+                  <span className="text-xs tabular-nums text-gray-500">{idx + 1} / {total}</span>
+                  <span className="text-xs font-semibold text-gray-500">{clientName} · {e.raw_name}</span>
                   <Badge tone="success">승인됨</Badge>
                 </div>
               </div>
@@ -692,62 +801,94 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
           }
 
           return (
-            <div key={e.id} className="rounded-[14px] border border-ink-4 bg-paper p-4 space-y-3 shadow-[0_1px_0_rgba(28,25,23,0.04),0_8px_24px_-16px_rgba(28,25,23,0.08)]">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs tabular-nums text-ink-3">{idx + 1} / {total}</span>
-                  <span className="h-3 w-px bg-ink-4" />
-                  <span className="text-xs text-alert font-semibold">{anomalyType}</span>
-                  <span className="text-xs text-ink-3">{clientName} · {e.raw_name}</span>
-                </div>
-                <div className="flex gap-1.5">
-                  <Button variant="ghost" className="text-xs px-2.5 py-1">건너뛰기</Button>
-                  <Button variant="danger" className="text-xs px-2.5 py-1">거부</Button>
-                  <Button className="text-xs px-2.5 py-1" onClick={() => update.mutate({ id: e.id, patch: { approved: true } })} disabled={update.isPending}>
-                    승인 · 다음
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs text-ink-3 mb-1">전월</div>
-                  <div className="rounded-lg border border-ink-4 p-3">
-                    <div className="text-xl font-bold tabular-nums text-ink-3">{prev ? `₩ ${prev.toLocaleString()}` : "—"}</div>
+            <BezelCard key={e.id}>
+              <div className="p-5 space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* Ring progress */}
+                    <RingProgress current={idx + 1} total={total} />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11.5px] font-semibold bg-red-50 text-red-600">
+                          {anomalyType}
+                        </span>
+                        <span className="text-xs text-gray-500">{clientName}</span>
+                      </div>
+                      <div className="text-[20px] font-bold tracking-tight mt-1">{e.raw_name}</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button variant="ghost" className="text-xs px-2.5 py-1">건너뛰기</Button>
+                    <Button variant="danger" className="text-xs px-2.5 py-1">거부</Button>
+                    <Button className="text-xs px-2.5 py-1" onClick={() => update.mutate({ id: e.id, patch: { approved: true } })} disabled={update.isPending}>
+                      승인하고 다음
+                    </Button>
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs text-alert mb-1">이번달 · AI 추출</div>
-                  <div className="rounded-lg border border-alert/30 bg-alert-50/30 p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xl font-bold tabular-nums text-alert">₩ {curr.toLocaleString()}</div>
-                      {pctChange != null && (
-                        <div className="text-lg font-bold tabular-nums text-alert">{pctChange > 0 ? "+" : ""}{pctChange}%</div>
-                      )}
+
+                {/* Prev vs Current comparison */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500 mb-1 block">전월</span>
+                    <div className="rounded-[12px] border border-gray-200 bg-gray-50 p-4">
+                      <div className="text-[22px] font-bold tabular-nums text-gray-500 tracking-tight">
+                        {prev ? `₩ ${prev.toLocaleString()}` : "—"}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10.5px] font-semibold uppercase tracking-widest text-red-600 mb-1 block">이번달 · AI 추출</span>
+                    <div className="rounded-[12px] border border-red-200/60 bg-red-50/40 p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[22px] font-bold tabular-nums text-red-600 tracking-tight">₩ {curr.toLocaleString()}</div>
+                        {pctChange != null && (
+                          <div className="text-lg font-bold tabular-nums text-red-600">{pctChange > 0 ? "+" : ""}{pctChange}%</div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="rounded-lg bg-paper-2 p-3">
-                <div className="text-xs font-semibold mb-0.5">판단 근거</div>
-                <div className="text-[13px] text-ink-2">{reason}</div>
-              </div>
+                {/* Reason */}
+                <div className="rounded-[12px] bg-gray-50 border border-gray-200 p-3.5">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500 mb-1 block">판단 근거</span>
+                  <div className="text-[13px] text-gray-700 leading-relaxed">{reason}</div>
+                </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-ink-3">빠른 수정:</span>
-                {prev > 0 && (
-                  <button onClick={() => update.mutate({ id: e.id, patch: { total_amount: prev, approved: true } })}
-                    className="px-2.5 py-1 rounded-full border border-ink-4 text-xs hover:bg-paper-2 transition-colors" disabled={update.isPending}>
-                    전월값 사용
-                  </button>
-                )}
-                <button className="px-2.5 py-1 rounded-full border border-ink-4 text-xs hover:bg-paper-2 transition-colors">직접 입력…</button>
+                {/* Quick actions */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">빠른 수정</span>
+                  {prev > 0 && (
+                    <button onClick={() => update.mutate({ id: e.id, patch: { total_amount: prev, approved: true } })}
+                      className="px-3 py-1.5 rounded-full border border-gray-200 text-xs font-medium hover:bg-gray-50 transition-colors" disabled={update.isPending}>
+                      전월값 사용
+                    </button>
+                  )}
+                  <button className="px-3 py-1.5 rounded-full border border-gray-200 text-xs font-medium hover:bg-gray-50 transition-colors">직접 입력...</button>
+                </div>
               </div>
-            </div>
+            </BezelCard>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ═══ Ring Progress ═══ */
+
+function RingProgress({ current, total }: { current: number; total: number }) {
+  const pct = Math.round((current / total) * 100);
+  return (
+    <div
+      className="w-9 h-9 rounded-full grid place-items-center text-[10.5px] font-bold relative"
+      style={{
+        background: `conic-gradient(#101112 ${pct}%, #F4F4F6 0)`,
+      }}
+    >
+      <span className="absolute inset-1 bg-white rounded-full" />
+      <span className="relative z-10">{current}/{total}</span>
     </div>
   );
 }
@@ -773,15 +914,15 @@ function AttachmentThumb({ filingId, sessionId, att, onClick }: {
 
   return (
     <button type="button" onClick={onClick}
-      className="group flex flex-col items-stretch text-left rounded-lg border border-ink-4 overflow-hidden hover:border-accent transition-colors">
-      <div className="aspect-square bg-paper-2 flex items-center justify-center text-xs text-ink-3">
+      className="group flex flex-col items-stretch text-left rounded-[10px] border border-gray-200 overflow-hidden hover:border-blue-400 transition-colors">
+      <div className="aspect-square bg-gray-50 flex items-center justify-center text-xs text-gray-400">
         {showInline && blobUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={blobUrl} alt={att.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
         ) : showInline && !blobUrl && !error ? (
           <span>로딩...</span>
         ) : error ? (
-          <span className="text-alert px-2 text-center">{error}</span>
+          <span className="text-red-500 px-2 text-center">{error}</span>
         ) : (
           <KindIcon kind={att.kind} />
         )}
@@ -813,36 +954,18 @@ function AttachmentZoomModal({ filingId, sessionId, att, onClose }: {
 
   return (
     <Modal open={true} onClose={onClose} title={att.filename}
-      footer={blobUrl ? <a href={blobUrl} download={att.filename} className="text-sm text-accent hover:underline">다운로드</a> : null}>
-      <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-paper-2 rounded">
-        {error ? <p className="text-alert p-4">{error}</p>
-          : !blobUrl ? <p className="p-8 text-ink-3">로딩 중...</p>
+      footer={blobUrl ? <a href={blobUrl} download={att.filename} className="text-sm text-blue-600 hover:underline">다운로드</a> : null}>
+      <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-gray-50 rounded">
+        {error ? <p className="text-red-500 p-4">{error}</p>
+          : !blobUrl ? <p className="p-8 text-gray-400">로딩 중...</p>
           : att.kind === "image" ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={blobUrl} alt={att.filename} className="max-w-full" />
           ) : att.kind === "pdf" ? (
             <iframe src={blobUrl} className="w-full h-[70vh]" title={att.filename} />
           ) : (
-            <p className="p-4 text-sm text-ink-2">미리보기 미지원. 다운로드 후 확인하세요.</p>
+            <p className="p-4 text-sm text-gray-600">미리보기 미지원. 다운로드 후 확인하세요.</p>
           )}
-      </div>
-    </Modal>
-  );
-}
-
-function SourceEventModal({ event, onClose }: { event: SourceEvent; onClose: () => void }) {
-  return (
-    <Modal open={true} onClose={onClose} title="원본 메시지 상세">
-      <div className="space-y-3 text-sm">
-        <div className="grid grid-cols-3 gap-3">
-          <div><div className="text-[11px] text-ink-3 mb-0.5">발신자</div><div className="font-medium">{event.sender_name || "—"}</div></div>
-          <div><div className="text-[11px] text-ink-3 mb-0.5">경로</div><div className="font-medium">{channelLabel(event.channel)}</div></div>
-          <div><div className="text-[11px] text-ink-3 mb-0.5">보낸 날짜</div><div className="font-medium">{event.received_date || "—"}</div></div>
-        </div>
-        <div>
-          <div className="text-[11px] text-ink-3 mb-1">원본 텍스트</div>
-          <pre className="whitespace-pre-wrap bg-paper-2 rounded p-3 text-xs max-h-60 overflow-auto border border-ink-4">{event.raw_text || "(텍스트 없음)"}</pre>
-        </div>
       </div>
     </Modal>
   );
@@ -852,7 +975,7 @@ function SourceEventModal({ event, onClose }: { event: SourceEvent; onClose: () 
 
 function formatKrw(n: number | null | undefined): string {
   if (!n) return "—";
-  return n.toLocaleString("ko-KR") + "원";
+  return "₩ " + n.toLocaleString("ko-KR");
 }
 
 function channelLabel(ch: string | null): string {
@@ -866,7 +989,7 @@ function incomeLabel(type: string): string {
 
 function computeDiff(e: PayrollEntry): string | null {
   if (!e.prev_amount || e.prev_amount === 0) return null;
-  if (e.total_amount === e.prev_amount) return "—";
+  if (e.total_amount === e.prev_amount) return "동일";
   const pct = Math.round(((e.total_amount - e.prev_amount) / e.prev_amount) * 100);
   return pct > 0 ? `+${pct}%` : `${pct}%`;
 }
