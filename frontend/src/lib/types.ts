@@ -46,6 +46,15 @@ export type Filing = {
   total_entries: number;
 };
 
+export type SessionAttachment = {
+  filename: string;
+  storage_key: string;
+  kind: string;  // "image" | "pdf" | "excel" | "csv" | "audio" | ...
+  event_id: string;
+  channel: string;
+  received_at: string | null;
+};
+
 export type CollectionSession = {
   id: string;
   client_id: string;

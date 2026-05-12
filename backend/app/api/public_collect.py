@@ -140,6 +140,15 @@ async def public_upload_file(
         )
 
     images = intake.images or None
+    attachments_meta = (
+        [{
+            "filename": file.filename or "upload",
+            "storage_key": intake.storage_key,
+            "kind": intake.kind,
+        }]
+        if intake.storage_key
+        else None
+    )
 
     return await _ingest_message(
         db=db,
@@ -149,6 +158,7 @@ async def public_upload_file(
         text=intake.text,
         channel=f"public_upload_{intake.kind}",
         images=images,
+        attachments=attachments_meta,
     )
 
 

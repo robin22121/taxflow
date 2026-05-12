@@ -18,6 +18,7 @@ import type {
   ImportEmployeeResult,
   ImportPayrollResult,
   PayrollEntry,
+  SessionAttachment,
 } from "./types";
 
 export function useMe() {
@@ -40,6 +41,17 @@ export function useFilingDashboard(filingId: string) {
     queryKey: ["filings", filingId, "dashboard"],
     queryFn: () => api<FilingDashboard>(`/api/v1/filings/${filingId}/dashboard`),
     refetchInterval: 5000,
+  });
+}
+
+export function useSessionAttachments(filingId: string, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["filings", filingId, "sessions", sessionId, "attachments"],
+    queryFn: () =>
+      api<SessionAttachment[]>(
+        `/api/v1/filings/${filingId}/sessions/${sessionId}/attachments`,
+      ),
+    enabled: !!sessionId,
   });
 }
 

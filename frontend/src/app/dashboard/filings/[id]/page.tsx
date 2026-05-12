@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 
 import {
   useDeleteEntry,
@@ -8,12 +8,13 @@ import {
   useFilingEntries,
   useRequestCollection,
   useSendInvite,
+  useSessionAttachments,
   useSubmitMessage,
   useUpdateEntry,
 } from "@/lib/queries";
 import { apiBlob, getToken } from "@/lib/api";
-import { Badge, Button, Card, Textarea } from "@/components/ui";
-import type { CollectionSession, PayrollEntry } from "@/lib/types";
+import { Badge, Button, Card, Modal, Textarea } from "@/components/ui";
+import type { CollectionSession, PayrollEntry, SessionAttachment } from "@/lib/types";
 
 export default function FilingDetailPage({
   params,
@@ -167,6 +168,8 @@ function SessionDetail({
         </a>
       </div>
 
+      <AttachmentPanel filingId={filingId} sessionId={session.id} />
+
       <div className="space-y-2">
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
           거래처가 보낸 카톡/이메일 텍스트를 붙여넣고 AI 파싱 실행
@@ -200,6 +203,196 @@ function SessionDetail({
         <p className="text-sm text-gray-500">아직 파싱된 항목이 없습니다.</p>
       )}
     </Card>
+  );
+}
+
+function AttachmentPanel({ filingId, sessionId }: { filingId: string; sessionId: string }) {
+  const { data: attachments } = useSessionAttachments(filingId, sessionId);
+  const [zoomKey, setZoomKey] = useState<string | null>(null);
+
+  if (!attachments || attachments.length === 0) return null;
+
+  return (
+    <div className="space-y-2 border-t border-gray-200 dark:border-gray-800 pt-3">
+      <div className="flex items-baseline justify-between">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          거래처가 보낸 원본 첨부 ({attachments.length}개)
+        </h4>
+        <span className="text-xs text-gray-500">
+          AI 추출 결과가 원본과 일치하는지 확인하세요
+        </span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+        {attachments.map((a) => (
+          <AttachmentThumb
+            key={a.storage_key}
+            filingId={filingId}
+            sessionId={sessionId}
+            att={a}
+            onClick={() => setZoomKey(a.storage_key)}
+          />
+        ))}
+      </div>
+      {zoomKey && (
+        <AttachmentZoomModal
+          filingId={filingId}
+          sessionId={sessionId}
+          att={attachments.find((a) => a.storage_key === zoomKey)!}
+          onClose={() => setZoomKey(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function AttachmentThumb({
+  filingId,
+  sessionId,
+  att,
+  onClick,
+}: {
+  filingId: string;
+  sessionId: string;
+  att: SessionAttachment;
+  onClick: () => void;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const showInline = att.kind === "image";
+
+  useEffect(() => {
+    if (!showInline) return;
+    let cancelled = false;
+    let url: string | null = null;
+    apiBlob(
+      `/api/v1/filings/${filingId}/sessions/${sessionId}/attachments/raw?key=${encodeURIComponent(att.storage_key)}`,
+    )
+      .then((blob) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+      })
+      .catch((e) => !cancelled && setError((e as Error).message));
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [filingId, sessionId, att.storage_key, showInline]);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex flex-col items-stretch text-left rounded-md border border-gray-200 dark:border-gray-800 overflow-hidden hover:border-blue-400 transition-colors"
+    >
+      <div className="aspect-square bg-gray-50 dark:bg-gray-900 flex items-center justify-center text-xs text-gray-500">
+        {showInline && blobUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={blobUrl}
+            alt={att.filename}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+          />
+        ) : showInline && !blobUrl && !error ? (
+          <span>로딩...</span>
+        ) : error ? (
+          <span className="text-red-600 px-2 text-center">{error}</span>
+        ) : (
+          <KindIcon kind={att.kind} />
+        )}
+      </div>
+      <div className="px-2 py-1 text-xs truncate" title={att.filename}>
+        {att.filename}
+      </div>
+      <div className="px-2 pb-1 text-[10px] text-gray-500">
+        {att.kind} · {att.channel}
+      </div>
+    </button>
+  );
+}
+
+function KindIcon({ kind }: { kind: string }) {
+  const label = {
+    pdf: "PDF",
+    excel: "엑셀",
+    csv: "CSV",
+    audio: "음성",
+    image: "이미지",
+  }[kind] ?? kind;
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="text-2xl">📎</div>
+      <div className="text-xs font-medium">{label}</div>
+    </div>
+  );
+}
+
+function AttachmentZoomModal({
+  filingId,
+  sessionId,
+  att,
+  onClose,
+}: {
+  filingId: string;
+  sessionId: string;
+  att: SessionAttachment;
+  onClose: () => void;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let url: string | null = null;
+    apiBlob(
+      `/api/v1/filings/${filingId}/sessions/${sessionId}/attachments/raw?key=${encodeURIComponent(att.storage_key)}`,
+    )
+      .then((blob) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+      })
+      .catch((e) => !cancelled && setError((e as Error).message));
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [filingId, sessionId, att.storage_key]);
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={att.filename}
+      footer={
+        blobUrl ? (
+          <a
+            href={blobUrl}
+            download={att.filename}
+            className="text-sm text-blue-600 hover:underline"
+          >
+            다운로드
+          </a>
+        ) : null
+      }
+    >
+      <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900 rounded">
+        {error ? (
+          <p className="text-red-600 p-4">{error}</p>
+        ) : !blobUrl ? (
+          <p className="p-8 text-gray-500">로딩 중...</p>
+        ) : att.kind === "image" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={blobUrl} alt={att.filename} className="max-w-full" />
+        ) : att.kind === "pdf" ? (
+          <iframe src={blobUrl} className="w-full h-[70vh]" title={att.filename} />
+        ) : (
+          <p className="p-4 text-sm text-gray-600">
+            미리보기를 지원하지 않는 형식입니다. 다운로드 후 확인하세요.
+          </p>
+        )}
+      </div>
+    </Modal>
   );
 }
 

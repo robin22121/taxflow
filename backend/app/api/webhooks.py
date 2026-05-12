@@ -257,8 +257,10 @@ async def email_webhook(
         body = re.sub(r"<[^>]+>", "", html_body).strip()
 
     # 첨부파일 처리 — 텍스트 추출 + 이미지는 Vision 모델로 전달할 bytes 수집
+    # 원본은 storage에 보존, 메타를 attachments_meta로 모아 세무사 대시보드에 노출
     attachment_texts: list[str] = []
     images: list[tuple[bytes, str]] = []
+    attachments_meta: list[dict] = []
     for i in range(1, attachment_count + 1):
         att = form.get(f"attachment{i}")
         if att and hasattr(att, "read"):
@@ -277,6 +279,12 @@ async def email_webhook(
                 if intake.text.strip():
                     attachment_texts.append(f"[첨부: {filename}]\n{intake.text}")
                 images.extend(intake.images)
+                if intake.storage_key:
+                    attachments_meta.append({
+                        "filename": filename,
+                        "storage_key": intake.storage_key,
+                        "kind": intake.kind,
+                    })
 
     # 본문 + 첨부파일 텍스트 합산
     full_text = body
@@ -347,6 +355,7 @@ async def email_webhook(
             text=full_text,
             channel="email",
             images=images or None,
+            attachments=attachments_meta or None,
         )
     except Exception:
         logger.exception("이메일 웹훅 처리 실패 (from=%s, subject=%s)", from_addr, subject)

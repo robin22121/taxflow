@@ -167,6 +167,103 @@ async def request_collection(
     return out
 
 
+@router.get("/{filing_id}/sessions/{session_id}/attachments")
+async def list_session_attachments(
+    filing_id: str,
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict]:
+    """세션에 누적된 첨부파일 메타 목록 — 세무사가 AI 결과와 대조 검증할 수 있도록."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    session = await db.get(CollectionSession, session_id)
+    if not session or session.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+
+    events = (
+        await db.execute(
+            select(CollectionEvent)
+            .where(CollectionEvent.session_id == session_id)
+            .order_by(CollectionEvent.created_at)
+        )
+    ).scalars().all()
+
+    out: list[dict] = []
+    for ev in events:
+        items = (ev.raw_payload or {}).get("attachments")
+        if not items:
+            continue
+        for it in items:
+            out.append({
+                "filename": it.get("filename"),
+                "storage_key": it.get("storage_key"),
+                "kind": it.get("kind"),
+                "event_id": ev.id,
+                "channel": ev.channel,
+                "received_at": ev.created_at.isoformat() if ev.created_at else None,
+            })
+    return out
+
+
+@router.get("/{filing_id}/sessions/{session_id}/attachments/raw")
+async def get_attachment(
+    filing_id: str,
+    session_id: str,
+    key: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """첨부파일 원본 스트림 — storage_key가 이 세션에 속하는지 확인 후 반환."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    # storage_key가 이 세션의 어느 이벤트 첨부에 실제로 등록돼 있는지 확인 (테넌트 가드)
+    events = (
+        await db.execute(
+            select(CollectionEvent).where(CollectionEvent.session_id == session_id)
+        )
+    ).scalars().all()
+    matched_meta = None
+    for ev in events:
+        for it in (ev.raw_payload or {}).get("attachments", []):
+            if it.get("storage_key") == key:
+                matched_meta = it
+                break
+        if matched_meta:
+            break
+    if not matched_meta:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found in this session")
+
+    from app.services.storage import get_storage
+    storage = get_storage()
+    try:
+        blob = storage.get_object(key)
+    except Exception as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"파일을 찾을 수 없습니다: {e}") from e
+
+    media_type = _attachment_mime(matched_meta.get("kind"), matched_meta.get("filename") or "")
+    return Response(content=blob, media_type=media_type)
+
+
+def _attachment_mime(kind: str | None, filename: str) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if kind == "image":
+        return {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}.get(ext, "image/png")
+    if kind == "pdf":
+        return "application/pdf"
+    if kind == "audio":
+        return {"mp3": "audio/mpeg", "m4a": "audio/mp4", "wav": "audio/wav"}.get(ext, "audio/mpeg")
+    if kind == "excel":
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    if kind == "csv":
+        return "text/csv"
+    return "application/octet-stream"
+
+
 @router.get("/{filing_id}/dashboard", response_model=FilingDashboard)
 async def get_dashboard(
     filing_id: str,
