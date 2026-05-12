@@ -37,6 +37,8 @@ services:
       - key: APP_BASE_URL
         value: https://taxflow-backend.onrender.com
       - key: APP_PUBLIC_URL
+        value: https://www.easyonechon.co.kr
+      - key: CORS_EXTRA_ORIGINS
         value: https://easyonechon.co.kr
       - key: GEMINI_API_KEY
         sync: false
