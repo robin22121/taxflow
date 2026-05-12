@@ -1,12 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { useCreateFiling, useFilings } from "@/lib/queries";
 import { Badge, Button, Card, Input } from "@/components/ui";
 
 export default function DashboardHomePage() {
+  const router = useRouter();
   const { data, isLoading } = useFilings();
   const createFiling = useCreateFiling();
   const [period, setPeriod] = useState(currentPeriod());
@@ -88,12 +89,9 @@ export default function DashboardHomePage() {
             </thead>
             <tbody>
               {filings.map((f) => (
-                <tr key={f.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3">
-                    <Link href={`/dashboard/filings/${f.id}`} className="font-medium text-gray-900 hover:text-blue-600 transition-colors">
-                      {f.period}
-                    </Link>
-                  </td>
+                <tr key={f.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                  onClick={() => router.push(`/dashboard/filings/${f.id}`)}>
+                  <td className="px-4 py-3 font-medium text-gray-900">{f.period}</td>
                   <td className="px-4 py-3">
                     <Badge tone={statusTone(f.status)}>{statusKo(f.status)}</Badge>
                   </td>

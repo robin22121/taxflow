@@ -77,7 +77,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="px-2 pb-3 border-t border-gray-200 pt-2 mt-2">
           <button
             onClick={logout}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-[13px] text-gray-500 hover:bg-gray-50 transition-colors"
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-[13px] font-medium text-red-600 hover:bg-red-50 transition-colors"
           >
             <NavIcon name="logout" active={false} />
             로그아웃
@@ -94,7 +94,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 }
 
 function NavIcon({ name, active }: { name: string; active: boolean }) {
-  const color = active ? "text-gray-900" : "text-gray-500";
+  const color = active ? "text-gray-900" : name === "logout" ? "text-red-600" : "text-gray-500";
   const paths: Record<string, React.ReactNode> = {
     calendar: (
       <>

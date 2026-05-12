@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useBulkUploadClients, useClients, useCreateClient, useSendClientInvite } from "@/lib/queries";
@@ -9,6 +8,7 @@ import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
 
 export default function ClientsPage() {
+  const router = useRouter();
   const { data, isLoading } = useClients();
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -78,15 +78,9 @@ export default function ClientsPage() {
             </thead>
             <tbody>
               {clients.map((c) => (
-                <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/dashboard/clients/${c.id}`}
-                      className="font-medium text-gray-900 hover:text-blue-600 transition-colors"
-                    >
-                      {c.business_name}
-                    </Link>
-                  </td>
+                <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                  onClick={() => router.push(`/dashboard/clients/${c.id}`)}>
+                  <td className="px-4 py-3 font-medium text-gray-900">{c.business_name}</td>
                   <td className="px-4 py-3 text-gray-700 t-num">{c.business_number ? formatBizNumber(c.business_number) : "—"}</td>
                   <td className="px-4 py-3 text-gray-700">{c.representative || "—"}</td>
                   <td className="px-4 py-3 text-gray-700">{c.contact_phone ? formatPhone(c.contact_phone) : "—"}</td>
