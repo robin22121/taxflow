@@ -75,16 +75,20 @@ async def test_audio_intake_uses_stt_and_redacts_pii():
 
 
 @pytest.mark.asyncio
-async def test_image_returns_placeholder():
+async def test_image_returns_binary_for_vision():
+    content = b"\x89PNG\r\n\x1a\nfake"
     with tempfile.TemporaryDirectory() as d:
         res = await intake_file(
             filename="photo.png",
-            content=b"\x89PNG\r\n\x1a\nfake",
+            content=content,
             storage=LocalFileStorage(base_dir=d),
             stt=StubSTT(),
         )
     assert res.kind == "image"
-    assert "사람 확인 필요" in res.text
+    assert res.image_data == content
+    assert res.image_mime == "image/png"
+    # 텍스트는 placeholder만 — 실제 OCR은 Vision 모델이 처리
+    assert "[이미지 첨부" in res.text
 
 
 @pytest.mark.asyncio

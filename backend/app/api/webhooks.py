@@ -256,8 +256,9 @@ async def email_webhook(
     if not body and html_body:
         body = re.sub(r"<[^>]+>", "", html_body).strip()
 
-    # 첨부파일 텍스트 추출
+    # 첨부파일 처리 — 텍스트 추출 + 이미지는 Vision 모델로 전달할 bytes 수집
     attachment_texts: list[str] = []
+    images: list[tuple[bytes, str]] = []
     for i in range(1, attachment_count + 1):
         att = form.get(f"attachment{i}")
         if att and hasattr(att, "read"):
@@ -275,13 +276,15 @@ async def email_webhook(
                 )
                 if intake.text.strip():
                     attachment_texts.append(f"[첨부: {filename}]\n{intake.text}")
+                if intake.image_data and intake.image_mime:
+                    images.append((intake.image_data, intake.image_mime))
 
     # 본문 + 첨부파일 텍스트 합산
     full_text = body
     if attachment_texts:
         full_text = (body + "\n\n" + "\n\n".join(attachment_texts)).strip()
 
-    if not full_text:
+    if not full_text and not images:
         logger.warning("이메일 웹훅: 본문+첨부 모두 비어있음 (from=%s, subject=%s)", from_addr, subject)
         return {"status": "ignored", "reason": "empty body and no parseable attachments"}
 
@@ -344,6 +347,7 @@ async def email_webhook(
             filing=session.monthly_filing,
             text=full_text,
             channel="email",
+            images=images or None,
         )
     except Exception:
         logger.exception("이메일 웹훅 처리 실패 (from=%s, subject=%s)", from_addr, subject)
@@ -351,8 +355,8 @@ async def email_webhook(
         return {"status": "error", "reason": "processing failed"}
 
     logger.info(
-        "이메일 웹훅 처리 완료: from=%s, matched=%d, new_hire=%d, attachments=%d",
-        from_addr, result.matched, result.new_hire_suspected, len(attachment_texts),
+        "이메일 웹훅 처리 완료: from=%s, matched=%d, new_hire=%d, attachments=%d, images=%d",
+        from_addr, result.matched, result.new_hire_suspected, len(attachment_texts), len(images),
     )
     return {
         "status": "processed",

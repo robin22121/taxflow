@@ -34,6 +34,9 @@ class IntakeResult:
     kind: str  # "audio" | "excel" | "csv" | "image" | "unknown"
     storage_key: str | None = None
     note: str | None = None
+    # 이미지인 경우 Vision 모델로 보낼 raw bytes + mime type (텍스트는 placeholder)
+    image_data: bytes | None = None
+    image_mime: str | None = None
 
 
 def _is_audio(filename: str) -> bool:
@@ -104,16 +107,19 @@ async def intake_file(
         )
 
     if _is_image(filename):
-        # TODO: route to Claude Vision in a follow-up. For now we store the file
-        # for human review and return a placeholder so the session is flagged.
+        # 이미지는 Object Storage에 보존(감사용) + raw bytes를 함께 반환해
+        # AI 파서가 Vision 모델로 직접 분석하도록 한다.
         ext = "." + filename.rsplit(".", 1)[-1].lower()
+        mime = _image_mime(ext)
         key = storage.make_key("image", ext)
-        storage.put_object(key, content, content_type=_image_mime(ext))
+        storage.put_object(key, content, content_type=mime)
         return IntakeResult(
-            text="[이미지 업로드 — 사람 확인 필요]",
+            text=f"[이미지 첨부: {filename}]",  # AI에 컨텍스트만 제공 — 실제 내용은 image_data로
             kind="image",
             storage_key=key,
-            note="Claude Vision 연동 전: 세무사가 이미지를 직접 확인해주세요",
+            note=None,
+            image_data=content,
+            image_mime=mime,
         )
 
     return IntakeResult(text="", kind="unknown", note=f"지원하지 않는 파일 형식: {filename}")

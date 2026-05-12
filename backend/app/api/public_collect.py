@@ -131,11 +131,15 @@ async def public_upload_file(
         storage=get_storage(),
         stt=get_stt_provider(),
     )
-    if not intake.text.strip():
+    # 이미지면 binary가 있고 텍스트는 placeholder뿐일 수 있음 — Vision으로 분석.
+    # 그 외(audio/excel/csv)는 텍스트가 비어있으면 거부.
+    if not intake.text.strip() and not intake.image_data:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"파일에서 텍스트를 추출하지 못했습니다 ({intake.kind}). {intake.note or ''}",
         )
+
+    images = [(intake.image_data, intake.image_mime)] if intake.image_data and intake.image_mime else None
 
     return await _ingest_message(
         db=db,
@@ -144,6 +148,7 @@ async def public_upload_file(
         filing=session.monthly_filing,
         text=intake.text,
         channel=f"public_upload_{intake.kind}",
+        images=images,
     )
 
 

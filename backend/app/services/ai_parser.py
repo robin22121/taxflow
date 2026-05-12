@@ -213,6 +213,7 @@ async def parse_payroll_message(
     employee_master: list[dict[str, Any]],
     previous_month_data: list[dict[str, Any]],
     period: str,
+    images: list[tuple[bytes, str]] | None = None,
     provider: str | None = None,
     **kwargs: Any,
 ) -> PayrollParsingResult:
@@ -224,6 +225,7 @@ async def parse_payroll_message(
         employee_master: ``[{"id":..., "name":..., "last_amount":...}, ...]``
         previous_month_data: ``[{"name":..., "employee_id":..., "amount":...}, ...]``
         period: ``"YYYY-MM"``
+        images: 캡처/사진 첨부 (bytes, mime_type) 리스트. Anthropic Vision 으로 분석.
         provider: "gemini" | "anthropic" (기본: config의 ai_provider)
     """
     settings = get_settings()
@@ -240,16 +242,32 @@ async def parse_payroll_message(
         f"[이전 달 데이터]\n{json.dumps(safe_prev, ensure_ascii=False, indent=2)}"
     )
 
+    image_note = ""
+    if images:
+        image_note = (
+            f"\n\n[첨부 이미지 {len(images)}장]\n"
+            f"이미지에서 직원 이름·금액·소득구분을 직접 읽어 결과에 반영하세요. "
+            f"이미지에 없는 직원은 절대 임의로 매칭하지 마세요. "
+            f"텍스트와 이미지에 모두 정보가 없으면 모든 결과 배열을 비워두세요."
+        )
+
     user_message = (
         f"[지급년월] {period}\n\n"
-        f"[이번 달 메시지]\n{safe_text}\n\n"
+        f"[이번 달 메시지]\n{safe_text}{image_note}\n\n"
         "위 메시지를 분석해 결과를 JSON으로 반환하세요."
     )
 
     if provider == "gemini":
+        if images:
+            logger.warning(
+                "Gemini provider received %d images but Vision not yet wired — text only.",
+                len(images),
+            )
         return await _parse_with_gemini(context, user_message, settings, **kwargs)
     elif provider == "anthropic":
-        return await _parse_with_anthropic(context, user_message, settings, **kwargs)
+        return await _parse_with_anthropic(
+            context, user_message, settings, images=images or [], **kwargs
+        )
     else:
         raise ValueError(f"Unknown AI provider: {provider}")
 
@@ -294,8 +312,12 @@ async def _parse_with_anthropic(
     context: str,
     user_message: str,
     settings: Any,
+    *,
+    images: list[tuple[bytes, str]] | None = None,
     **kwargs: Any,
 ) -> PayrollParsingResult:
+    import base64
+
     from anthropic import AsyncAnthropic
 
     if not settings.anthropic_api_key:
@@ -310,6 +332,29 @@ async def _parse_with_anthropic(
         "input_schema": _OUTPUT_SCHEMA,
     }
 
+    user_content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": context,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    for img_bytes, mime in images or []:
+        user_content.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime,
+                    "data": base64.b64encode(img_bytes).decode("ascii"),
+                },
+            }
+        )
+    user_content.append({"type": "text", "text": user_message})
+
+    if images:
+        logger.info("[anthropic-vision] sending %d images for analysis", len(images))
+
     response = await client.messages.create(
         model=model,
         max_tokens=4096,
@@ -322,19 +367,7 @@ async def _parse_with_anthropic(
         ],
         tools=[tool_schema],
         tool_choice={"type": "tool", "name": "submit_payroll_parsing"},
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": context,
-                        "cache_control": {"type": "ephemeral"},
-                    },
-                    {"type": "text", "text": user_message},
-                ],
-            }
-        ],
+        messages=[{"role": "user", "content": user_content}],
     )
 
     # Extract tool_use block

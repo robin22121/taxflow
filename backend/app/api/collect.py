@@ -118,6 +118,7 @@ async def _parse_and_match(
     filing: MonthlyFiling,
     employees: list[Employee],
     prev_entries: list[PayrollEntry],
+    images: list[tuple[bytes, str]] | None = None,
 ) -> MatchingResult:
     """Run AI parsing + matching engine. Pure logic, no DB writes."""
     # Build prev_amounts lookup (O(1) per employee instead of O(n))
@@ -143,6 +144,7 @@ async def _parse_and_match(
         employee_master=employee_master_payload,
         previous_month_data=previous_month_payload,
         period=filing.period,
+        images=images,
     )
 
     masters = [
@@ -273,10 +275,59 @@ async def _ingest_message(
     filing: MonthlyFiling,
     text: str,
     channel: str,
+    images: list[tuple[bytes, str]] | None = None,
 ) -> CollectMessageOut:
+    # Safety net: 텍스트가 placeholder만 있고 이미지도 없으면 AI 환각 방지를 위해 스킵
+    if not images and _is_only_placeholder(text):
+        return await _record_unparseable(db, session, text, channel)
+
     employees, prev_entries = await _build_context(db, client, filing)
-    matching = await _parse_and_match(text, client, filing, employees, prev_entries)
+    matching = await _parse_and_match(text, client, filing, employees, prev_entries, images=images)
     return await _persist_results(db, session, client, filing, matching, employees, text, channel)
+
+
+_PLACEHOLDER_MARKERS = (
+    "[이미지 업로드",
+    "[이미지 첨부",
+    "[첨부:",
+)
+
+
+def _is_only_placeholder(text: str) -> bool:
+    """본문이 첨부 placeholder 라인만 있고 실제 텍스트가 없는지 확인."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return True
+    return all(any(m in ln for m in _PLACEHOLDER_MARKERS) for ln in lines)
+
+
+async def _record_unparseable(
+    db: AsyncSession,
+    session: CollectionSession,
+    text: str,
+    channel: str,
+) -> CollectMessageOut:
+    """본문이 비어있거나 placeholder뿐일 때 — AI 호출 없이 세션만 검토 대기로 표시."""
+    db.add(
+        CollectionEvent(
+            session_id=session.id,
+            event_type=f"RECEIVE_{channel.upper()}_UNPARSEABLE",
+            channel=channel,
+            raw_text=text,
+            raw_payload={"reason": "no parseable content"},
+        )
+    )
+    session.status = CollectionSessionStatus.NEEDS_REVIEW
+    session.last_response_at = _dt.now(UTC)
+    await db.commit()
+    return CollectMessageOut(
+        session_id=session.id,
+        matched=0,
+        new_hire_suspected=0,
+        resignation_suspected=0,
+        ambiguous=0,
+        needs_followup=0,
+    )
 
 
 def _prev_period(period: str) -> str:
