@@ -159,11 +159,14 @@ def _salary_for_period(
 
 
 async def reset_all(db) -> None:
+    # FK 의존성 역순으로 삭제 — 참조하는 쪽 먼저, 참조받는 쪽 나중에
+    # secure_tokens.collection_session_id → collection_sessions 이므로
+    # SecureToken을 CollectionSession보다 먼저 삭제해야 함
     for model in [
         PayrollEntry,
         CollectionEvent,
-        CollectionSession,
         SecureToken,
+        CollectionSession,
         Employee,
         Client,
         MonthlyFiling,
