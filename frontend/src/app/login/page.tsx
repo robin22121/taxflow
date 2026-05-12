@@ -40,7 +40,7 @@ export default function LoginPage() {
           <div className="w-9 h-9 rounded-xl bg-ink text-white flex items-center justify-center text-base font-extrabold">
             이
           </div>
-          <span className="text-xl font-bold tracking-tight">이지원천</span>
+          <span className="text-xl font-bold tracking-tight text-black">이지원천</span>
         </div>
 
         <Card className="p-6">

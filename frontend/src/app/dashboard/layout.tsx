@@ -41,7 +41,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="w-[26px] h-[26px] rounded-lg bg-ink text-white flex items-center justify-center text-[13px] font-extrabold">
             이
           </div>
-          <span className="text-base font-bold tracking-tight">이지원천</span>
+          <span className="text-base font-bold tracking-tight text-black">이지원천</span>
         </div>
 
         {/* Workspace card */}
