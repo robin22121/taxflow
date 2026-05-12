@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.channels import (
     MessageRecipient,
+    SendResult,
     get_alimtalk_channel,
     get_email_channel,
     get_sms_channel,
@@ -572,18 +573,28 @@ async def send_invite(
             f"이 메일에 바로 회신하셔도 자동 접수됩니다."
         )
 
-        alimtalk_result = await alimtalk.send(
-            MessageRecipient(
-                name=client.business_name,
-                phone=client.contact_phone,
-                email=client.contact_email,
-            ),
-            body=invite_body,
-            template_code="COLLECTION_INVITE",
-            url=url,
-        )
+        # 알림톡은 비즈채널·템플릿 등록이 끝난 운영 provider 일 때만 시도.
+        # stub 상태에서는 건너뛰고 SMS / 이메일만 발송.
+        if settings.kakao_alimtalk_provider in ("aligo", "nhn_cloud"):
+            alimtalk_result = await alimtalk.send(
+                MessageRecipient(
+                    name=client.business_name,
+                    phone=client.contact_phone,
+                    email=client.contact_email,
+                ),
+                body=invite_body,
+                template_code="COLLECTION_INVITE",
+                url=url,
+            )
+        else:
+            alimtalk_result = SendResult(
+                channel="alimtalk_skipped",
+                accepted=False,
+                provider_msg_id=None,
+                error="알림톡 provider 미설정 (KAKAO_ALIMTALK_PROVIDER)",
+            )
 
-        # SMS fallback — 알림톡이 거부된 경우만 (비용 절감)
+        # SMS fallback — 알림톡이 거부됐거나 건너뛴 경우
         sms_result = None
         if not alimtalk_result.accepted and client.contact_phone:
             sms_body = f"[{office_name}] {filing.period} 원천세 자료 요청: {url}"

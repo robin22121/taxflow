@@ -47,8 +47,9 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       # ── 메시징 (Aligo: 알림톡 + SMS 공용 계정) ────────────
+      # 알림톡: 카카오 비즈채널 인증 완료 후 'aligo' / 'nhn_cloud' 로 변경
       - key: KAKAO_ALIMTALK_PROVIDER
-        value: aligo
+        value: stub
       - key: ALIGO_API_KEY
         sync: false
       - key: ALIGO_USER_ID
