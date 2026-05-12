@@ -50,12 +50,21 @@ class SendGridEmailChannel(MessageChannel):
         self, recipient: MessageRecipient, *, body, template_code=None, url=None
     ) -> SendResult:
         if not (self.api_key and self.from_email and recipient.email):
+            missing = [
+                k for k, v in {
+                    "SENDGRID_API_KEY": self.api_key,
+                    "SENDGRID_FROM_EMAIL": self.from_email,
+                    "recipient.email": recipient.email,
+                }.items() if not v
+            ]
+            logger.warning("[email-sendgrid] missing: %s", missing)
             return SendResult(
                 channel=self.name,
                 accepted=False,
                 provider_msg_id=None,
-                error="SendGrid config or recipient email missing",
+                error=f"SendGrid 자격증명/수신자 누락: {', '.join(missing)}",
             )
+        logger.info("[email-sendgrid] sending → %s", recipient.email)
         async with httpx.AsyncClient(timeout=10.0) as cli:
             resp = await cli.post(
                 "https://api.sendgrid.com/v3/mail/send",
@@ -67,11 +76,18 @@ class SendGridEmailChannel(MessageChannel):
                     "content": [{"type": "text/plain", "value": body}],
                 },
             )
+        ok = resp.status_code in (200, 202)
+        if ok:
+            logger.info("[email-sendgrid] accepted msg_id=%s", resp.headers.get("x-message-id"))
+        else:
+            logger.warning(
+                "[email-sendgrid] rejected status=%s body=%s", resp.status_code, resp.text[:200],
+            )
         return SendResult(
             channel=self.name,
-            accepted=resp.status_code in (200, 202),
+            accepted=ok,
             provider_msg_id=resp.headers.get("x-message-id"),
-            error=None if resp.status_code in (200, 202) else resp.text[:200],
+            error=None if ok else resp.text[:200],
         )
 
 

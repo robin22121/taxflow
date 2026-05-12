@@ -110,19 +110,7 @@ export default function ClientDetailPage({
             </p>
           </div>
         )}
-        {inviteResult && (
-          <div
-            className={
-              inviteResult.sent
-                ? "mt-3 text-sm text-green-700 dark:text-green-300"
-                : "mt-3 text-sm text-amber-700 dark:text-amber-300"
-            }
-          >
-            {inviteResult.sent
-              ? `✅ ${inviteResult.filing_period} 초대장 발송 완료 (${inviteResult.channels.join(", ")})`
-              : `⚠️ 발송 실패 — ${inviteResult.detail ?? "알 수 없는 오류"}`}
-          </div>
-        )}
+        {inviteResult && <InviteResultBanner result={inviteResult} />}
         {inviteError && (
           <p className="mt-3 text-sm text-red-600">{inviteError}</p>
         )}
@@ -325,6 +313,49 @@ function StatusBadge({ status }: { status: string }) {
   if (status === "ACTIVE") return <Badge tone="success">재직</Badge>;
   if (status === "RESIGNED") return <Badge tone="danger">퇴사</Badge>;
   return <Badge tone="warning">대기</Badge>;
+}
+
+function InviteResultBanner({ result }: { result: ClientInviteResult }) {
+  if (!result.sent) {
+    return (
+      <div className="mt-3 text-sm text-amber-700 dark:text-amber-300">
+        ⚠️ 발송 실패 — {result.detail ?? "알 수 없는 오류"}
+      </div>
+    );
+  }
+
+  const stubChannels = result.channels.filter((c) => c.endsWith("_stub"));
+  const realChannels = result.channels.filter((c) => !c.endsWith("_stub"));
+  const allStub = stubChannels.length > 0 && realChannels.length === 0;
+  const mixed = stubChannels.length > 0 && realChannels.length > 0;
+
+  if (allStub) {
+    return (
+      <div className="mt-3 p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm">
+        <p className="font-medium text-amber-800 dark:text-amber-300">
+          ⚠️ 테스트 모드 — 실제로 발송되지 않았습니다
+        </p>
+        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+          사용된 채널: {stubChannels.join(", ")}
+        </p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
+          Render Environment에서 <code>SMS_PROVIDER=aligo</code>,{" "}
+          <code>EMAIL_PROVIDER=sendgrid</code> 및 자격증명을 설정해주세요.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 text-sm text-green-700 dark:text-green-300">
+      ✅ {result.filing_period} 초대장 발송 완료 ({realChannels.join(", ")})
+      {mixed && (
+        <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">
+          (일부 채널은 테스트 모드: {stubChannels.join(", ")})
+        </span>
+      )}
+    </div>
+  );
 }
 
 function ClientEditModal({

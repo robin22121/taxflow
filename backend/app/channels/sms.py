@@ -68,11 +68,19 @@ class AligoSmsChannel(MessageChannel):
         url: str | None = None,
     ) -> SendResult:
         if not (self.api_key and self.user_id and self.sender):
+            missing = [
+                k for k, v in {
+                    "ALIGO_API_KEY": self.api_key,
+                    "ALIGO_USER_ID": self.user_id,
+                    "ALIGO_SMS_SENDER": self.sender,
+                }.items() if not v
+            ]
+            logger.warning("[sms-aligo] config missing: %s", missing)
             return SendResult(
                 channel=self.name,
                 accepted=False,
                 provider_msg_id=None,
-                error="ALIGO 자격증명 또는 발신번호 누락",
+                error=f"ALIGO 자격증명/발신번호 누락: {', '.join(missing)}",
             )
         if not recipient.phone:
             return SendResult(
@@ -81,14 +89,20 @@ class AligoSmsChannel(MessageChannel):
 
         # 본문 길이 기반 자동 분기 (utf-8 바이트 길이 기준 — 한글 ~3byte/자)
         msg_type = "SMS" if len(body.encode("utf-8")) <= 90 else "LMS"
+        sender_clean = _strip_phone(self.sender)
+        receiver_clean = _strip_phone(recipient.phone)
+        logger.info(
+            "[sms-aligo] sending %s → sender=%s receiver=%s len=%dB",
+            msg_type, sender_clean, receiver_clean, len(body.encode("utf-8")),
+        )
         async with httpx.AsyncClient(timeout=10.0) as cli:
             resp = await cli.post(
                 "https://apis.aligo.in/send/",
                 data={
                     "key": self.api_key,
                     "user_id": self.user_id,
-                    "sender": _strip_phone(self.sender),
-                    "receiver": _strip_phone(recipient.phone),
+                    "sender": sender_clean,
+                    "receiver": receiver_clean,
                     "msg": body,
                     "msg_type": msg_type,
                     "title": "원천세 자료 요청" if msg_type != "SMS" else "",
@@ -102,6 +116,15 @@ class AligoSmsChannel(MessageChannel):
         # Aligo: result_code=1 이면 성공, 그 외 실패
         result_code = str(data.get("result_code", ""))
         ok = resp.status_code == 200 and result_code == "1"
+        if ok:
+            logger.info(
+                "[sms-aligo] accepted msg_id=%s", data.get("msg_id"),
+            )
+        else:
+            logger.warning(
+                "[sms-aligo] rejected status=%s result_code=%s message=%s",
+                resp.status_code, result_code, data.get("message") or resp.text[:200],
+            )
         return SendResult(
             channel=self.name,
             accepted=ok,

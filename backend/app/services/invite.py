@@ -177,11 +177,13 @@ async def send_invite_to_client(
         )
     )
 
+    # 실제 채널명 노출 — sms_aligo / sms_stub / email_sendgrid / email_stub 등
+    # UI는 "_stub" 접미사로 테스트 모드를 감지해 경고를 표시
     accepted_channels: list[str] = []
     if alimtalk_result.accepted:
-        accepted_channels.append("alimtalk")
+        accepted_channels.append(alimtalk_result.channel)
     if sms_result is not None and sms_result.accepted:
-        accepted_channels.append("sms")
+        accepted_channels.append(sms_result.channel)
     if email_result is not None and email_result.accepted:
-        accepted_channels.append("email")
+        accepted_channels.append(email_result.channel)
     return session, accepted_channels
