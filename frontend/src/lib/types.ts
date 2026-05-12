@@ -89,7 +89,14 @@ export type PayrollEntry = {
   salary_amount: number | null;
   bonus_amount: number | null;
   non_taxable: number;
+  meal_amount: number;
+  car_amount: number;
+  childcare_amount: number;
   taxable: number;
+  national_pension: number;
+  health_insurance: number;
+  employment_insurance: number;
+  longterm_care: number;
   income_tax: number;
   local_tax: number;
   payment_date: string | null;

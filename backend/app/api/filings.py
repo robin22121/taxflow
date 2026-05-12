@@ -304,21 +304,59 @@ async def update_entry(
             continue
         setattr(entry, field_name, value)
 
-    # Recompute taxes only if money fields changed AND user did not manually
-    # set income_tax/local_tax in the same PATCH (manual values win).
-    manual_tax = "income_tax" in patch or "local_tax" in patch
-    if not manual_tax and any(k in patch for k in ("total_amount", "non_taxable", "income_type")):
-        from app.services.tax_calc import calculate_withholding_tax
+    # If 비과세 세분이 patch되면 non_taxable을 합으로 재계산
+    breakdown_changed = any(k in patch for k in ("meal_amount", "car_amount", "childcare_amount"))
+    if breakdown_changed and "non_taxable" not in patch:
+        entry.non_taxable = (entry.meal_amount or 0) + (entry.car_amount or 0) + (entry.childcare_amount or 0)
+
+    # Auto-recompute taxes / 4대보험 only if money fields changed AND
+    # user did not manually set the corresponding values in the same PATCH.
+    money_changed = any(
+        k in patch for k in ("total_amount", "non_taxable", "income_type",
+                             "meal_amount", "car_amount", "childcare_amount")
+    )
+    if money_changed:
         entry.taxable = entry.total_amount - entry.non_taxable
-        tax = calculate_withholding_tax(
-            entry.income_type, entry.taxable, dependents=entry.dependents or 1
-        )
-        entry.income_tax = tax.income_tax
-        entry.local_tax = tax.local_tax
+        manual_tax = "income_tax" in patch or "local_tax" in patch
+        if not manual_tax:
+            from app.services.tax_calc import calculate_withholding_tax
+            tax = calculate_withholding_tax(
+                entry.income_type, entry.taxable, dependents=entry.dependents or 1
+            )
+            entry.income_tax = tax.income_tax
+            entry.local_tax = tax.local_tax
+        manual_si = any(k in patch for k in (
+            "national_pension", "health_insurance", "employment_insurance", "longterm_care"
+        ))
+        if not manual_si:
+            from app.services.tax_calc import calculate_social_insurance
+            si = calculate_social_insurance(entry.taxable, entry.income_type)
+            entry.national_pension = si.national_pension
+            entry.health_insurance = si.health_insurance
+            entry.employment_insurance = si.employment_insurance
+            entry.longterm_care = si.longterm_care
 
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+@router.delete("/{filing_id}/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_entry(
+    filing_id: str,
+    entry_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    entry = await db.get(PayrollEntry, entry_id)
+    if not entry or entry.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    filing = await db.get(MonthlyFiling, filing_id)
+    if filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN)
+    await db.delete(entry)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{filing_id}/wehago-excel")

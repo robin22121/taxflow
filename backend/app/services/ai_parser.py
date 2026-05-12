@@ -33,6 +33,9 @@ class MatchedEmployee:
     employee_id: str
     amount: int
     non_taxable: int = 0
+    meal_amount: int = 0
+    car_amount: int = 0
+    childcare_amount: int = 0
     income_type: str = "WAGE"
     change_from_prev: int | None = None
     change_reason: str | None = None
@@ -43,6 +46,9 @@ class NewHireSuspected:
     name: str
     amount: int
     non_taxable: int = 0
+    meal_amount: int = 0
+    car_amount: int = 0
+    childcare_amount: int = 0
     income_type: str = "WAGE"
     needs_confirmation: bool = True
 
@@ -94,6 +100,11 @@ _SYSTEM_PROMPT = """당신은 한국 세무사사무소의 원천세 자료 정�
 [규칙]
 - 금액은 만원 단위 표기("100", "1.2백만") 도 정수 원 단위로 환산합니다 (100만원 → 1000000).
 - 비과세소득이 명시되지 않으면 0.
+- 비과세 항목이 구체적으로 명시되면 분리해서 채웁니다:
+  * "식대 20만원" → meal_amount: 200000 (한도 200000)
+  * "자가운전보조금 20만원" / "차량유지비" → car_amount: 200000 (한도 200000)
+  * "육아수당" / "보육수당" → childcare_amount (한도 200000, 6세 이하 자녀)
+  * non_taxable 은 위 셋의 합과 일치시키거나, 분류 불가능한 비과세까지 포함한 총액.
 - 소득구분이 명확하지 않으면 ``WAGE`` 로 둡니다.
 - 추측한 부분은 ``ambiguous_items`` 에 함께 표시합니다.
 - 직원 마스터에 없는 이름이 나오면 ``new_hire_suspected``.
@@ -113,6 +124,9 @@ _OUTPUT_SCHEMA = {
                     "employee_id": {"type": "string"},
                     "amount": {"type": "integer"},
                     "non_taxable": {"type": "integer"},
+                    "meal_amount": {"type": "integer", "description": "식대 (한도 20만)"},
+                    "car_amount": {"type": "integer", "description": "자가운전보조금 (한도 20만)"},
+                    "childcare_amount": {"type": "integer", "description": "육아수당 (한도 20만)"},
                     "income_type": {
                         "type": "string",
                         "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],
@@ -131,6 +145,9 @@ _OUTPUT_SCHEMA = {
                     "name": {"type": "string"},
                     "amount": {"type": "integer"},
                     "non_taxable": {"type": "integer"},
+                    "meal_amount": {"type": "integer"},
+                    "car_amount": {"type": "integer"},
+                    "childcare_amount": {"type": "integer"},
                     "income_type": {
                         "type": "string",
                         "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],

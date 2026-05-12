@@ -109,6 +109,17 @@ export function useUpdateEntry(filingId: string) {
   });
 }
 
+export function useDeleteEntry(filingId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (entryId: string) =>
+      api(`/api/v1/filings/${filingId}/entries/${entryId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["filings", filingId] });
+    },
+  });
+}
+
 export function useCreateFiling() {
   const qc = useQueryClient();
   return useMutation({

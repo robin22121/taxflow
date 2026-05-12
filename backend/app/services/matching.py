@@ -42,7 +42,10 @@ class PayrollEntryCandidate:
     income_type: IncomeType
     total_amount: int
     non_taxable: int
-    match_status: MatchStatus
+    meal_amount: int = 0
+    car_amount: int = 0
+    childcare_amount: int = 0
+    match_status: MatchStatus = MatchStatus.AMBIGUOUS
     prev_amount: int | None = None
     anomaly_notes: dict[str, Any] = field(default_factory=dict)
     needs_followup: bool = False
@@ -99,6 +102,9 @@ def reconcile(
                 income_type=_to_income_type(m.income_type),
                 total_amount=m.amount,
                 non_taxable=m.non_taxable,
+                meal_amount=getattr(m, "meal_amount", 0),
+                car_amount=getattr(m, "car_amount", 0),
+                childcare_amount=getattr(m, "childcare_amount", 0),
                 match_status=status,
                 prev_amount=prev,
                 anomaly_notes=anomaly,
@@ -117,6 +123,9 @@ def reconcile(
                 income_type=_to_income_type(n.income_type),
                 total_amount=n.amount,
                 non_taxable=n.non_taxable,
+                meal_amount=getattr(n, "meal_amount", 0),
+                car_amount=getattr(n, "car_amount", 0),
+                childcare_amount=getattr(n, "childcare_amount", 0),
                 match_status=MatchStatus.NEW_HIRE_SUSPECTED,
                 needs_followup=True,
                 followup_reason="new_hire_rrn",

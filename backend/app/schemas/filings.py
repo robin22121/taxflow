@@ -45,7 +45,14 @@ class PayrollEntryOut(BaseModel):
     salary_amount: int | None
     bonus_amount: int | None
     non_taxable: int
+    meal_amount: int = 0
+    car_amount: int = 0
+    childcare_amount: int = 0
     taxable: int
+    national_pension: int = 0
+    health_insurance: int = 0
+    employment_insurance: int = 0
+    longterm_care: int = 0
     income_tax: int
     local_tax: int
     payment_date: date | None
@@ -60,8 +67,17 @@ class PayrollEntryOut(BaseModel):
 class PayrollEntryUpdate(BaseModel):
     raw_name: str | None = None
     total_amount: int | None = None
+    salary_amount: int | None = None
+    bonus_amount: int | None = None
     non_taxable: int | None = None
+    meal_amount: int | None = None
+    car_amount: int | None = None
+    childcare_amount: int | None = None
     income_type: str | None = None
+    national_pension: int | None = None
+    health_insurance: int | None = None
+    employment_insurance: int | None = None
+    longterm_care: int | None = None
     income_tax: int | None = None
     local_tax: int | None = None
     payment_date: date | None = None

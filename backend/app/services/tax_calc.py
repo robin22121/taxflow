@@ -215,3 +215,59 @@ def income_type_to_wehago_code(t: IncomeType) -> str:
         IncomeType.DAILY: "A02",
         IncomeType.RETIREMENT: "A20",
     }[t]
+
+
+# ---------------------------------------------------------------------------
+# 4대보험 (사용자 부담분) — 2026년 기준 근사
+# ---------------------------------------------------------------------------
+# Rates are policy-driven and updated annually by NPS / NHIS / 고용노동부.
+# Verify against the latest official notice before billing real customers.
+
+_NPS_RATE = 0.045              # 국민연금 사용자 부담
+_NPS_MIN_BASE = 370_000        # 기준소득월액 하한
+_NPS_MAX_BASE = 5_900_000      # 기준소득월액 상한
+_HI_RATE = 0.03545             # 건강보험 사용자 부담
+_LTC_RATE_OF_HI = 0.1295       # 장기요양 = 건보료 × 12.95%
+_EI_RATE = 0.009               # 고용보험 실업급여
+
+
+@dataclass(frozen=True, slots=True)
+class SocialInsurance:
+    national_pension: int
+    health_insurance: int
+    employment_insurance: int
+    longterm_care: int
+
+    @property
+    def total(self) -> int:
+        return (
+            self.national_pension
+            + self.health_insurance
+            + self.employment_insurance
+            + self.longterm_care
+        )
+
+
+def calculate_social_insurance(
+    monthly_wage: int,
+    income_type: IncomeType = IncomeType.WAGE,
+) -> SocialInsurance:
+    """4대보험 사용자 부담분 계산 (근로소득 기준).
+
+    근로소득 외 소득구분은 일반적으로 4대보험 미가입 → 0 반환.
+    사업장별 가입 여부·감면 대상은 추후 Client/Employee 옵션으로 분기.
+    """
+    if income_type != IncomeType.WAGE or monthly_wage <= 0:
+        return SocialInsurance(0, 0, 0, 0)
+
+    nps_base = max(_NPS_MIN_BASE, min(_NPS_MAX_BASE, monthly_wage))
+    nps = _round_down_10(nps_base * _NPS_RATE)
+    hi = _round_down_10(monthly_wage * _HI_RATE)
+    ltc = _round_down_10(hi * _LTC_RATE_OF_HI)
+    ei = _round_down_10(monthly_wage * _EI_RATE)
+    return SocialInsurance(
+        national_pension=nps,
+        health_insurance=hi,
+        employment_insurance=ei,
+        longterm_care=ltc,
+    )

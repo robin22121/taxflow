@@ -111,20 +111,9 @@ def _data_row(entry: PayrollEntry, idx: int) -> list:
 
     salary = entry.salary_amount or entry.total_amount
     bonus = entry.bonus_amount or 0
-    meal_allowance = 0
-    car_allowance = 0
-    childcare = 0
-    non_tax = entry.non_taxable or 0
-
-    # 비과세를 식대로 간주 (가장 일반적인 비과세 항목)
-    if non_tax > 0:
-        meal_allowance = min(non_tax, 200000)
-        remaining = non_tax - meal_allowance
-        if remaining > 0:
-            car_allowance = min(remaining, 200000)
-            remaining -= car_allowance
-        if remaining > 0:
-            childcare = remaining
+    meal_allowance = entry.meal_amount or 0
+    car_allowance = entry.car_amount or 0
+    childcare = entry.childcare_amount or 0
 
     # 기본급 = 총액 - 상여 - 비과세 항목들
     base_salary = salary - bonus - meal_allowance - car_allowance - childcare
@@ -133,11 +122,10 @@ def _data_row(entry: PayrollEntry, idx: int) -> list:
 
     gross = base_salary + bonus + meal_allowance + car_allowance + childcare
 
-    # 4대보험은 현재 모델에 없으므로 0으로 처리
-    national_pension = 0
-    health_insurance = 0
-    employment_insurance = 0
-    longterm_care = 0
+    national_pension = entry.national_pension or 0
+    health_insurance = entry.health_insurance or 0
+    employment_insurance = entry.employment_insurance or 0
+    longterm_care = entry.longterm_care or 0
 
     deduction_total = (national_pension + health_insurance + employment_insurance
                        + longterm_care + income_tax + local_tax)

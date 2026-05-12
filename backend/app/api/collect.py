@@ -30,7 +30,11 @@ from app.models import User
 from app.schemas.filings import CollectMessageIn, CollectMessageOut
 from app.services.ai_parser import parse_payroll_message
 from app.services.matching import EmployeeMaster, MatchingResult, reconcile
-from app.services.tax_calc import calculate_withholding_tax, income_type_to_a_code
+from app.services.tax_calc import (
+    calculate_social_insurance,
+    calculate_withholding_tax,
+    income_type_to_a_code,
+)
 
 router = APIRouter()
 
@@ -187,12 +191,16 @@ async def _persist_results(
     needs_followup_count = 0
 
     for cand in matching.entries:
-        taxable = cand.total_amount - cand.non_taxable
+        # 비과세 세분이 있으면 그 합으로 non_taxable 재계산 (정합 보장)
+        breakdown_sum = cand.meal_amount + cand.car_amount + cand.childcare_amount
+        non_taxable = max(cand.non_taxable, breakdown_sum)
+        taxable = cand.total_amount - non_taxable
         matched_emp = emp_by_id.get(cand.employee_id) if cand.employee_id else None
         biz_code = matched_emp.business_type_code if matched_emp and cand.income_type == IncomeType.BUSINESS else None
         tax = calculate_withholding_tax(
             cand.income_type, taxable, dependents=1, business_type_code=biz_code,
         )
+        si = calculate_social_insurance(taxable, cand.income_type)
         a_code = income_type_to_a_code(cand.income_type, is_corporation=client.is_corporation)
         salary_amt = cand.total_amount if cand.income_type == IncomeType.WAGE else None
         bonus_amt = 0 if cand.income_type == IncomeType.WAGE else None
@@ -209,8 +217,15 @@ async def _persist_results(
             total_amount=cand.total_amount,
             salary_amount=salary_amt,
             bonus_amount=bonus_amt,
-            non_taxable=cand.non_taxable,
+            non_taxable=non_taxable,
+            meal_amount=cand.meal_amount,
+            car_amount=cand.car_amount,
+            childcare_amount=cand.childcare_amount,
             taxable=taxable,
+            national_pension=si.national_pension,
+            health_insurance=si.health_insurance,
+            employment_insurance=si.employment_insurance,
+            longterm_care=si.longterm_care,
             income_tax=tax.income_tax,
             local_tax=tax.local_tax,
             match_status=cand.match_status,

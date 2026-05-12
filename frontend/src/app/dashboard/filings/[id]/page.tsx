@@ -1,8 +1,9 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useMemo, useState } from "react";
 
 import {
+  useDeleteEntry,
   useFilingDashboard,
   useFilingEntries,
   useRequestCollection,
@@ -204,8 +205,34 @@ function SessionDetail({
 
 function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollEntry[] }) {
   const update = useUpdateEntry(filingId);
+  const remove = useDeleteEntry(filingId);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<PayrollEntry>>({});
+
+  const dupGroups = useMemo(() => {
+    const map = new Map<string, PayrollEntry[]>();
+    for (const e of entries) {
+      const key = e.employee_id ?? `__name:${e.raw_name}`;
+      const list = map.get(key) ?? [];
+      list.push(e);
+      map.set(key, list);
+    }
+    return map;
+  }, [entries]);
+
+  function dupInfoFor(e: PayrollEntry): { count: number; index: number } {
+    const key = e.employee_id ?? `__name:${e.raw_name}`;
+    const group = dupGroups.get(key) ?? [];
+    const idx = group.findIndex((x) => x.id === e.id);
+    return { count: group.length, index: idx + 1 };
+  }
+
+  function confirmDelete(e: PayrollEntry) {
+    if (!window.confirm(`${e.raw_name} 항목을 삭제할까요?`)) return;
+    remove.mutate(e.id, {
+      onError: (err) => alert((err as Error).message),
+    });
+  }
 
   function startEdit(e: PayrollEntry) {
     setEditingId(e.id);
@@ -265,6 +292,7 @@ function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollE
         <tbody>
           {entries.map((e) => {
             const isEditing = editingId === e.id;
+            const dup = dupInfoFor(e);
             return (
               <tr
                 key={e.id}
@@ -273,11 +301,18 @@ function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollE
                   "border-b border-gray-100 dark:border-gray-900 cursor-pointer " +
                   (isEditing
                     ? "bg-blue-50 dark:bg-blue-950/30"
-                    : "hover:bg-gray-50 dark:hover:bg-gray-900/30")
+                    : dup.count > 1
+                      ? "bg-amber-50/40 hover:bg-amber-50 dark:bg-amber-950/10 dark:hover:bg-amber-950/30"
+                      : "hover:bg-gray-50 dark:hover:bg-gray-900/30")
                 }
               >
                 <td className="py-2 pr-3">
-                  <MatchBadge status={e.match_status} />
+                  <div className="flex flex-col gap-0.5 items-start">
+                    <MatchBadge status={e.match_status} />
+                    {dup.count > 1 && (
+                      <Badge tone="warning">중복 {dup.index}/{dup.count}</Badge>
+                    )}
+                  </div>
                 </td>
                 <td className="py-2 pr-3 font-medium">
                   {isEditing ? (
@@ -387,12 +422,21 @@ function EntryTable({ filingId, entries }: { filingId: string; entries: PayrollE
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => startEdit(e)}
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      수정
-                    </button>
+                    <div className="flex gap-2 justify-center">
+                      <button
+                        onClick={() => startEdit(e)}
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        수정
+                      </button>
+                      <button
+                        onClick={() => confirmDelete(e)}
+                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                        disabled={remove.isPending}
+                      >
+                        삭제
+                      </button>
+                    </div>
                   )}
                 </td>
                 <td className="py-2 text-xs text-gray-500">

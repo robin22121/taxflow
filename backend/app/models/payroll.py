@@ -55,8 +55,17 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
     total_amount: Mapped[int] = mapped_column(Integer, default=0)
     salary_amount: Mapped[int | None] = mapped_column(Integer)  # 급여 (근로소득 간이지급명세서용)
     bonus_amount: Mapped[int | None] = mapped_column(Integer)  # 상여 (근로소득 간이지급명세서용)
-    non_taxable: Mapped[int] = mapped_column(Integer, default=0)
+    non_taxable: Mapped[int] = mapped_column(Integer, default=0)  # 비과세 합계
+    # 비과세 세부 항목 (급여대장 양식용)
+    meal_amount: Mapped[int] = mapped_column(Integer, default=0)         # 식대 (한도 20만)
+    car_amount: Mapped[int] = mapped_column(Integer, default=0)          # 자가운전보조금 (한도 20만)
+    childcare_amount: Mapped[int] = mapped_column(Integer, default=0)    # 육아수당 (한도 20만)
     taxable: Mapped[int] = mapped_column(Integer, default=0)
+    # 4대보험 공제 (사용자 부담분)
+    national_pension: Mapped[int] = mapped_column(Integer, default=0)    # 국민연금
+    health_insurance: Mapped[int] = mapped_column(Integer, default=0)    # 건강보험
+    employment_insurance: Mapped[int] = mapped_column(Integer, default=0)  # 고용보험
+    longterm_care: Mapped[int] = mapped_column(Integer, default=0)       # 장기요양보험료
     income_tax: Mapped[int] = mapped_column(Integer, default=0)
     local_tax: Mapped[int] = mapped_column(Integer, default=0)
     payment_date: Mapped[date | None] = mapped_column(Date)
