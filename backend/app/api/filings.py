@@ -7,7 +7,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.channels import MessageRecipient, get_alimtalk_channel, get_email_channel
+from app.channels import (
+    MessageRecipient,
+    get_alimtalk_channel,
+    get_email_channel,
+    get_sms_channel,
+)
 from app.config import get_settings
 from app.core.deps import get_current_user, get_db
 from app.models import (
@@ -549,6 +554,7 @@ async def send_invite(
 
     alimtalk = get_alimtalk_channel()
     email_ch = get_email_channel()
+    sms = get_sms_channel()
     settings = get_settings()
     out: list[CollectionSessionOut] = []
 
@@ -577,6 +583,20 @@ async def send_invite(
             url=url,
         )
 
+        # SMS fallback — 알림톡이 거부된 경우만 (비용 절감)
+        sms_result = None
+        if not alimtalk_result.accepted and client.contact_phone:
+            sms_body = f"[{office_name}] {filing.period} 원천세 자료 요청: {url}"
+            sms_result = await sms.send(
+                MessageRecipient(
+                    name=client.business_name,
+                    phone=client.contact_phone,
+                ),
+                body=sms_body,
+                url=url,
+            )
+
+        # 이메일은 contact_email 있으면 항상
         email_result = None
         if client.contact_email:
             email_body = (
@@ -601,7 +621,11 @@ async def send_invite(
                 url=url,
             )
 
-        sent = alimtalk_result.accepted or (email_result and email_result.accepted)
+        sent = (
+            alimtalk_result.accepted
+            or (sms_result is not None and sms_result.accepted)
+            or (email_result is not None and email_result.accepted)
+        )
         session.status = (
             CollectionSessionStatus.SENT if sent else CollectionSessionStatus.PENDING
         )
@@ -609,14 +633,24 @@ async def send_invite(
             session.request_sent_at = _dt.now(UTC)
             client.invite_sent = True
 
+        channels_used = ["alimtalk"]
+        if sms_result is not None:
+            channels_used.append("sms")
+        if email_result is not None:
+            channels_used.append("email")
+
         db.add(CollectionEvent(
             session_id=session.id,
             event_type="SEND_INVITE",
-            channel="alimtalk+email",
+            channel="+".join(channels_used),
             raw_text=invite_body,
             raw_payload={
                 "alimtalk_ok": alimtalk_result.accepted,
-                "email_ok": email_result.accepted if email_result else False,
+                "alimtalk_error": alimtalk_result.error,
+                "sms_ok": sms_result.accepted if sms_result else None,
+                "sms_error": sms_result.error if sms_result else None,
+                "email_ok": email_result.accepted if email_result else None,
+                "email_error": email_result.error if email_result else None,
                 "collect_email": client.collect_email,
             },
         ))

@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     nhn_cloud_secret_key: str = ""
     nhn_cloud_sender_key: str = ""
 
+    # SMS — 알림톡 fallback. ALIGO_API_KEY/USER_ID는 알림톡과 공유.
+    sms_provider: str = "stub"  # stub | aligo
+    aligo_sms_sender: str = ""   # SMS 발신번호 (Aligo 사전 등록 필요)
+
     # email 우선순위: ncp_outbound > sendgrid > stub
     email_provider: str = "auto"  # auto | ncp_outbound | sendgrid | stub
     sendgrid_api_key: str = ""
