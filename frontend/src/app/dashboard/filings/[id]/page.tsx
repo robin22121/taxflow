@@ -995,7 +995,10 @@ function AttachmentThumb({ filingId, sessionId, att, onClick, onDelete }: {
           ) : showInline && !blobUrl && !loadFailed ? (
             <span className="text-gray-300 text-[10px]">...</span>
           ) : loadFailed ? (
-            <KindIcon kind={att.kind} />
+            <div className="flex flex-col items-center gap-1 text-gray-400">
+              <span className="text-lg">🚫</span>
+              <span className="text-[9px]">파일 유실</span>
+            </div>
           ) : (
             <KindIcon kind={att.kind} />
           )}
