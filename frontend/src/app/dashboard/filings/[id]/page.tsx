@@ -14,7 +14,7 @@ import {
   useSubmitMessage,
   useUpdateEntry,
 } from "@/lib/queries";
-import { apiBlob, getToken } from "@/lib/api";
+import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
 import type { CollectionSession, PayrollEntry, SessionAttachment, SourceEvent } from "@/lib/types";
 
@@ -253,7 +253,7 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
   );
 }
 
-/* ═══ Default 2-Pane Mode ═══ */
+/* ═══ Default 3-Pane Mode ═══ */
 
 function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries }: {
   filingId: string;
@@ -286,18 +286,17 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   return (
     <div className="flex flex-1 min-h-0 bg-gray-50">
       {/* LEFT — Session list */}
-      <div className="w-[280px] border-r border-gray-200 bg-white flex flex-col shrink-0">
-        <div className="px-3.5 pt-3.5 pb-2 space-y-2.5">
+      <div className="w-[240px] border-r border-gray-200 bg-white flex flex-col shrink-0">
+        <div className="px-3 pt-3 pb-2 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[15px] font-semibold">거래처 {sessions.length}</span>
+            <span className="text-[14px] font-semibold">거래처 {sessions.length}</span>
           </div>
-          {/* Filter chips */}
-          <div className="inline-flex items-center p-0.5 rounded-full bg-gray-50 border border-gray-200 text-[11.5px]">
+          <div className="inline-flex items-center p-0.5 rounded-full bg-gray-50 border border-gray-200 text-[11px]">
             {([["all", `전체`], ["review", `확인 ${reviewCount}`], ["waiting", `대기 ${waitingCount}`]] as const).map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setFilter(key)}
-                className={`px-2.5 py-1 rounded-full font-medium transition-all ${filter === key ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-700"}`}
+                className={`px-2 py-1 rounded-full font-medium transition-all ${filter === key ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-700"}`}
               >
                 {label}
               </button>
@@ -318,21 +317,21 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
       </div>
 
-      {/* RIGHT — Top/Bottom split: 원본자료 + AI추출결과 */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      {/* CENTER — Original docs (compact thumbnails) */}
+      <div className="w-[280px] border-r border-gray-200 bg-white flex flex-col shrink-0">
         {selectedSession ? (
-          <>
-            {/* TOP — Original docs */}
-            <div className="h-[45%] min-h-0 border-b border-gray-200 bg-white flex flex-col">
-              <CenterPane key={`center-${selectedSession.id}`} filingId={filingId} session={selectedSession} entries={selectedEntries} />
-            </div>
-            {/* BOTTOM — AI table */}
-            <div className="flex-1 min-h-0 bg-white flex flex-col">
-              <RightPane key={`right-${selectedSession.id}`} filingId={filingId} session={selectedSession} entries={selectedEntries} />
-            </div>
-          </>
+          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">거래처 선택</div>
+        )}
+      </div>
+
+      {/* RIGHT — AI table */}
+      <div className="flex-1 min-w-0 bg-white flex flex-col">
+        {selectedSession ? (
+          <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries} />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">AI 추출 결과</div>
         )}
       </div>
     </div>
@@ -408,6 +407,8 @@ function CenterPane({ filingId, session, entries }: {
   const [channel, setChannel] = useState("kakao");
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
   const [zoomKey, setZoomKey] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SessionAttachment | null>(null);
+  const [deletedKeys, setDeletedKeys] = useState<Set<string>>(new Set());
 
   const sourceTexts = useMemo(() => {
     const seen = new Set<string>();
@@ -421,20 +422,17 @@ function CenterPane({ filingId, session, entries }: {
       });
   }, [entries]);
 
+  const visibleAttachments = (attachments ?? []).filter((a) => !deletedKeys.has(a.storage_key));
   const publicUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`;
 
   return (
     <>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100 shrink-0">
         <div>
-          <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">원본 자료 · {session.client_name}</span>
-          <div className="text-[15px] font-semibold mt-0.5">
-            {sourceTexts.length > 0
-              ? `${sourceTexts.length}개 · ${sourceTexts[0].received_date || ""} ${channelLabel(sourceTexts[0].channel)}`
-              : "자료 대기중"}
-          </div>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">원본 자료</span>
+          <div className="text-[13px] font-semibold mt-0.5">{session.client_name}</div>
         </div>
-        <div className="flex gap-1.5 text-[11px]">
+        <div className="flex gap-1.5 text-[10px]">
           <a href={publicUrl} target="_blank" className="text-blue-600 hover:underline">URL</a>
           <span className="text-gray-300">|</span>
           <button onClick={() => requestCollection.mutate(session.id)} disabled={requestCollection.isPending} className="text-blue-600 hover:underline disabled:opacity-50">
@@ -445,36 +443,36 @@ function CenterPane({ filingId, session, entries }: {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
-        {attachments && attachments.length > 0 && (
-          <div className="grid grid-cols-2 gap-2">
-            {attachments.map((a) => (
-              <AttachmentThumb key={a.storage_key} filingId={filingId} sessionId={session.id} att={a} onClick={() => setZoomKey(a.storage_key)} />
+      <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+        {visibleAttachments.length > 0 && (
+          <div className="grid grid-cols-3 gap-1.5">
+            {visibleAttachments.map((a) => (
+              <AttachmentThumb key={a.storage_key} filingId={filingId} sessionId={session.id} att={a}
+                onClick={() => setZoomKey(a.storage_key)}
+                onDelete={() => setDeleteTarget(a)} />
             ))}
           </div>
         )}
 
         {sourceTexts.map((se) => (
-          <div key={se.id} className="p-3 rounded-[10px] bg-gray-50 border border-gray-200">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 텍스트</span>
-            </div>
-            <div className="text-[13px] leading-relaxed text-gray-700 whitespace-pre-wrap">{se.raw_text}</div>
+          <div key={se.id} className="p-2 rounded-lg bg-gray-50 border border-gray-200">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">텍스트</span>
+            <div className="text-[12px] leading-relaxed text-gray-700 whitespace-pre-wrap mt-1 max-h-32 overflow-y-auto">{se.raw_text}</div>
           </div>
         ))}
 
-        {(!attachments || attachments.length === 0) && sourceTexts.length === 0 && (
-          <div className="text-center py-8 text-sm text-gray-400">아직 수신된 자료가 없습니다</div>
+        {visibleAttachments.length === 0 && sourceTexts.length === 0 && (
+          <div className="text-center py-6 text-xs text-gray-400">수신된 자료 없음</div>
         )}
 
         {showInput && (
-          <div className="space-y-2 border-t border-gray-200 pt-3">
-            <label className="block text-xs font-medium text-gray-700">메시지 원본 입력</label>
+          <div className="space-y-2 border-t border-gray-200 pt-2">
+            <label className="block text-xs font-medium text-gray-700">수동 입력</label>
             <input placeholder="발신자명" value={senderName} onChange={(e) => setSenderName(e.target.value)}
-              className="w-full rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-blue-500" />
+              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500" />
             <div className="flex gap-1.5">
               <select value={channel} onChange={(e) => setChannel(e.target.value)}
-                className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+                className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs">
                 <option value="kakao">카카오톡</option>
                 <option value="email">이메일</option>
                 <option value="sms">문자</option>
@@ -482,10 +480,10 @@ function CenterPane({ filingId, session, entries }: {
                 <option value="manual">직접</option>
               </select>
               <input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)}
-                className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs" />
+                className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs" />
             </div>
-            <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="메시지 원본을 붙여넣으세요..."
-              className="w-full rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-blue-500 resize-none" />
+            <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="메시지 원본을 붙여넣으세요..."
+              className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500 resize-none" />
             <Button className="w-full" onClick={() => {
               if (!text.trim() || !senderName.trim()) return;
               submit.mutate(
@@ -501,6 +499,19 @@ function CenterPane({ filingId, session, entries }: {
 
       {zoomKey && attachments && (
         <AttachmentZoomModal filingId={filingId} sessionId={session.id} att={attachments.find((a) => a.storage_key === zoomKey)!} onClose={() => setZoomKey(null)} />
+      )}
+
+      {deleteTarget && (
+        <DeleteAttachmentModal
+          filename={deleteTarget.filename}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={(deletedBy) => {
+            setDeletedKeys((prev) => new Set([...prev, deleteTarget.storage_key]));
+            setDeleteTarget(null);
+            // Fire-and-forget backend call (best effort)
+            api(`/api/v1/filings/${filingId}/sessions/${session.id}/attachments?key=${encodeURIComponent(deleteTarget.storage_key)}&deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" }).catch(() => {});
+          }}
+        />
       )}
     </>
   );
@@ -892,11 +903,11 @@ function RingProgress({ current, total }: { current: number; total: number }) {
 
 /* ═══ Attachment Components ═══ */
 
-function AttachmentThumb({ filingId, sessionId, att, onClick }: {
-  filingId: string; sessionId: string; att: SessionAttachment; onClick: () => void;
+function AttachmentThumb({ filingId, sessionId, att, onClick, onDelete }: {
+  filingId: string; sessionId: string; att: SessionAttachment; onClick: () => void; onDelete?: () => void;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const showInline = att.kind === "image";
 
   useEffect(() => {
@@ -905,33 +916,63 @@ function AttachmentThumb({ filingId, sessionId, att, onClick }: {
     let url: string | null = null;
     apiBlob(`/api/v1/filings/${filingId}/sessions/${sessionId}/attachments/raw?key=${encodeURIComponent(att.storage_key)}`)
       .then((blob) => { if (cancelled) return; url = URL.createObjectURL(blob); setBlobUrl(url); })
-      .catch((e) => !cancelled && setError((e as Error).message));
+      .catch(() => !cancelled && setLoadFailed(true));
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [filingId, sessionId, att.storage_key, showInline]);
 
   return (
-    <button type="button" onClick={onClick}
-      className="group flex flex-col items-stretch text-left rounded-[10px] border border-gray-200 overflow-hidden hover:border-blue-400 transition-colors">
-      <div className="aspect-square bg-gray-50 flex items-center justify-center text-xs text-gray-400">
-        {showInline && blobUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={blobUrl} alt={att.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-        ) : showInline && !blobUrl && !error ? (
-          <span>로딩...</span>
-        ) : error ? (
-          <span className="text-red-500 px-2 text-center">{error}</span>
-        ) : (
-          <KindIcon kind={att.kind} />
-        )}
-      </div>
-      <div className="px-2 py-1 text-[11px] truncate">{att.filename}</div>
-    </button>
+    <div className="group relative rounded-lg border border-gray-200 overflow-hidden hover:border-blue-400 transition-colors">
+      <button type="button" onClick={onClick} className="w-full flex flex-col items-stretch text-left">
+        <div className="aspect-[4/3] bg-gray-50 flex items-center justify-center text-xs text-gray-400">
+          {showInline && blobUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={blobUrl} alt={att.filename} className="w-full h-full object-cover" />
+          ) : showInline && !blobUrl && !loadFailed ? (
+            <span className="text-gray-300 text-[10px]">...</span>
+          ) : loadFailed ? (
+            <KindIcon kind={att.kind} />
+          ) : (
+            <KindIcon kind={att.kind} />
+          )}
+        </div>
+        <div className="px-1.5 py-1 text-[10px] truncate text-gray-700">{att.filename}</div>
+      </button>
+      {onDelete && (
+        <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+          title="삭제">
+          ✕
+        </button>
+      )}
+    </div>
   );
 }
 
 function KindIcon({ kind }: { kind: string }) {
   const label = { pdf: "PDF", excel: "엑셀", csv: "CSV", audio: "음성", image: "이미지" }[kind] ?? kind;
   return <div className="flex flex-col items-center gap-1"><div className="text-2xl">📎</div><div className="text-xs font-medium">{label}</div></div>;
+}
+
+function DeleteAttachmentModal({ filename, onClose, onConfirm }: {
+  filename: string; onClose: () => void; onConfirm: (deletedBy: string) => void;
+}) {
+  const [name, setName] = useState("");
+  return (
+    <Modal open={true} onClose={onClose} title="첨부파일 삭제"
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button variant="danger" disabled={!name.trim()} onClick={() => onConfirm(name.trim())}>삭제</Button>
+      </>}>
+      <div className="space-y-3 text-[13px]">
+        <p className="text-gray-700"><b>{filename}</b> 파일을 삭제합니다.</p>
+        <div>
+          <label className="block text-[12px] text-gray-500 mb-1">담당자 이름 <span className="text-red-600">*</span></label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" autoFocus
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-[13px] outline-none focus:border-blue-500" />
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function AttachmentZoomModal({ filingId, sessionId, att, onClose }: {
