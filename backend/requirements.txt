@@ -121,6 +121,8 @@ openpyxl==3.1.5
     # via taxflow-backend (pyproject.toml)
 packaging==26.2
     # via kombu
+pillow==12.2.0
+    # via taxflow-backend (pyproject.toml)
 prompt-toolkit==3.0.52
     # via click-repl
 pyasn1==0.6.3
@@ -142,6 +144,8 @@ pydantic==2.13.4
 pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.14.1
+    # via taxflow-backend (pyproject.toml)
+pypdfium2==5.8.0
     # via taxflow-backend (pyproject.toml)
 python-dateutil==2.9.0.post0
     # via
@@ -190,11 +194,13 @@ typing-extensions==4.15.0
     # via
     #   alembic
     #   anthropic
+    #   anyio
     #   fastapi
     #   google-genai
     #   pydantic
     #   pydantic-core
     #   sqlalchemy
+    #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
     # via

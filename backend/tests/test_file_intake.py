@@ -85,10 +85,36 @@ async def test_image_returns_binary_for_vision():
             stt=StubSTT(),
         )
     assert res.kind == "image"
-    assert res.image_data == content
-    assert res.image_mime == "image/png"
+    assert len(res.images) == 1
+    assert res.images[0] == (content, "image/png")
     # 텍스트는 placeholder만 — 실제 OCR은 Vision 모델이 처리
     assert "[이미지 첨부" in res.text
+
+
+@pytest.mark.asyncio
+async def test_pdf_renders_pages_to_images():
+    """PDF 첨부는 각 페이지를 PNG로 렌더링해서 images 리스트에 담는다."""
+    from PIL import Image
+
+    # 2페이지 PDF 생성
+    img1 = Image.new("RGB", (200, 200), "white")
+    img2 = Image.new("RGB", (200, 200), "white")
+    buf = io.BytesIO()
+    img1.save(buf, format="PDF", save_all=True, append_images=[img2])
+
+    with tempfile.TemporaryDirectory() as d:
+        res = await intake_file(
+            filename="invoice.pdf",
+            content=buf.getvalue(),
+            storage=LocalFileStorage(base_dir=d),
+            stt=StubSTT(),
+        )
+    assert res.kind == "pdf"
+    assert len(res.images) == 2
+    for img_bytes, mime in res.images:
+        assert mime == "image/png"
+        assert img_bytes.startswith(b"\x89PNG")
+    assert "2페이지" in res.text
 
 
 @pytest.mark.asyncio

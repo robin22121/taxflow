@@ -276,8 +276,7 @@ async def email_webhook(
                 )
                 if intake.text.strip():
                     attachment_texts.append(f"[첨부: {filename}]\n{intake.text}")
-                if intake.image_data and intake.image_mime:
-                    images.append((intake.image_data, intake.image_mime))
+                images.extend(intake.images)
 
     # 본문 + 첨부파일 텍스트 합산
     full_text = body

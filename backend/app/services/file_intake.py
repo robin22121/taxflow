@@ -4,15 +4,17 @@ Supported types in Phase 1:
 - Audio (.mp3 / .m4a / .wav / .aac) — put to Object Storage, presign URL, send to STT.
 - Excel (.xlsx / .xls) — read cells with openpyxl, build a tab-separated text dump.
 - CSV (.csv) — decoded as text directly.
-- Image (.png / .jpg / .jpeg) — TODO: forward to Claude Vision in a follow-up; for Phase 1
-  we attach a placeholder note and return early so the user is asked to retype.
+- Image (.png / .jpg / .jpeg / .webp) — pass-through to Claude Vision via the
+  ``images`` list on ``IntakeResult``.
+- PDF (.pdf) — render each page to PNG via pypdfium2 and pass to Vision (max 20 pages).
 """
 
 from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from typing import Iterable
 
 from openpyxl import load_workbook
@@ -21,22 +23,28 @@ from app.services.pii import redact_pii
 from app.services.storage import ObjectStorage
 from app.services.stt import STTProvider
 
+logger = logging.getLogger(__name__)
+
 
 AUDIO_EXTS = (".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac")
 EXCEL_EXTS = (".xlsx", ".xlsm", ".xls")
 CSV_EXTS = (".csv",)
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+PDF_EXTS = (".pdf",)
+
+# Vision 비용·응답 시간 보호 — 너무 큰 PDF는 잘라서 처리
+_MAX_PDF_PAGES = 20
+_PDF_RENDER_DPI = 150
 
 
 @dataclass(slots=True)
 class IntakeResult:
     text: str
-    kind: str  # "audio" | "excel" | "csv" | "image" | "unknown"
+    kind: str  # "audio" | "excel" | "csv" | "image" | "pdf" | "unknown"
     storage_key: str | None = None
     note: str | None = None
-    # 이미지인 경우 Vision 모델로 보낼 raw bytes + mime type (텍스트는 placeholder)
-    image_data: bytes | None = None
-    image_mime: str | None = None
+    # Vision 모델로 보낼 (bytes, mime) 리스트. 이미지는 1개, PDF는 페이지 수만큼.
+    images: list[tuple[bytes, str]] = field(default_factory=list)
 
 
 def _is_audio(filename: str) -> bool:
@@ -53,6 +61,31 @@ def _is_csv(filename: str) -> bool:
 
 def _is_image(filename: str) -> bool:
     return filename.lower().endswith(IMAGE_EXTS)
+
+
+def _is_pdf(filename: str) -> bool:
+    return filename.lower().endswith(PDF_EXTS)
+
+
+def _pdf_to_page_images(blob: bytes) -> list[tuple[bytes, str]]:
+    """Render each PDF page to PNG bytes. Returns up to _MAX_PDF_PAGES."""
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(blob)
+    pages: list[tuple[bytes, str]] = []
+    scale = _PDF_RENDER_DPI / 72  # PDF default DPI = 72
+    for i in range(min(len(pdf), _MAX_PDF_PAGES)):
+        page = pdf[i]
+        pil_image = page.render(scale=scale).to_pil()
+        buf = io.BytesIO()
+        pil_image.save(buf, format="PNG")
+        pages.append((buf.getvalue(), "image/png"))
+    if len(pdf) > _MAX_PDF_PAGES:
+        logger.warning(
+            "[file-intake] PDF has %d pages, only processing first %d",
+            len(pdf), _MAX_PDF_PAGES,
+        )
+    return pages
 
 
 def _excel_to_text(blob: bytes) -> str:
@@ -114,12 +147,38 @@ async def intake_file(
         key = storage.make_key("image", ext)
         storage.put_object(key, content, content_type=mime)
         return IntakeResult(
-            text=f"[이미지 첨부: {filename}]",  # AI에 컨텍스트만 제공 — 실제 내용은 image_data로
+            text=f"[이미지 첨부: {filename}]",  # AI에 컨텍스트만 제공 — 실제 내용은 images로
             kind="image",
             storage_key=key,
-            note=None,
-            image_data=content,
-            image_mime=mime,
+            images=[(content, mime)],
+        )
+
+    if _is_pdf(filename):
+        # PDF는 원본 보존 + 각 페이지를 PNG로 변환해 Vision 으로 보낸다.
+        key = storage.make_key("pdf", ".pdf")
+        storage.put_object(key, content, content_type="application/pdf")
+        try:
+            pages = _pdf_to_page_images(content)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[file-intake] PDF parse failed: %s", filename)
+            return IntakeResult(
+                text=f"[PDF 첨부: {filename} — 페이지 변환 실패]",
+                kind="pdf",
+                storage_key=key,
+                note=f"PDF 변환 오류: {e}",
+            )
+        if not pages:
+            return IntakeResult(
+                text=f"[PDF 첨부: {filename} — 페이지 없음]",
+                kind="pdf",
+                storage_key=key,
+                note="빈 PDF",
+            )
+        return IntakeResult(
+            text=f"[PDF 첨부: {filename}, {len(pages)}페이지]",
+            kind="pdf",
+            storage_key=key,
+            images=pages,
         )
 
     return IntakeResult(text="", kind="unknown", note=f"지원하지 않는 파일 형식: {filename}")
