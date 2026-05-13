@@ -151,6 +151,8 @@ async def kakao_webhook(
     except Exception:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid JSON")
 
+    logger.info("카카오 웹훅 수신 body keys=%s, body=%s", list(body.keys()), json.dumps(body, ensure_ascii=False)[:2000])
+
     user_request = body.get("userRequest", {})
     utterance = user_request.get("utterance", "").strip()
     user_props = user_request.get("user", {}).get("properties", {})
