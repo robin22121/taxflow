@@ -480,7 +480,23 @@ async def _handle_resend_event(
         if att_resp.status_code != 200:
             logger.warning("Resend 첨부 다운로드 실패: %s status=%s", filename, att_resp.status_code)
             continue
+
+        # Resend API는 첨부파일을 JSON { "data": "<base64>" } 또는 raw binary로 반환
         content = att_resp.content
+        content_type = att_resp.headers.get("content-type", "")
+        logger.info(
+            "Resend 첨부 응답: filename=%s, content_type=%s, size=%d, first_bytes=%s",
+            filename, content_type, len(content), content[:80],
+        )
+        if b"data" in content[:20] and content_type.startswith("application/json"):
+            import base64 as _b64
+            try:
+                att_json = att_resp.json()
+                content = _b64.b64decode(att_json.get("data", ""))
+                logger.info("Resend 첨부 base64 디코딩 완료: %s → %d bytes", filename, len(content))
+            except Exception:
+                logger.exception("Resend 첨부 base64 디코딩 실패: %s", filename)
+                continue
         if content:
             from app.services.file_intake import intake_file
             from app.services.storage import get_storage
