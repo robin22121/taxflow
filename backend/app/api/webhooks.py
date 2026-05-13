@@ -377,6 +377,185 @@ async def email_webhook(
     }
 
 
+# ---------------------------------------------------------------------------
+# Resend Inbound 웹훅
+# ---------------------------------------------------------------------------
+
+@router.post("/resend")
+async def resend_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Resend 인바운드 이메일 웹훅.
+
+    Resend은 email.received 이벤트를 JSON으로 보내지만 본문은 포함하지 않음.
+    → API로 본문+첨부를 별도 조회 후 파이프라인에 투입.
+    """
+    import httpx
+
+    settings = get_settings()
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid JSON")
+
+    event_type = body.get("type", "")
+    if event_type != "email.received":
+        # 다른 이벤트(delivery, bounce 등)는 무시
+        return {"status": "ignored", "type": event_type}
+
+    data = body.get("data", {})
+    email_id = data.get("email_id", "")
+    to_list = data.get("to", [])
+    from_addr = data.get("from", "")
+    subject = data.get("subject", "")
+
+    if not email_id:
+        return {"status": "ignored", "reason": "no email_id"}
+
+    logger.info(
+        "Resend 웹훅: email_id=%s, from=%s, to=%s, subject=%s",
+        email_id, from_addr, to_list, subject,
+    )
+
+    # Resend API로 이메일 본문 조회
+    if not settings.resend_api_key:
+        logger.error("Resend 웹훅: RESEND_API_KEY 미설정")
+        return {"status": "error", "reason": "RESEND_API_KEY not configured"}
+
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        resp = await cli.get(
+            f"https://api.resend.com/emails/receiving/{email_id}",
+            headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+        )
+
+    if resp.status_code != 200:
+        logger.error("Resend API 조회 실패: status=%s body=%s", resp.status_code, resp.text[:200])
+        return {"status": "error", "reason": f"API fetch failed: {resp.status_code}"}
+
+    email_data = resp.json()
+    text_body = (email_data.get("text") or "").strip()
+    html_body = (email_data.get("html") or "").strip()
+
+    # 본문 추출
+    email_text = text_body
+    if not email_text and html_body:
+        email_text = re.sub(r"<[^>]+>", "", html_body).strip()
+
+    # 첨부파일 처리
+    attachment_texts: list[str] = []
+    images: list[tuple[bytes, str]] = []
+    attachments_meta: list[dict] = []
+    for att in email_data.get("attachments", []):
+        att_id = att.get("id")
+        filename = att.get("filename", "attachment")
+        if not att_id:
+            continue
+        # 첨부파일 다운로드
+        async with httpx.AsyncClient(timeout=30.0) as cli:
+            att_resp = await cli.get(
+                f"https://api.resend.com/emails/receiving/{email_id}/attachments/{att_id}",
+                headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+            )
+        if att_resp.status_code != 200:
+            logger.warning("Resend 첨부 다운로드 실패: %s status=%s", filename, att_resp.status_code)
+            continue
+        content = att_resp.content
+        if content:
+            from app.services.file_intake import intake_file
+            from app.services.storage import get_storage
+            from app.services.stt import get_stt_provider
+            intake = await intake_file(
+                filename=filename,
+                content=content,
+                storage=get_storage(),
+                stt=get_stt_provider(),
+            )
+            if intake.text.strip():
+                attachment_texts.append(f"[첨부: {filename}]\n{intake.text}")
+            images.extend(intake.images)
+            if intake.storage_key:
+                attachments_meta.append({
+                    "filename": filename,
+                    "storage_key": intake.storage_key,
+                    "kind": intake.kind,
+                })
+
+    full_text = email_text
+    if attachment_texts:
+        full_text = (email_text + "\n\n" + "\n\n".join(attachment_texts)).strip()
+
+    if not full_text and not images:
+        logger.warning("Resend 웹훅: 본문+첨부 비어있음 (from=%s)", from_addr)
+        return {"status": "ignored", "reason": "empty content"}
+
+    # ── 세션 매칭 (to 주소에서 collect+{id} 추출) ──
+    to_addr = to_list[0] if to_list else ""
+    session = None
+
+    client_id = _extract_client_id(to_addr)
+    if client_id:
+        client = await db.get(Client, client_id)
+        if client:
+            session = await _find_active_session(db, client)
+
+    if not session:
+        token = _extract_token_from_address(to_addr)
+        if token:
+            session = (
+                await db.execute(
+                    select(CollectionSession)
+                    .where(CollectionSession.request_token == token)
+                    .options(
+                        selectinload(CollectionSession.client),
+                        selectinload(CollectionSession.monthly_filing),
+                    )
+                )
+            ).scalar_one_or_none()
+
+    if not session:
+        clean_from = re.search(r"[\w.-]+@[\w.-]+", from_addr)
+        sender_email = clean_from.group(0) if clean_from else from_addr
+        client = (
+            await db.execute(
+                select(Client).where(Client.contact_email == sender_email)
+            )
+        ).scalar_one_or_none()
+        if client:
+            session = await _find_active_session(db, client)
+
+    if not session:
+        logger.warning("Resend 웹훅: 세션 매칭 실패 (to=%s, from=%s)", to_addr, from_addr)
+        return {"status": "unmatched", "from": from_addr, "subject": subject}
+
+    try:
+        result = await _ingest_message(
+            db=db,
+            session=session,
+            client=session.client,
+            filing=session.monthly_filing,
+            text=full_text,
+            channel="email",
+            images=images or None,
+            attachments=attachments_meta or None,
+        )
+    except Exception:
+        logger.exception("Resend 웹훅 처리 실패 (from=%s)", from_addr)
+        return {"status": "error", "reason": "processing failed"}
+
+    logger.info(
+        "Resend 웹훅 처리 완료: from=%s, matched=%d, new_hire=%d",
+        from_addr, result.matched, result.new_hire_suspected,
+    )
+    return {
+        "status": "processed",
+        "session_id": result.session_id,
+        "matched": result.matched,
+        "new_hire_suspected": result.new_hire_suspected,
+    }
+
+
 def _extract_client_id(address: str) -> str | None:
     """Extract full client ID from 'collect+{uuid}@domain' format."""
     match = re.search(r"collect\+([a-f0-9-]{36})@", address)
