@@ -89,69 +89,60 @@ export default function FilingDetailPage({
 
   return (
     <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Top bar — Hi-fi style */}
-      <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-white shrink-0" style={{ height: 64 }}>
-        <div className="flex items-center gap-5">
-          <div>
-            <Eyebrow>월별 신고 · {filing.period}</Eyebrow>
-            <h1 className="text-[22px] font-bold tracking-tight leading-tight mt-0.5">
+      {/* Compact header — title + workflow + filters in 2 rows */}
+      <div className="border-b border-gray-200 bg-white shrink-0">
+        {/* Row 1: Title + workflow mini + actions */}
+        <div className="flex items-center justify-between px-5 h-11">
+          <div className="flex items-center gap-4">
+            <h1 className="text-[15px] font-bold tracking-tight">
               <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
                 {Number(filing.period.split("-")[1])}월 원천세 신고
               </Link>
             </h1>
-          </div>
-          <div className="h-8 w-px bg-gray-200" />
-          <div>
-            <span className={`text-[10.5px] font-semibold uppercase tracking-widest ${daysLeft <= 5 ? "text-red-600" : "text-gray-500"}`}>
-              마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
+            <span className={`text-[11px] font-semibold ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
+              마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`} · {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()}
             </span>
-            <div className="text-[13px] font-semibold mt-0.5">
-              {deadlineDate.getMonth() + 1}월 {deadlineDate.getDate()}일
-            </div>
+            <div className="h-4 w-px bg-gray-200" />
+            <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">위하고T 엑셀</Button>
+            <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
+              {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
+            </Button>
+            <Button className="!text-[12px] !px-3 !py-1">신고 완료 처리</Button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={downloadExcel}>위하고T 엑셀</Button>
-          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending}>
-            {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
-          </Button>
-          <Button>신고 완료 처리</Button>
-        </div>
-      </div>
-
-      {/* Workflow strip — 5-segment progress bars */}
-      <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
-
-      {/* Filter / toggle bar */}
-      <div className="flex items-center justify-between px-6 py-2.5 border-b border-gray-200 bg-white shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">표시 모드</span>
-          <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
-            확인필요만 보기
-            {flaggedEntries.length > 0 && (
-              <span className={`ml-1 px-1.5 py-px rounded-full text-[11px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
-                {flaggedEntries.length}
-              </span>
-            )}
-          </TogglePill>
-          {!reviewOnly && selectedSession && (
-            <div className="flex items-center gap-2 ml-2">
-              <span className="text-xs text-gray-500">선택</span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-600 border border-blue-100">
-                {selectedSession.client_name}
-              </span>
-              {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length > 0 && (
-                <span className="text-xs text-gray-500">
-                  이상치 {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length}건
+        {/* Row 2: Filters */}
+        <div className="flex items-center justify-between px-5 h-8 border-t border-gray-100">
+          <div className="flex items-center gap-2.5">
+            <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
+              확인필요만 보기
+              {flaggedEntries.length > 0 && (
+                <span className={`ml-1 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
+                  {flaggedEntries.length}
                 </span>
               )}
-            </div>
-          )}
+            </TogglePill>
+            {!reviewOnly && selectedSession && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-gray-400">선택</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
+                  {selectedSession.client_name}
+                </span>
+                {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length > 0 && (
+                  <span className="text-[11px] text-gray-400">
+                    이상치 {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length}건
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10.5px] text-gray-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            AI 자동검증 ON · ±30%
+          </span>
         </div>
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-50 text-[11.5px] text-gray-600 border border-gray-200">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
-          AI 자동검증 ON · 임계치 ±30%
-        </span>
       </div>
 
       {/* Body */}
@@ -211,23 +202,24 @@ function WorkflowStrip({ sessions, entries, filingStatus }: {
   ];
 
   return (
-    <div className="grid grid-cols-5 gap-1.5 px-6 py-3 border-b border-gray-200 bg-white shrink-0">
-      {stages.map((s) => {
+    <div className="flex items-center gap-1">
+      {stages.map((s, i) => {
         const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
         return (
-          <div key={s.n} className="flex flex-col gap-1.5">
-            <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${s.alert ? "bg-red-500" : "bg-gray-900"}`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[13px] font-semibold">{s.label}</span>
-                {s.alert && <span className="w-[5px] h-[5px] rounded-full bg-red-500" />}
+          <div key={s.n} className="flex items-center gap-1">
+            {i > 0 && <span className="text-gray-300 text-[10px]">›</span>}
+            <div className="flex items-center gap-1">
+              <div className="w-8 h-[3px] rounded-full bg-gray-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${s.alert ? "bg-red-500" : "bg-gray-900"}`}
+                  style={{ width: `${pct}%` }}
+                />
               </div>
-              <span className="text-xs text-gray-500 tabular-nums">{s.done}/{s.total}</span>
+              <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                {s.label}
+                {s.alert && <span className="inline-block w-1 h-1 rounded-full bg-red-500 ml-0.5 -translate-y-0.5" />}
+                <span className="text-gray-400 tabular-nums ml-0.5">{s.done}/{s.total}</span>
+              </span>
             </div>
           </div>
         );
@@ -242,7 +234,7 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
         on ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
       }`}
     >
