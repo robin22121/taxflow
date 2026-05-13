@@ -33,4 +33,5 @@ class MessageChannel(ABC):
         body: str,
         template_code: str | None = None,
         url: str | None = None,
+        reply_to: str | None = None,
     ) -> SendResult: ...

@@ -29,12 +29,12 @@ class StubEmailChannel(MessageChannel):
     def __init__(self) -> None:
         self.sent: list[dict] = []
 
-    async def send(self, recipient, *, body, template_code=None, url=None) -> SendResult:
+    async def send(self, recipient, *, body, template_code=None, url=None, reply_to=None) -> SendResult:
         msg_id = uuid4().hex
         self.sent.append(
-            {"id": msg_id, "email": recipient.email, "body": body, "url": url}
+            {"id": msg_id, "email": recipient.email, "body": body, "url": url, "reply_to": reply_to}
         )
-        logger.info("[email-stub] → %s | %s", recipient.email, body[:60])
+        logger.info("[email-stub] → %s | reply_to=%s | %s", recipient.email, reply_to, body[:60])
         return SendResult(channel=self.name, accepted=True, provider_msg_id=msg_id)
 
 
@@ -49,7 +49,7 @@ class ResendEmailChannel(MessageChannel):
         self.from_email = s.resend_from_email
 
     async def send(
-        self, recipient: MessageRecipient, *, body, template_code=None, url=None
+        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None
     ) -> SendResult:
         if not (self.api_key and self.from_email and recipient.email):
             missing = [
@@ -74,6 +74,8 @@ class ResendEmailChannel(MessageChannel):
             "to": [recipient.email],
             "subject": subject,
         }
+        if reply_to:
+            payload["reply_to"] = [reply_to]
         if is_html:
             payload["html"] = body
         else:
@@ -119,7 +121,7 @@ class SendGridEmailChannel(MessageChannel):
         self.from_email = s.sendgrid_from_email
 
     async def send(
-        self, recipient: MessageRecipient, *, body, template_code=None, url=None
+        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None
     ) -> SendResult:
         if not (self.api_key and self.from_email and recipient.email):
             missing = [
@@ -140,16 +142,19 @@ class SendGridEmailChannel(MessageChannel):
         is_html = "<" in body and ">" in body
         content_type = "text/html" if is_html else "text/plain"
         subject = template_code or "원천세 자료 요청"
+        mail_json: dict = {
+            "personalizations": [{"to": [{"email": recipient.email}]}],
+            "from": {"email": self.from_email},
+            "subject": subject,
+            "content": [{"type": content_type, "value": body}],
+        }
+        if reply_to:
+            mail_json["reply_to"] = {"email": reply_to}
         async with httpx.AsyncClient(timeout=10.0) as cli:
             resp = await cli.post(
                 "https://api.sendgrid.com/v3/mail/send",
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                json={
-                    "personalizations": [{"to": [{"email": recipient.email}]}],
-                    "from": {"email": self.from_email},
-                    "subject": subject,
-                    "content": [{"type": content_type, "value": body}],
-                },
+                json=mail_json,
             )
         ok = resp.status_code in (200, 202)
         if ok:
@@ -190,7 +195,7 @@ class NcpOutboundMailerChannel(MessageChannel):
         return base64.b64encode(sig).decode("utf-8")
 
     async def send(
-        self, recipient: MessageRecipient, *, body, template_code=None, url=None
+        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None
     ) -> SendResult:
         if not (self.access_key and self.secret_key and self.sender_address and recipient.email):
             return SendResult(
