@@ -62,8 +62,10 @@ class Settings(BaseSettings):
     sms_provider: str = "stub"  # stub | aligo
     aligo_sms_sender: str = ""   # SMS 발신번호 (Aligo 사전 등록 필요)
 
-    # email 우선순위: ncp_outbound > sendgrid > stub
-    email_provider: str = "auto"  # auto | ncp_outbound | sendgrid | stub
+    # email 우선순위: resend > ncp_outbound > sendgrid > stub
+    email_provider: str = "auto"  # auto | resend | ncp_outbound | sendgrid | stub
+    resend_api_key: str = ""
+    resend_from_email: str = ""  # 예: onboarding@resend.dev (테스트) 또는 noreply@yourdomain.com
     sendgrid_api_key: str = ""
     sendgrid_from_email: str = ""
     ncp_outbound_access_key: str = ""

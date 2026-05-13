@@ -251,7 +251,9 @@ async def send_confirmation(
             MessageRecipient(
                 name=client.business_name, phone=client.contact_phone, email=client.contact_email,
             ),
-            body=body, url=public_url,
+            body=body,
+            template_code=f"[{office_name}] {filing.period} 원천세 자료 확인 요청",
+            url=public_url,
         )
     elif channel == "kakao":
         if settings.kakao_alimtalk_provider not in ("aligo", "nhn_cloud"):

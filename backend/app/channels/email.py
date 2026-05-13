@@ -38,6 +38,78 @@ class StubEmailChannel(MessageChannel):
         return SendResult(channel=self.name, accepted=True, provider_msg_id=msg_id)
 
 
+class ResendEmailChannel(MessageChannel):
+    """Resend (https://resend.com) — 간단한 REST API, httpx로 호출."""
+
+    name = "email_resend"
+
+    def __init__(self) -> None:
+        s = get_settings()
+        self.api_key = s.resend_api_key
+        self.from_email = s.resend_from_email
+
+    async def send(
+        self, recipient: MessageRecipient, *, body, template_code=None, url=None
+    ) -> SendResult:
+        if not (self.api_key and self.from_email and recipient.email):
+            missing = [
+                k for k, v in {
+                    "RESEND_API_KEY": self.api_key,
+                    "RESEND_FROM_EMAIL": self.from_email,
+                    "recipient.email": recipient.email,
+                }.items() if not v
+            ]
+            logger.warning("[email-resend] missing: %s", missing)
+            return SendResult(
+                channel=self.name,
+                accepted=False,
+                provider_msg_id=None,
+                error=f"Resend 설정 누락: {', '.join(missing)}",
+            )
+
+        is_html = "<" in body and ">" in body
+        subject = template_code or "원천세 자료 요청"
+        payload: dict = {
+            "from": self.from_email,
+            "to": [recipient.email],
+            "subject": subject,
+        }
+        if is_html:
+            payload["html"] = body
+        else:
+            payload["text"] = body
+
+        logger.info("[email-resend] sending → %s (subject: %s)", recipient.email, subject)
+        async with httpx.AsyncClient(timeout=10.0) as cli:
+            resp = await cli.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+
+        ok = resp.status_code == 200
+        msg_id = None
+        if ok:
+            try:
+                msg_id = resp.json().get("id")
+            except Exception:  # noqa: BLE001
+                pass
+            logger.info("[email-resend] accepted id=%s", msg_id)
+        else:
+            logger.warning(
+                "[email-resend] rejected status=%s body=%s", resp.status_code, resp.text[:200],
+            )
+        return SendResult(
+            channel=self.name,
+            accepted=ok,
+            provider_msg_id=msg_id,
+            error=None if ok else resp.text[:200],
+        )
+
+
 class SendGridEmailChannel(MessageChannel):
     name = "email_sendgrid"
 
@@ -65,6 +137,9 @@ class SendGridEmailChannel(MessageChannel):
                 error=f"SendGrid 자격증명/수신자 누락: {', '.join(missing)}",
             )
         logger.info("[email-sendgrid] sending → %s", recipient.email)
+        is_html = "<" in body and ">" in body
+        content_type = "text/html" if is_html else "text/plain"
+        subject = template_code or "원천세 자료 요청"
         async with httpx.AsyncClient(timeout=10.0) as cli:
             resp = await cli.post(
                 "https://api.sendgrid.com/v3/mail/send",
@@ -72,8 +147,8 @@ class SendGridEmailChannel(MessageChannel):
                 json={
                     "personalizations": [{"to": [{"email": recipient.email}]}],
                     "from": {"email": self.from_email},
-                    "subject": "원천세 자료 요청",
-                    "content": [{"type": "text/plain", "value": body}],
+                    "subject": subject,
+                    "content": [{"type": content_type, "value": body}],
                 },
             )
         ok = resp.status_code in (200, 202)
@@ -131,10 +206,11 @@ class NcpOutboundMailerChannel(MessageChannel):
             "x-ncp-iam-access-key": self.access_key,
             "x-ncp-apigw-signature-v2": self._sign("POST", self.PATH, ts),
         }
+        subject = template_code or "원천세 자료 요청"
         payload = {
             "senderAddress": self.sender_address,
             "senderName": self.sender_name,
-            "title": "원천세 자료 요청",
+            "title": subject,
             "body": body,
             "recipients": [
                 {
@@ -166,13 +242,17 @@ class NcpOutboundMailerChannel(MessageChannel):
 def get_email_channel() -> MessageChannel:
     s = get_settings()
     p = s.email_provider
+    if p == "resend":
+        return ResendEmailChannel()
     if p == "ncp_outbound":
         return NcpOutboundMailerChannel()
     if p == "sendgrid":
         return SendGridEmailChannel()
     if p == "stub":
         return StubEmailChannel()
-    # auto
+    # auto — 우선순위: resend > ncp_outbound > sendgrid > stub
+    if s.resend_api_key:
+        return ResendEmailChannel()
     if s.ncp_outbound_access_key and s.ncp_outbound_secret_key and s.ncp_outbound_sender_address:
         return NcpOutboundMailerChannel()
     if s.sendgrid_api_key:

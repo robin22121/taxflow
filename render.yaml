@@ -67,9 +67,13 @@ services:
         value: aligo
       - key: ALIGO_SMS_SENDER
         sync: false                   # SMS 발신번호 (Aligo 사전 등록)
-      # ── 이메일 (SendGrid 또는 NCP Outbound 중 택1) ───────
+      # ── 이메일 (Resend 권장, SendGrid / NCP Outbound도 지원) ──
       - key: EMAIL_PROVIDER
-        value: stub                   # sendgrid / ncp_outbound 으로 교체
+        value: resend                 # resend / sendgrid / ncp_outbound / stub
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false                   # 예: 이지원천 <noreply@yourdomain.com>
       - key: SENDGRID_API_KEY
         sync: false
       - key: SENDGRID_FROM_EMAIL

@@ -139,6 +139,7 @@ async def send_invite_to_client(
                 email=client.contact_email,
             ),
             body=email_body,
+            template_code=f"[{office_name}] {filing.period} 원천세 자료 요청",
             url=url,
         )
 
