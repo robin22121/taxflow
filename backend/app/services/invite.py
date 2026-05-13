@@ -77,14 +77,17 @@ async def send_invite_to_client(
     session = await get_or_create_session(db, filing, client, ttl_days=30)
     url = f"{settings.app_public_url}/r/{session.request_token}"
 
+    rep = client.representative or ""
+    greeting = f"{client.business_name} {rep} 대표님" if rep else f"{client.business_name} 대표님"
+
     invite_body = (
-        f"안녕하세요, {office_name}입니다.\n\n"
-        f"{filing.period} 원천세 자료를 요청드립니다.\n\n"
-        f"아래 방법 중 편한 방법으로 보내주세요:\n\n"
-        f"1) 카카오톡 채팅으로 직접 답장\n"
-        f"2) 이메일: {client.collect_email}\n"
-        f"3) 입력 폼: {url}\n\n"
-        f"이 메일에 바로 회신하셔도 자동 접수됩니다."
+        f"안녕하세요, {greeting}.\n"
+        f"{office_name}입니다. 항상 감사드립니다.\n\n"
+        f"{filing.period} 원천세 신고를 위한 급여 자료를 보내주시면 감사하겠습니다.\n\n"
+        f"아래 편한 방법으로 보내주세요:\n"
+        f"1) 이 메일에 바로 회신 (엑셀·사진 첨부 가능)\n"
+        f"2) 입력 폼: {url}\n\n"
+        f"감사합니다."
     )
 
     if settings.kakao_alimtalk_provider in ("aligo", "nhn_cloud"):
@@ -121,12 +124,13 @@ async def send_invite_to_client(
     if client.contact_email:
         email_ch = get_email_channel()
         email_body = (
-            f"<p>안녕하세요, <b>{office_name}</b>입니다.</p>"
-            f"<p><b>{filing.period}</b> 원천세 자료를 요청드립니다.</p>"
+            f"<p>안녕하세요, <b>{greeting}</b>.</p>"
+            f"<p><b>{office_name}</b>입니다. 항상 감사드립니다.</p>"
+            f"<p><b>{filing.period}</b> 원천세 신고를 위한 급여 자료를 보내주시면 감사하겠습니다.</p>"
             f"<hr>"
-            f"<p>아래 방법 중 편한 방법으로 보내주세요:</p>"
+            f"<p>아래 편한 방법으로 보내주세요:</p>"
             f"<ol>"
-            f"<li><b>이 메일에 바로 회신</b> (엑셀 첨부 가능)</li>"
+            f"<li><b>이 메일에 바로 회신</b> (엑셀·사진 첨부 가능)</li>"
             f"<li>전용 이메일: <a href='mailto:{client.collect_email}'>{client.collect_email}</a></li>"
             f"<li>입력 폼: <a href='{url}'>{url}</a></li>"
             f"</ol>"
