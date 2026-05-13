@@ -166,7 +166,7 @@ def reconcile(
                 raw_name=emp.name,
                 employee_id=emp.id,
                 income_type=IncomeType.WAGE,
-                total_amount=prev_amt,
+                total_amount=0,  # 이번달 급여 미확인 — 전월 금액은 prev_amount에만
                 non_taxable=0,
                 match_status=MatchStatus.UNCONFIRMED,
                 prev_amount=prev_amt,
