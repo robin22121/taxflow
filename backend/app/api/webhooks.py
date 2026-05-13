@@ -492,11 +492,16 @@ async def _handle_resend_event(
             import base64 as _b64
             try:
                 att_json = att_resp.json()
-                b64_data = att_json.get("data") or att_json.get("content") or ""
+                logger.info("Resend 첨부 JSON keys: %s", list(att_json.keys()))
+                # Resend API: 파일 데이터는 "data" 또는 "content" 키에 base64로 들어옴
+                b64_data = att_json.get("data") or att_json.get("content") or att_json.get("body") or ""
+                if not b64_data:
+                    logger.warning("Resend 첨부 JSON에 파일 데이터 키 없음: %s (keys=%s)", filename, list(att_json.keys()))
+                    continue
                 content = _b64.b64decode(b64_data)
                 logger.info("Resend 첨부 base64 디코딩 완료: %s → %d bytes", filename, len(content))
             except Exception:
-                logger.exception("Resend 첨부 base64 디코딩 실패: %s (keys=%s)", filename, list(att_resp.json().keys()) if att_resp else [])
+                logger.exception("Resend 첨부 base64 디코딩 실패: %s", filename)
                 continue
         if content:
             from app.services.file_intake import intake_file
