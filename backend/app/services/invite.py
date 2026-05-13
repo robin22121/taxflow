@@ -131,7 +131,6 @@ async def send_invite_to_client(
             f"<p>아래 편한 방법으로 보내주세요:</p>"
             f"<ol>"
             f"<li><b>이 메일에 바로 회신</b> (엑셀·사진 첨부 가능)</li>"
-            f"<li>전용 이메일: <a href='mailto:{client.collect_email}'>{client.collect_email}</a></li>"
             f"<li>입력 폼: <a href='{url}'>{url}</a></li>"
             f"</ol>"
             f"<p style='color:#666;font-size:12px;'>회신하시면 자동으로 접수됩니다.</p>"
