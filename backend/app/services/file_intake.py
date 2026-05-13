@@ -128,15 +128,23 @@ async def intake_file(
         )
 
     if _is_excel(filename):
+        ext = "." + filename.rsplit(".", 1)[-1].lower()
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if ext == ".xlsx" else "application/vnd.ms-excel"
+        key = storage.make_key("excel", ext)
+        storage.put_object(key, content, content_type=mime)
         return IntakeResult(
             text=redact_pii(_excel_to_text(content)),
             kind="excel",
+            storage_key=key,
         )
 
     if _is_csv(filename):
+        key = storage.make_key("csv", ".csv")
+        storage.put_object(key, content, content_type="text/csv")
         return IntakeResult(
             text=redact_pii(_csv_to_text(content)),
             kind="csv",
+            storage_key=key,
         )
 
     if _is_image(filename):
