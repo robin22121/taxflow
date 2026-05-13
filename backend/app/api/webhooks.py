@@ -449,6 +449,11 @@ async def _handle_resend_event(
         return {"status": "error", "reason": f"API fetch failed: {resp.status_code}"}
 
     email_data = resp.json()
+    logger.info(
+        "Resend 이메일 조회 성공: keys=%s, attachments=%s",
+        list(email_data.keys()),
+        email_data.get("attachments"),
+    )
     text_body = (email_data.get("text") or "").strip()
     html_body = (email_data.get("html") or "").strip()
 
