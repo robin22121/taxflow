@@ -489,19 +489,23 @@ async def _handle_resend_event(
             filename, content_type, len(content), content[:80],
         )
         if "application/json" in content_type:
-            import base64 as _b64
             try:
                 att_json = att_resp.json()
-                logger.info("Resend 첨부 JSON keys: %s", list(att_json.keys()))
-                # Resend API: 파일 데이터는 "data" 또는 "content" 키에 base64로 들어옴
-                b64_data = att_json.get("data") or att_json.get("content") or att_json.get("body") or ""
-                if not b64_data:
-                    logger.warning("Resend 첨부 JSON에 파일 데이터 키 없음: %s (keys=%s)", filename, list(att_json.keys()))
+                download_url = att_json.get("download_url")
+                if download_url:
+                    # Resend API: 첨부파일은 download_url에서 별도 다운로드
+                    async with httpx.AsyncClient(timeout=30.0) as dl_cli:
+                        dl_resp = await dl_cli.get(download_url)
+                    if dl_resp.status_code != 200:
+                        logger.warning("Resend 첨부 다운로드 실패: %s status=%s", filename, dl_resp.status_code)
+                        continue
+                    content = dl_resp.content
+                    logger.info("Resend 첨부 다운로드 완료: %s → %d bytes", filename, len(content))
+                else:
+                    logger.warning("Resend 첨부 JSON에 download_url 없음: %s", filename)
                     continue
-                content = _b64.b64decode(b64_data)
-                logger.info("Resend 첨부 base64 디코딩 완료: %s → %d bytes", filename, len(content))
             except Exception:
-                logger.exception("Resend 첨부 base64 디코딩 실패: %s", filename)
+                logger.exception("Resend 첨부 다운로드 실패: %s", filename)
                 continue
         if content:
             from app.services.file_intake import intake_file
