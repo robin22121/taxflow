@@ -16,7 +16,7 @@ import {
   useUpdateEntry,
 } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
-import { Badge, BezelCard, Button, Modal } from "@/components/ui";
+import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
 import type { CollectionSession, PayrollEntry, SessionAttachment, SourceEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -88,45 +88,60 @@ export default function FilingDetailPage({
   }
 
   return (
-    <div className="-m-6 -mt-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Single toolbar — filing info + filters + actions */}
-      <div className="flex items-center justify-between px-5 h-10 border-b border-gray-200 bg-white shrink-0">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="text-[13px] font-bold tracking-tight hover:text-blue-600 transition-colors">
-            {Number(filing.period.split("-")[1])}월 원천세 신고
-          </Link>
-          <span className={`text-[11px] font-semibold ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
-            D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
-          </span>
-          <div className="h-3.5 w-px bg-gray-200" />
-          <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
-            확인필요만 보기
-            {flaggedEntries.length > 0 && (
-              <span className={`ml-1 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
-                {flaggedEntries.length}
-              </span>
-            )}
-          </TogglePill>
-          {!reviewOnly && selectedSession && (
-            <>
-              <div className="h-3.5 w-px bg-gray-200" />
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
-                {selectedSession.client_name}
-              </span>
-              {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length > 0 && (
-                <span className="text-[11px] text-gray-400">
-                  이상치 {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length}건
+    <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
+      {/* Compact header — title + workflow + filters in 2 rows */}
+      <div className="border-b border-gray-200 bg-white shrink-0">
+        {/* Row 1: Title + workflow mini + actions */}
+        <div className="flex items-center justify-between px-5 h-11">
+          <div className="flex items-center gap-4">
+            <h1 className="text-[15px] font-bold tracking-tight">
+              <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
+                {Number(filing.period.split("-")[1])}월 원천세 신고
+              </Link>
+            </h1>
+            <span className={`text-[11px] font-semibold ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
+              마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`} · {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()}
+            </span>
+            <div className="h-4 w-px bg-gray-200" />
+            <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">위하고T 엑셀</Button>
+            <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
+              {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
+            </Button>
+            <Button className="!text-[12px] !px-3 !py-1">신고 완료 처리</Button>
+          </div>
+        </div>
+        {/* Row 2: Filters */}
+        <div className="flex items-center justify-between px-5 h-8 border-t border-gray-100">
+          <div className="flex items-center gap-2.5">
+            <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
+              확인필요만 보기
+              {flaggedEntries.length > 0 && (
+                <span className={`ml-1 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
+                  {flaggedEntries.length}
                 </span>
               )}
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">엑셀</Button>
-          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
-            {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
-          </Button>
-          <Button className="!text-[12px] !px-3 !py-1">신고 완료</Button>
+            </TogglePill>
+            {!reviewOnly && selectedSession && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-gray-400">선택</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
+                  {selectedSession.client_name}
+                </span>
+                {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length > 0 && (
+                  <span className="text-[11px] text-gray-400">
+                    이상치 {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length}건
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10.5px] text-gray-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            AI 자동검증 ON · ±30%
+          </span>
         </div>
       </div>
 
@@ -154,6 +169,61 @@ export default function FilingDetailPage({
           <p className="text-[13px] text-gray-700">모든 거래처에 자료요청 안내문을 보냅니다. 진행하시겠습니까?</p>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/* ═══ Workflow Strip — 5-segment grid ═══ */
+
+function WorkflowStrip({ sessions, entries, filingStatus }: {
+  sessions: CollectionSession[];
+  entries: PayrollEntry[];
+  filingStatus: string;
+}) {
+  const total = sessions.length || 1;
+  const sent = sessions.filter((s) => s.status !== "PENDING" && s.status !== "DRAFT").length;
+  const received = sessions.filter((s) => s.has_responses).length;
+  const verified = sessions.filter((s) => {
+    const se = entries.filter((e) => e.client_id === s.client_id);
+    return se.length > 0 && se.every((e) => !e.anomaly_notes || Object.keys(e.anomaly_notes).length === 0 || e.approved);
+  }).length;
+  const approved = sessions.filter((s) => {
+    const se = entries.filter((e) => e.client_id === s.client_id);
+    return se.length > 0 && se.every((e) => e.approved);
+  }).length;
+  const filed = filingStatus === "FILED" || filingStatus === "COMPLETED" ? 1 : 0;
+
+  const stages: { n: number; label: string; done: number; total: number; alert?: boolean }[] = [
+    { n: 1, label: "초대 발송", done: sent, total },
+    { n: 2, label: "수신", done: received, total },
+    { n: 3, label: "검증", done: verified, total: received || 1, alert: received > verified },
+    { n: 4, label: "승인", done: approved, total: received || 1 },
+    { n: 5, label: "신고", done: filed, total: 1 },
+  ];
+
+  return (
+    <div className="flex items-center gap-1">
+      {stages.map((s, i) => {
+        const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
+        return (
+          <div key={s.n} className="flex items-center gap-1">
+            {i > 0 && <span className="text-gray-300 text-[10px]">›</span>}
+            <div className="flex items-center gap-1">
+              <div className="w-8 h-[3px] rounded-full bg-gray-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${s.alert ? "bg-red-500" : "bg-gray-900"}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                {s.label}
+                {s.alert && <span className="inline-block w-1 h-1 rounded-full bg-red-500 ml-0.5 -translate-y-0.5" />}
+                <span className="text-gray-400 tabular-nums ml-0.5">{s.done}/{s.total}</span>
+              </span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -367,8 +437,6 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
   }, [entries, deletedEventIds]);
 
   const visibleAttachments = (attachments ?? []).filter((a) => !deletedKeys.has(a.storage_key));
-  const sourceEventIds = new Set(sourceTexts.map((se) => se.id));
-  const orphanAttachments = visibleAttachments.filter((a) => !sourceEventIds.has(a.event_id));
   const publicUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`;
 
   return (
@@ -390,9 +458,9 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
       </div>
 
       <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
-        {orphanAttachments.length > 0 && (
+        {visibleAttachments.length > 0 && (
           <div className="grid grid-cols-3 gap-1.5">
-            {orphanAttachments.map((a) => (
+            {visibleAttachments.map((a) => (
               <div key={a.storage_key}
                 className={`rounded-lg transition-all ${highlightEventId === a.event_id ? "ring-2 ring-blue-400" : ""}`}
                 onClick={() => onHighlight(highlightEventId === a.event_id ? null : a.event_id)}>
@@ -404,36 +472,24 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
           </div>
         )}
 
-        {sourceTexts.map((se) => {
-          const eventAttachments = visibleAttachments.filter((a) => a.event_id === se.id);
-          return (
-            <div key={se.id}
-              onClick={() => onHighlight(highlightEventId === se.id ? null : se.id)}
-              className={`group relative p-2 rounded-lg border cursor-pointer transition-all ${
-                highlightEventId === se.id
-                  ? "bg-blue-50 border-blue-400 ring-1 ring-blue-400"
-                  : "bg-gray-50 border-gray-200 hover:border-gray-300"
-              }`}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">텍스트</span>
-                <button onClick={(ev) => { ev.stopPropagation(); setDeleteEventTarget(se); }}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-red-500 hover:text-red-700">삭제</button>
-              </div>
-              <div className="text-[12px] leading-relaxed text-gray-700 whitespace-pre-wrap mt-1 max-h-32 overflow-y-auto">{se.raw_text}</div>
-              {eventAttachments.length > 0 && (
-                <div className="grid grid-cols-3 gap-1 mt-1.5 pt-1.5 border-t border-gray-200">
-                  {eventAttachments.map((a) => (
-                    <AttachmentThumb key={a.storage_key} filingId={filingId} sessionId={session.id} att={a}
-                      onClick={() => setZoomKey(a.storage_key)}
-                      onDelete={() => setDeleteTarget(a)} />
-                  ))}
-                </div>
-              )}
+        {sourceTexts.map((se) => (
+          <div key={se.id}
+            onClick={() => onHighlight(highlightEventId === se.id ? null : se.id)}
+            className={`group relative p-2 rounded-lg border cursor-pointer transition-all ${
+              highlightEventId === se.id
+                ? "bg-blue-50 border-blue-400 ring-1 ring-blue-400"
+                : "bg-gray-50 border-gray-200 hover:border-gray-300"
+            }`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">텍스트</span>
+              <button onClick={(ev) => { ev.stopPropagation(); setDeleteEventTarget(se); }}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-red-500 hover:text-red-700">삭제</button>
             </div>
-          );
-        })}
+            <div className="text-[12px] leading-relaxed text-gray-700 whitespace-pre-wrap mt-1 max-h-32 overflow-y-auto">{se.raw_text}</div>
+          </div>
+        ))}
 
-        {orphanAttachments.length === 0 && sourceTexts.length === 0 && (
+        {visibleAttachments.length === 0 && sourceTexts.length === 0 && (
           <div className="text-center py-6 text-xs text-gray-400">수신된 자료 없음</div>
         )}
 
