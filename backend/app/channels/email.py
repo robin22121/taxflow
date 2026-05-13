@@ -69,13 +69,22 @@ class ResendEmailChannel(MessageChannel):
 
         is_html = "<" in body and ">" in body
         subject = template_code or "원천세 자료 요청"
+        # reply_to가 있으면 from 주소도 collect 주소로 변경
+        # → 모든 메일 클라이언트에서 회신 시 collect 주소로 전송됨
+        from_addr = self.from_email
+        if reply_to:
+            if "<" in self.from_email:
+                display_name = self.from_email.split("<")[0].strip()
+                from_addr = f"{display_name} <{reply_to}>"
+            else:
+                from_addr = reply_to
+
         payload: dict = {
-            "from": self.from_email,
+            "from": from_addr,
             "to": [recipient.email],
             "subject": subject,
+            "reply_to": [reply_to] if reply_to else [],
         }
-        if reply_to:
-            payload["reply_to"] = [reply_to]
         if is_html:
             payload["html"] = body
         else:
