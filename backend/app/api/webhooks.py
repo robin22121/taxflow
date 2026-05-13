@@ -391,14 +391,28 @@ async def resend_webhook(
     Resend은 email.received 이벤트를 JSON으로 보내지만 본문은 포함하지 않음.
     → API로 본문+첨부를 별도 조회 후 파이프라인에 투입.
     """
-    import httpx
-
     settings = get_settings()
 
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid JSON")
+
+    # 전체를 try/except로 감싸서 500 방지 (Resend이 재시도 폭풍을 일으키지 않도록)
+    try:
+        return await _handle_resend_event(db, body, settings)
+    except Exception:
+        logger.exception("Resend 웹훅 처리 중 예상치 못한 오류")
+        return {"status": "error", "reason": "unexpected error"}
+
+
+async def _handle_resend_event(
+    db: AsyncSession,
+    body: dict,
+    settings,
+) -> dict:
+    """Resend email.received 이벤트 실제 처리."""
+    import httpx
 
     event_type = body.get("type", "")
     if event_type != "email.received":
@@ -557,8 +571,11 @@ async def resend_webhook(
 
 
 def _extract_client_id(address: str) -> str | None:
-    """Extract full client ID from 'collect+{uuid}@domain' format."""
-    match = re.search(r"collect\+([a-f0-9-]{36})@", address)
+    """Extract full client ID from 'collect+{uuid}@domain' format.
+
+    Supports both hyphenated (36-char) and non-hyphenated (32-char) UUIDs.
+    """
+    match = re.search(r"collect\+([a-f0-9-]{32,36})@", address)
     return match.group(1) if match else None
 
 
