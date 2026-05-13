@@ -198,13 +198,13 @@ async def _persist_results(
     db.add(event)
     await db.flush()
 
-    # Deduplicate: skip if same session + same employee (or same raw_name for unmatched) already exists
+    # Deduplicate: skip if same filing + same employee already exists (across ALL sessions)
+    # 같은 filing 내 다른 세션에서 이미 처리된 직원도 중복 방지
     existing_entries = list(
         (
             await db.execute(
                 select(PayrollEntry).where(
                     PayrollEntry.monthly_filing_id == filing.id,
-                    PayrollEntry.collection_session_id == session.id,
                     PayrollEntry.client_id == client.id,
                 )
             )
@@ -264,7 +264,10 @@ async def _persist_results(
             prev_amount=cand.prev_amount,
             anomaly_notes=cand.anomaly_notes or None,
         )
-        if cand.needs_followup and cand.match_status != MatchStatus.UNCONFIRMED:
+        if (
+            cand.needs_followup
+            and cand.match_status not in (MatchStatus.UNCONFIRMED, MatchStatus.NEW_HIRE_SUSPECTED)
+        ):
             needs_followup_count += 1
         db.add(entry)
 
