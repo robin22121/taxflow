@@ -179,7 +179,7 @@ async def kakao_webhook(
     session = await _find_active_session(db, client)
     if not session:
         return _kakao_response(
-            f"{client.name} — 현재 진행 중인 자료 수집 건이 없습니다."
+            f"{client.business_name} — 현재 진행 중인 자료 수집 건이 없습니다."
         )
 
     try:
@@ -204,7 +204,7 @@ async def kakao_webhook(
         ).scalars().all()
 
         response_text = _build_detailed_response(
-            client_name=client.name,
+            client_name=client.business_name,
             filing_period=session.monthly_filing.period,
             entries=list(entries),
         )
@@ -240,7 +240,7 @@ async def _match_client_from_text(
     """
     # 해당 사무소의 모든 거래처 조회
     clients = (
-        await db.execute(select(Client).order_by(Client.name))
+        await db.execute(select(Client).order_by(Client.business_name))
     ).scalars().all()
 
     if not clients:
@@ -249,15 +249,15 @@ async def _match_client_from_text(
     # 거래처명이 본문에 포함되어 있는지 확인 (긴 이름 우선 매칭)
     sorted_clients = sorted(clients, key=lambda c: len(c.name), reverse=True)
     for client in sorted_clients:
-        if client.name and client.name in utterance:
+        if client.business_name and client.business_name in utterance:
             return client
 
     # 부분 매칭: 거래처명에서 (주), 주식회사, 법인 등을 제거하고 재시도
     for client in sorted_clients:
-        if not client.name:
+        if not client.business_name:
             continue
         clean_name = (
-            client.name
+            client.business_name
             .replace("(주)", "").replace("주식회사", "")
             .replace("(유)", "").replace("유한회사", "")
             .strip()
