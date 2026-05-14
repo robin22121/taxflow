@@ -119,9 +119,16 @@ async def kakao_welcome(request: Request) -> dict:
     filing_month = now.month - 1 if now.month > 1 else 12
     return _kakao_response(
         f"이지원천입니다.\n"
-        f"{filing_month}월분 원천세 신고 자료를 보내주세요.\n"
-        f"거래처명과 급여자료를 함께 입력해주세요.\n\n"
-        f"예) 하늘식품 김영수 500 박미영 300"
+        f"{filing_month}월분 원천세 신고 자료를 보내주세요.\n\n"
+        f"[전송방법]\n"
+        f"거래처명 + 직원명 + 금액(만원)\n"
+        f"예) 하늘식품 김영수 500 박미영 300\n\n"
+        f"엑셀·사진·PDF 파일도 전송 가능\n"
+        f"※ 파일 전송 시 거래처명 함께 입력\n\n"
+        f"[주의]\n"
+        f"• 거래처명 필수 (사업자등록증 상호명)\n"
+        f"• 한 거래처씩 따로 전송\n"
+        f"• 잘못 보낸 경우 다시 보내면 덮어씌움"
     )
 
 
