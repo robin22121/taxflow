@@ -247,7 +247,7 @@ async def _match_client_from_text(
         return None
 
     # 거래처명이 본문에 포함되어 있는지 확인 (긴 이름 우선 매칭)
-    sorted_clients = sorted(clients, key=lambda c: len(c.name), reverse=True)
+    sorted_clients = sorted(clients, key=lambda c: len(c.business_name or ""), reverse=True)
     for client in sorted_clients:
         if client.business_name and client.business_name in utterance:
             return client
