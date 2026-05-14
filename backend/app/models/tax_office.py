@@ -8,6 +8,7 @@ class TaxOffice(Base, IdMixin, TimestampMixin):
     __tablename__ = "tax_offices"
 
     name: Mapped[str] = mapped_column(String(200))
+    short_code: Mapped[str | None] = mapped_column(String(20), unique=True)
     business_number: Mapped[str | None] = mapped_column(String(20))
     representative: Mapped[str | None] = mapped_column(String(100))
     phone: Mapped[str | None] = mapped_column(String(40))

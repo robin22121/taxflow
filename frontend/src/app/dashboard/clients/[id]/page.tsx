@@ -56,9 +56,9 @@ export default function ClientDetailPage({
       </div>
 
       <Card>
-        <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-2">
           <h1 className="text-2xl font-semibold text-gray-900">{client.business_name}</h1>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               연락처 편집
             </Button>

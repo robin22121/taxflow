@@ -26,9 +26,12 @@ from app.core.deps import get_db
 from app.models import (
     Client,
     CollectionSession,
+    KakaoUserBinding,
+    KakaoPendingMessage,
     MonthlyFiling,
     MonthlyFilingStatus,
     PayrollEntry,
+    TaxOffice,
 )
 from app.api.collect import _ingest_message
 
@@ -115,10 +118,9 @@ async def kakao_welcome(request: Request) -> dict:
     from datetime import datetime, timezone, timedelta
     kst = timezone(timedelta(hours=9))
     now = datetime.now(kst)
-    # 원천세는 전월분을 당월에 신고 (예: 5월에 4월분 신고)
     filing_month = now.month - 1 if now.month > 1 else 12
     return _kakao_response(
-        f"이지원천입니다.\n"
+        f"안녕하세요, 이지원천입니다.\n\n"
         f"{filing_month}월분 원천세 신고 자료를 보내주세요.\n\n"
         f"[전송방법]\n"
         f"거래처명 + 직원명 + 금액(만원)\n"
@@ -128,7 +130,8 @@ async def kakao_welcome(request: Request) -> dict:
         f"[주의]\n"
         f"• 거래처명 필수 (사업자등록증 상호명)\n"
         f"• 한 거래처씩 따로 전송\n"
-        f"• 잘못 보낸 경우 다시 보내면 덮어씌움"
+        f"• 잘못 보낸 경우 다시 보내면 덮어씌움\n"
+        f"• 반드시 이 채팅방에서 직접 입력해야 자료가 전송됩니다"
     )
 
 
@@ -140,11 +143,12 @@ async def kakao_webhook(
     """카카오 i 오픈빌더 폴백 스킬 웹훅.
 
     세무사 직원이 거래처로부터 받은 급여자료를 이지원천 비즈채널로 전달하면,
-    거래처명 추출 → AI 파싱 → 서버 저장 → 상세 결과 응답.
+    사무소 바인딩 확인 → 거래처명 추출 → AI 파싱 → 서버 저장 → 상세 결과 응답.
 
     플로우:
+    0. plusfriendUserKey로 사무소 바인딩 확인 (미등록 시 사무소 코드 입력 요청)
     1. 직원이 거래처명을 명기하여 전송 (예: "하늘식품 김영수 500 박미영 300")
-    2. AI가 본문에서 거래처명 추출 → Client DB 매칭
+    2. AI가 본문에서 거래처명 추출 → 해당 사무소의 Client DB에서만 매칭
     3. 매칭 실패 시 → "거래처명을 입력해주세요" 되물음
     4. 매칭 성공 → AI 파싱 → 상세 결과(이름+금액) 봇 응답
     """
@@ -168,6 +172,24 @@ async def kakao_webhook(
     utterance = user_request.get("utterance", "").strip()
     user_props = user_request.get("user", {}).get("properties", {})
     plusfriend_key = user_props.get("plusfriendUserKey", "")
+
+    # ── 사무소 바인딩 확인 ──
+    binding = await _get_kakao_binding(db, plusfriend_key)
+
+    if not binding:
+        # 바인딩 안 됨 → 사무소 코드 입력인지 확인
+        result = await _try_bind_office(db, plusfriend_key, utterance)
+        if result:
+            return result  # 바인딩 성공/실패 응답
+        # 사무소 코드도 아닌 일반 메시지 → 등록 안내
+        return _kakao_response(
+            "사무소 등록이 필요합니다.\n"
+            "소속 세무사사무소의 사무소 코드를 입력해주세요.\n\n"
+            "예) 등록 JMS001\n\n"
+            "※ 사무소 코드는 담당 세무사에게 문의하세요."
+        )
+
+    tax_office_id = binding.tax_office_id
 
     # 파일 첨부 처리 (이미지, 문서 등)
     params = body.get("action", {}).get("params", {})
@@ -194,20 +216,120 @@ async def kakao_webhook(
     if not utterance and not file_text and not file_images:
         return _kakao_response("메시지 내용이 비어 있습니다.")
 
-    # 거래처 매칭: 본문에서 거래처명 추출 → Client DB 매칭
+    # 거래처 매칭: 해당 사무소의 거래처에서만 매칭
     full_utterance = utterance
     if file_text:
         full_utterance = (utterance + "\n\n" + file_text).strip() if utterance else file_text
-    client = await _match_client_from_text(db, full_utterance, plusfriend_key)
+    client = await _match_client_from_text(db, full_utterance, tax_office_id=tax_office_id)
 
     if not client:
-        logger.info("카카오 웹훅: 거래처 매칭 실패 (utterance=%s)", utterance[:100])
+        # ── 거래처 매칭 실패 ──
+        pending = await _get_pending(db, plusfriend_key)
+
+        if pending and pending.client_id:
+            # 역방향: 이전에 거래처명을 먼저 보내고, 지금 자료를 보낸 경우
+            client = await db.get(Client, pending.client_id)
+            if client:
+                if file_text:
+                    full_utterance = (utterance + "\n\n" + file_text).strip() if utterance else file_text
+                await _delete_pending(db, plusfriend_key)
+                logger.info("카카오 웹훅: 펜딩 거래처와 합침 (client=%s)", client.business_name)
+                return await _process_and_respond(
+                    db, client, full_utterance, file_images, attachments_meta,
+                )
+
+        if pending:
+            # 이전 펜딩(자료) 있는데 또 매칭 실패 → 펜딩 교체
+            if file_text or file_images:
+                await _save_pending(db, plusfriend_key, tax_office_id,
+                                    utterance=utterance, file_text=file_text,
+                                    attachments_meta=attachments_meta)
+                return _kakao_response(
+                    "새 자료로 교체 저장했습니다.\n"
+                    "거래처명을 보내주세요.\n\n"
+                    "예) 하늘식품"
+                )
+            # 텍스트만 보냈는데 매칭 실패
+            return _kakao_response(
+                "거래처명을 확인할 수 없습니다.\n"
+                "등록된 거래처 상호명을 정확히 보내주세요.\n\n"
+                "예) 하늘식품"
+            )
+
+        # 펜딩 없음 — 자료가 있으면 임시 저장
+        if file_text or file_images or utterance:
+            await _save_pending(db, plusfriend_key, tax_office_id,
+                                utterance=utterance, file_text=file_text,
+                                attachments_meta=attachments_meta)
+            logger.info("카카오 웹훅: 자료 임시 저장 (utterance=%s, file=%s)", utterance[:50], bool(file_text))
+            return _kakao_response(
+                "자료를 임시 저장했습니다.\n"
+                "거래처명을 보내주세요.\n\n"
+                "예) 하늘식품"
+            )
+
         return _kakao_response(
             "거래처명을 확인할 수 없습니다.\n"
             "거래처명을 포함하여 다시 보내주세요.\n\n"
             "예) 하늘식품 김영수 500 박미영 300"
         )
 
+    # ── 거래처 매칭 성공 ──
+    pending = await _get_pending(db, plusfriend_key)
+    if pending:
+        # 정방향: 이전에 자료를 먼저 보내고, 지금 거래처명을 보낸 경우
+        if pending.file_text:
+            full_utterance = (full_utterance + "\n\n" + pending.file_text).strip()
+        if pending.utterance:
+            full_utterance = (pending.utterance + "\n\n" + full_utterance).strip()
+        if pending.attachments_meta:
+            attachments_meta = (pending.attachments_meta or []) + attachments_meta
+        await _delete_pending(db, plusfriend_key)
+        logger.info("카카오 웹훅: 펜딩 자료와 합침 (client=%s)", client.business_name)
+
+    # 거래처명만 있고 급여 데이터가 없는지 판별
+    has_payroll_data = file_text or file_images or _has_payroll_content(utterance, client.business_name)
+
+    if not has_payroll_data:
+        # 역방향: 거래처명만 먼저 보낸 경우 → client_id를 펜딩에 저장
+        await _save_pending(db, plusfriend_key, tax_office_id, client_id=client.id)
+        logger.info("카카오 웹훅: 거래처명만 수신, 자료 대기 (client=%s)", client.business_name)
+        return _kakao_response(
+            f"{client.business_name} 확인되었습니다.\n"
+            f"급여자료를 보내주세요.\n\n"
+            f"예) 김영수 500 박미영 300\n"
+            f"또는 엑셀·사진·PDF 파일 전송"
+        )
+
+    return await _process_and_respond(
+        db, client, full_utterance, file_images, attachments_meta,
+    )
+
+
+def _kakao_response(text: str) -> dict:
+    """카카오 i 오픈빌더 스킬 응답 포맷."""
+    return {
+        "version": "2.0",
+        "template": {
+            "outputs": [
+                {
+                    "simpleText": {
+                        "text": text
+                    }
+                }
+            ]
+        }
+    }
+
+
+async def _process_and_respond(
+    db: AsyncSession,
+    client: Client,
+    full_utterance: str,
+    file_images: list[tuple[bytes, str]],
+    attachments_meta: list[dict],
+) -> dict:
+    """거래처 매칭 완료 후 AI 파싱 → 결과 응답."""
     session = await _find_active_session(db, client)
     if not session:
         return _kakao_response(
@@ -215,7 +337,7 @@ async def kakao_webhook(
         )
 
     try:
-        result = await _ingest_message(
+        await _ingest_message(
             db=db,
             session=session,
             client=session.client,
@@ -225,7 +347,6 @@ async def kakao_webhook(
             images=file_images or None,
             attachments=attachments_meta or None,
         )
-        # 방금 저장된 entries 조회 → 상세 응답 생성
         entries = (
             await db.execute(
                 select(PayrollEntry)
@@ -248,20 +369,16 @@ async def kakao_webhook(
         return _kakao_response("자료 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
 
-def _kakao_response(text: str) -> dict:
-    """카카오 i 오픈빌더 스킬 응답 포맷."""
-    return {
-        "version": "2.0",
-        "template": {
-            "outputs": [
-                {
-                    "simpleText": {
-                        "text": text
-                    }
-                }
-            ]
-        }
-    }
+def _has_payroll_content(utterance: str, client_name: str) -> bool:
+    """utterance에 거래처명 외에 급여 데이터(이름+금액)가 포함되어 있는지 판별."""
+    remaining = utterance
+    # 거래처명 제거
+    for prefix in [client_name, client_name.replace("(주)", "").replace("주식회사", "").strip()]:
+        remaining = remaining.replace(prefix, "").strip()
+    if not remaining:
+        return False
+    # 숫자가 포함되어 있으면 급여 데이터로 간주
+    return bool(re.search(r"\d", remaining))
 
 
 async def _download_and_process_kakao_media(
@@ -331,17 +448,72 @@ async def _download_and_process_kakao_media(
     return file_text, images, attachments_meta
 
 
-async def _match_client_from_text(
-    db: AsyncSession, utterance: str, plusfriend_key: str = ""
-) -> Client | None:
-    """본문에서 거래처명을 추출하여 Client DB와 매칭.
+async def _get_kakao_binding(
+    db: AsyncSession, plusfriend_key: str
+) -> KakaoUserBinding | None:
+    """plusfriendUserKey로 사무소 바인딩 조회 (tax_office eager load)."""
+    if not plusfriend_key:
+        return None
+    return (
+        await db.execute(
+            select(KakaoUserBinding)
+            .where(KakaoUserBinding.plusfriend_key == plusfriend_key)
+            .options(selectinload(KakaoUserBinding.tax_office))
+        )
+    ).scalar_one_or_none()
 
-    1. DB의 모든 거래처명과 본문을 대조하여 가장 먼저 일치하는 거래처 반환
+
+async def _try_bind_office(
+    db: AsyncSession, plusfriend_key: str, utterance: str
+) -> dict | None:
+    """'등록 {코드}' 형식의 메시지면 사무소 바인딩 시도. 성공/실패 시 응답 반환, 해당 안 되면 None."""
+    match = re.match(r"^등록\s+(\S+)$", utterance.strip())
+    if not match:
+        return None
+
+    code = match.group(1).upper()
+    office = (
+        await db.execute(
+            select(TaxOffice).where(TaxOffice.short_code == code)
+        )
+    ).scalar_one_or_none()
+
+    if not office:
+        return _kakao_response(
+            f"사무소 코드 '{code}'을(를) 찾을 수 없습니다.\n"
+            "코드를 다시 확인해주세요.\n\n"
+            "예) 등록 JMS001"
+        )
+
+    binding = KakaoUserBinding(
+        plusfriend_key=plusfriend_key,
+        tax_office_id=office.id,
+    )
+    db.add(binding)
+    await db.commit()
+
+    logger.info("카카오 사무소 바인딩 완료: key=%s → %s (%s)", plusfriend_key[:8], office.name, code)
+    return _kakao_response(
+        f"'{office.name}' 사무소로 등록되었습니다.\n\n"
+        f"이제 거래처명과 급여자료를 보내주세요.\n"
+        f"예) 하늘식품 김영수 500 박미영 300"
+    )
+
+
+async def _match_client_from_text(
+    db: AsyncSession, utterance: str, *, tax_office_id: str
+) -> Client | None:
+    """본문에서 거래처명을 추출하여 해당 사무소의 Client DB와 매칭.
+
+    1. 해당 사무소 거래처명과 본문을 대조하여 가장 먼저 일치하는 거래처 반환
     2. 매칭 실패 시 None 반환 → 봇이 거래처명 재요청
     """
-    # 해당 사무소의 모든 거래처 조회
     clients = (
-        await db.execute(select(Client).order_by(Client.business_name))
+        await db.execute(
+            select(Client)
+            .where(Client.tax_office_id == tax_office_id)
+            .order_by(Client.business_name)
+        )
     ).scalars().all()
 
     if not clients:
@@ -367,6 +539,54 @@ async def _match_client_from_text(
             return client
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Pending message helpers (2단계 플로우: 파일 먼저 → 거래처명 나중)
+# ---------------------------------------------------------------------------
+
+async def _get_pending(db: AsyncSession, plusfriend_key: str) -> KakaoPendingMessage | None:
+    """해당 유저의 대기 중인 임시 자료 조회."""
+    return (
+        await db.execute(
+            select(KakaoPendingMessage)
+            .where(KakaoPendingMessage.plusfriend_key == plusfriend_key)
+            .order_by(KakaoPendingMessage.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _save_pending(
+    db: AsyncSession,
+    plusfriend_key: str,
+    tax_office_id: str,
+    *,
+    client_id: str | None = None,
+    utterance: str | None = None,
+    file_text: str | None = None,
+    attachments_meta: list[dict] | None = None,
+) -> None:
+    """임시 자료 저장 (기존 펜딩은 삭제 후 새로 생성)."""
+    await _delete_pending(db, plusfriend_key)
+    db.add(KakaoPendingMessage(
+        plusfriend_key=plusfriend_key,
+        tax_office_id=tax_office_id,
+        client_id=client_id,
+        utterance=utterance or None,
+        file_text=file_text or None,
+        attachments_meta=attachments_meta or None,
+    ))
+    await db.commit()
+
+
+async def _delete_pending(db: AsyncSession, plusfriend_key: str) -> None:
+    """해당 유저의 대기 중인 임시 자료 모두 삭제."""
+    from sqlalchemy import delete
+    await db.execute(
+        delete(KakaoPendingMessage)
+        .where(KakaoPendingMessage.plusfriend_key == plusfriend_key)
+    )
 
 
 def _build_detailed_response(

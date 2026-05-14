@@ -187,7 +187,7 @@ async def main() -> None:
         await db.flush()
 
         # ── Tax office + admin ──
-        office = TaxOffice(name="조명신 세무사사무소", representative="조명신", phone="02-1234-5678")
+        office = TaxOffice(name="조명신 세무사사무소", short_code="JMS001", representative="조명신", phone="02-1234-5678")
         db.add(office)
         await db.flush()
 

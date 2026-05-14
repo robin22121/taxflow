@@ -24,7 +24,7 @@ export default function DashboardHomePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="text-[20px] font-bold tracking-tight text-gray-900">월별 신고</h1>
           <p className="text-[13px] text-gray-500 mt-0.5">기간을 선택해 자료 수집을 시작하세요.</p>
@@ -77,8 +77,8 @@ export default function DashboardHomePage() {
 
       {/* Filing Table */}
       {!isLoading && filings.length > 0 && (
-        <Card className="p-0 overflow-hidden">
-          <table className="w-full text-[13px]">
+        <Card className="p-0 overflow-hidden overflow-x-auto">
+          <table className="w-full text-[13px] min-w-[400px]">
             <thead>
               <tr className="border-b border-gray-300">
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">기간</th>

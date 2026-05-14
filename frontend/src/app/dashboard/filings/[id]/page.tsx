@@ -33,6 +33,7 @@ export default function FilingDetailPage({
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
 
   const allEntries = entries ?? [];
   const sessions = data?.sessions ?? [];
@@ -89,10 +90,10 @@ export default function FilingDetailPage({
 
   return (
     <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Compact single-row header — aligned with 3-pane columns */}
-      <div className="flex h-10 border-b border-gray-200 bg-white shrink-0">
+      {/* Compact header — aligned with 3-pane columns on desktop, stacks on mobile */}
+      <div className="flex flex-col md:flex-row md:h-10 border-b border-gray-200 bg-white shrink-0">
         {/* Left col — matches session list width */}
-        <div className="w-[240px] shrink-0 flex items-center gap-2 px-4 border-r border-gray-200">
+        <div className="hidden md:flex w-[240px] shrink-0 items-center gap-2 px-4 border-r border-gray-200">
           <span className={`text-[11px] font-semibold shrink-0 ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
             마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`} · {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()}
           </span>
@@ -102,11 +103,25 @@ export default function FilingDetailPage({
             </Link>
           </h1>
         </div>
+        {/* Mobile-only top row */}
+        <div className="flex md:hidden items-center justify-between px-3 py-2 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={() => setShowSidebar((v) => !v)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" aria-label="거래처 목록">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+            <h1 className="text-[13px] font-bold tracking-tight truncate">
+              <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
+                {Number(filing.period.split("-")[1])}월 원천세 신고
+              </Link>
+            </h1>
+            <span className={`text-[11px] font-semibold shrink-0 ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
+              D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
+            </span>
+          </div>
+        </div>
         {/* Center col — matches AI table */}
-        <div className="flex-1 min-w-0 flex items-center justify-between px-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
-            <div className="h-3.5 w-px bg-gray-200 shrink-0" />
+        <div className="flex-1 min-w-0 flex items-center justify-between px-3 md:px-4 py-1.5 md:py-0">
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
             <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
               확인필요만 보기
               {flaggedEntries.length > 0 && (
@@ -116,21 +131,21 @@ export default function FilingDetailPage({
               )}
             </TogglePill>
             {!reviewOnly && selectedSession && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
+              <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
                 {selectedSession.client_name}
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
             <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">위하고T 엑셀</Button>
-            <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
+            <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1 hidden sm:inline-flex">
               {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
             </Button>
-            <Button className="!text-[12px] !px-3 !py-1">신고 완료 처리</Button>
+            <Button className="!text-[12px] !px-3 !py-1 hidden sm:inline-flex">신고 완료 처리</Button>
           </div>
         </div>
-        {/* Right col — matches original docs width */}
-        <div className="w-[280px] shrink-0 border-l border-gray-200" />
+        {/* Right col — matches original docs width (desktop only) */}
+        <div className="hidden md:block w-[280px] shrink-0 border-l border-gray-200" />
       </div>
 
       {/* Body */}
@@ -145,6 +160,8 @@ export default function FilingDetailPage({
           setActiveSession={setActiveSession}
           selectedSession={selectedSession}
           selectedEntries={selectedEntries}
+          showSidebar={showSidebar}
+          setShowSidebar={setShowSidebar}
         />
       )}
 
@@ -157,61 +174,6 @@ export default function FilingDetailPage({
           <p className="text-[13px] text-gray-700">모든 거래처에 자료요청 안내문을 보냅니다. 진행하시겠습니까?</p>
         </Modal>
       )}
-    </div>
-  );
-}
-
-/* ═══ Workflow Strip — 5-segment grid ═══ */
-
-function WorkflowStrip({ sessions, entries, filingStatus }: {
-  sessions: CollectionSession[];
-  entries: PayrollEntry[];
-  filingStatus: string;
-}) {
-  const total = sessions.length || 1;
-  const sent = sessions.filter((s) => s.status !== "PENDING" && s.status !== "DRAFT").length;
-  const received = sessions.filter((s) => s.has_responses).length;
-  const verified = sessions.filter((s) => {
-    const se = entries.filter((e) => e.client_id === s.client_id);
-    return se.length > 0 && se.every((e) => !e.anomaly_notes || Object.keys(e.anomaly_notes).length === 0 || e.approved);
-  }).length;
-  const approved = sessions.filter((s) => {
-    const se = entries.filter((e) => e.client_id === s.client_id);
-    return se.length > 0 && se.every((e) => e.approved);
-  }).length;
-  const filed = filingStatus === "FILED" || filingStatus === "COMPLETED" ? 1 : 0;
-
-  const stages: { n: number; label: string; done: number; total: number; alert?: boolean }[] = [
-    { n: 1, label: "초대 발송", done: sent, total },
-    { n: 2, label: "수신", done: received, total },
-    { n: 3, label: "검증", done: verified, total: received || 1, alert: received > verified },
-    { n: 4, label: "승인", done: approved, total: received || 1 },
-    { n: 5, label: "신고", done: filed, total: 1 },
-  ];
-
-  return (
-    <div className="flex items-center gap-1">
-      {stages.map((s, i) => {
-        const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
-        return (
-          <div key={s.n} className="flex items-center gap-1">
-            {i > 0 && <span className="text-gray-300 text-[10px]">›</span>}
-            <div className="flex items-center gap-1">
-              <div className="w-8 h-[3px] rounded-full bg-gray-100 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${s.alert ? "bg-red-500" : "bg-gray-900"}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              <span className="text-[11px] text-gray-500 whitespace-nowrap">
-                {s.label}
-                {s.alert && <span className="inline-block w-1 h-1 rounded-full bg-red-500 ml-0.5 -translate-y-0.5" />}
-                <span className="text-gray-400 tabular-nums ml-0.5">{s.done}/{s.total}</span>
-              </span>
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -236,7 +198,7 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
 
 /* ═══ Default 3-Pane Mode ═══ */
 
-function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries }: {
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, showSidebar, setShowSidebar }: {
   filingId: string;
   sessions: CollectionSession[];
   entries: PayrollEntry[];
@@ -244,6 +206,8 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   setActiveSession: (id: string | null) => void;
   selectedSession: CollectionSession | null;
   selectedEntries: PayrollEntry[];
+  showSidebar: boolean;
+  setShowSidebar: (v: boolean) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
@@ -271,9 +235,13 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const waitingCount = sessions.filter(isWaiting).length;
 
   return (
-    <div className="flex flex-1 min-h-0 bg-gray-50">
+    <div className="flex flex-1 min-h-0 bg-gray-50 relative">
+      {/* Mobile overlay backdrop */}
+      {showSidebar && (
+        <div className="fixed inset-0 bg-black/30 z-20 md:hidden" onClick={() => setShowSidebar(false)} />
+      )}
       {/* LEFT — Session list */}
-      <div className="w-[240px] border-r border-gray-200 bg-white flex flex-col shrink-0">
+      <div className={`${showSidebar ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed md:static inset-y-0 left-0 z-30 md:z-auto w-[260px] md:w-[240px] border-r border-gray-200 bg-white flex flex-col shrink-0 transition-transform duration-200 ease-in-out`}>
         <div className="px-3 pt-3 pb-2 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[14px] font-semibold">거래처 {sessions.length}</span>
@@ -299,7 +267,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
           {filtered.map((s) => (
-            <SessionItem key={s.id} session={s} entries={entries} active={s.id === activeSession} onClick={() => setActiveSession(s.id)} />
+            <SessionItem key={s.id} session={s} entries={entries} active={s.id === activeSession} onClick={() => { setActiveSession(s.id); setShowSidebar(false); }} />
           ))}
         </div>
       </div>
@@ -314,8 +282,8 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         )}
       </div>
 
-      {/* RIGHT — Original docs */}
-      <div className="w-[280px] border-l border-gray-200 bg-white flex flex-col shrink-0">
+      {/* RIGHT — Original docs (hidden on mobile) */}
+      <div className="hidden md:flex w-[280px] border-l border-gray-200 bg-white flex-col shrink-0">
         {selectedSession ? (
           <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
             highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />

@@ -24,7 +24,7 @@ export default function ClientsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-[20px] font-bold tracking-tight text-gray-900">거래처 관리</h1>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setBulkOpen(true)}>
@@ -65,8 +65,8 @@ export default function ClientsPage() {
 
       {/* Client Table */}
       {!isLoading && clients.length > 0 && (
-        <Card className="p-0 overflow-hidden">
-          <table className="w-full text-[13px]">
+        <Card className="p-0 overflow-hidden overflow-x-auto">
+          <table className="w-full text-[13px] min-w-[540px]">
             <thead>
               <tr className="border-b border-gray-300">
                 <th className="text-left px-4 py-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">상호</th>

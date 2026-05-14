@@ -6,6 +6,8 @@ from app.models.collection import (
     CollectionSessionStatus,
 )
 from app.models.employee import Employee, EmploymentStatus
+from app.models.kakao_binding import KakaoUserBinding
+from app.models.kakao_pending import KakaoPendingMessage
 from app.models.monthly_filing import MonthlyFiling, MonthlyFilingStatus
 from app.models.payroll import IncomeType, MatchStatus, PayrollEntry
 from app.models.tax_office import TaxOffice
@@ -22,6 +24,8 @@ __all__ = [
     "Employee",
     "EmploymentStatus",
     "IncomeType",
+    "KakaoUserBinding",
+    "KakaoPendingMessage",
     "MatchStatus",
     "MonthlyFiling",
     "MonthlyFilingStatus",

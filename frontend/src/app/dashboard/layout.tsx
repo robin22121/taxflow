@@ -35,14 +35,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex flex-col min-h-screen">
       {/* Top nav bar */}
-      <header className="flex items-center justify-between px-5 border-b border-gray-200 bg-white shrink-0 h-12">
-        <div className="flex items-center gap-6">
+      <header className="flex items-center justify-between px-3 sm:px-5 border-b border-gray-200 bg-white shrink-0 h-12">
+        <div className="flex items-center gap-3 sm:gap-6 min-w-0">
           {/* Logo */}
           <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
             <div className="w-[22px] h-[22px] rounded-md bg-gray-900 text-white flex items-center justify-center text-[11px] font-extrabold">
               이
             </div>
-            <span className="text-[14px] font-bold tracking-tight text-black">이지원천</span>
+            <span className="text-[14px] font-bold tracking-tight text-black hidden sm:inline">이지원천</span>
           </Link>
 
           {/* Nav tabs */}
@@ -54,7 +54,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   key={item.href}
                   href={item.href}
                   className={
-                    "px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors " +
+                    "px-2.5 sm:px-3 py-1.5 rounded-full text-[12px] sm:text-[13px] font-medium transition-colors " +
                     (active
                       ? "bg-gray-900 text-white"
                       : "text-gray-600 hover:bg-gray-100")
@@ -67,8 +67,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </nav>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-[12px] text-gray-500 truncate max-w-[140px]">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <span className="text-[12px] text-gray-500 truncate max-w-[80px] sm:max-w-[140px]">
             {me?.name ?? "세무사사무소"}
           </span>
           <button
@@ -82,7 +82,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main content */}
       <main className="flex-1 min-w-0 bg-gray-50">
-        <div className="p-6 pb-24">{children}</div>
+        <div className="p-4 sm:p-6 pb-24">{children}</div>
       </main>
     </div>
   );
