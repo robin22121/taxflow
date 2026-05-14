@@ -162,11 +162,36 @@ async def kakao_webhook(
     user_props = user_request.get("user", {}).get("properties", {})
     plusfriend_key = user_props.get("plusfriendUserKey", "")
 
-    if not utterance:
+    # 파일 첨부 처리 (이미지, 문서 등)
+    params = body.get("action", {}).get("params", {})
+    media = params.get("media", {})
+    # 카카오는 media를 JSON 문자열로 보내는 경우도 있음
+    if isinstance(media, str):
+        try:
+            media = json.loads(media)
+        except Exception:
+            media = {}
+
+    file_text = ""
+    file_images: list[tuple[bytes, str]] = []
+    attachments_meta: list[dict] = []
+
+    media_url = media.get("url", "")
+    media_type = media.get("type", "")
+
+    if media_url:
+        file_text, file_images, attachments_meta = await _download_and_process_kakao_media(
+            media_url, media_type
+        )
+
+    if not utterance and not file_text and not file_images:
         return _kakao_response("메시지 내용이 비어 있습니다.")
 
     # 거래처 매칭: 본문에서 거래처명 추출 → Client DB 매칭
-    client = await _match_client_from_text(db, utterance, plusfriend_key)
+    full_utterance = utterance
+    if file_text:
+        full_utterance = (utterance + "\n\n" + file_text).strip() if utterance else file_text
+    client = await _match_client_from_text(db, full_utterance, plusfriend_key)
 
     if not client:
         logger.info("카카오 웹훅: 거래처 매칭 실패 (utterance=%s)", utterance[:100])
@@ -188,8 +213,10 @@ async def kakao_webhook(
             session=session,
             client=session.client,
             filing=session.monthly_filing,
-            text=utterance,
+            text=full_utterance,
             channel="kakao",
+            images=file_images or None,
+            attachments=attachments_meta or None,
         )
         # 방금 저장된 entries 조회 → 상세 응답 생성
         entries = (
@@ -228,6 +255,73 @@ def _kakao_response(text: str) -> dict:
             ]
         }
     }
+
+
+async def _download_and_process_kakao_media(
+    url: str, media_type: str
+) -> tuple[str, list[tuple[bytes, str]], list[dict]]:
+    """카카오톡에서 전송된 파일(이미지/문서)을 다운로드하고 처리."""
+    import httpx
+    from app.services.file_intake import intake_file
+    from app.services.storage import get_storage
+    from app.services.stt import get_stt_provider
+
+    file_text = ""
+    images: list[tuple[bytes, str]] = []
+    attachments_meta: list[dict] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            resp = await cli.get(url)
+        if resp.status_code != 200:
+            logger.warning("카카오 파일 다운로드 실패: url=%s, status=%s", url, resp.status_code)
+            return file_text, images, attachments_meta
+
+        content = resp.content
+        content_type = resp.headers.get("content-type", "")
+
+        # 파일명 추출: Content-Disposition 또는 URL에서
+        filename = ""
+        cd = resp.headers.get("content-disposition", "")
+        if "filename=" in cd:
+            filename = cd.split("filename=")[-1].strip('"').strip("'")
+        if not filename:
+            # URL 경로에서 파일명 추출
+            from urllib.parse import urlparse, unquote
+            path = urlparse(url).path
+            filename = unquote(path.split("/")[-1]) if "/" in path else ""
+        if not filename:
+            # content-type으로 확장자 추정
+            ext_map = {
+                "image/jpeg": "photo.jpg", "image/png": "photo.png",
+                "image/webp": "photo.webp",
+                "text/plain": "file.txt",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "file.xlsx",
+                "application/vnd.ms-excel": "file.xls",
+                "text/csv": "file.csv",
+                "application/pdf": "file.pdf",
+            }
+            filename = ext_map.get(content_type.split(";")[0].strip(), "file.bin")
+
+        intake = await intake_file(
+            filename=filename,
+            content=content,
+            storage=get_storage(),
+            stt=get_stt_provider(),
+        )
+        if intake.text.strip():
+            file_text = f"[첨부: {filename}]\n{intake.text}"
+        images.extend(intake.images)
+        if intake.storage_key:
+            attachments_meta.append({
+                "filename": filename,
+                "storage_key": intake.storage_key,
+                "kind": intake.kind,
+            })
+    except Exception:
+        logger.exception("카카오 파일 처리 실패: url=%s", url)
+
+    return file_text, images, attachments_meta
 
 
 async def _match_client_from_text(

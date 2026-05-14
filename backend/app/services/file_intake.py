@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 AUDIO_EXTS = (".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac")
 EXCEL_EXTS = (".xlsx", ".xlsm", ".xls")
 CSV_EXTS = (".csv",)
+TEXT_EXTS = (".txt",)
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 PDF_EXTS = (".pdf",)
 
@@ -57,6 +58,10 @@ def _is_excel(filename: str) -> bool:
 
 def _is_csv(filename: str) -> bool:
     return filename.lower().endswith(CSV_EXTS)
+
+
+def _is_text(filename: str) -> bool:
+    return filename.lower().endswith(TEXT_EXTS)
 
 
 def _is_image(filename: str) -> bool:
@@ -144,6 +149,16 @@ async def intake_file(
         return IntakeResult(
             text=redact_pii(_csv_to_text(content)),
             kind="csv",
+            storage_key=key,
+        )
+
+    if _is_text(filename):
+        key = storage.make_key("text", ".txt")
+        storage.put_object(key, content, content_type="text/plain")
+        text = content.decode("utf-8-sig", errors="replace")
+        return IntakeResult(
+            text=redact_pii(text),
+            kind="text",
             storage_key=key,
         )
 

@@ -89,43 +89,48 @@ export default function FilingDetailPage({
 
   return (
     <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Compact single-row header */}
-      <div className="flex items-center justify-between px-5 h-10 border-b border-gray-200 bg-white shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
+      {/* Compact single-row header — aligned with 3-pane columns */}
+      <div className="flex h-10 border-b border-gray-200 bg-white shrink-0">
+        {/* Left col — matches session list width */}
+        <div className="w-[240px] shrink-0 flex items-center gap-2 px-4 border-r border-gray-200">
           <span className={`text-[11px] font-semibold shrink-0 ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
             마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`} · {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()}
           </span>
-          <h1 className="text-[13px] font-bold tracking-tight shrink-0">
+          <h1 className="text-[13px] font-bold tracking-tight truncate">
             <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
               {Number(filing.period.split("-")[1])}월 원천세 신고
             </Link>
           </h1>
-          <div className="h-3.5 w-px bg-gray-200 shrink-0" />
-          <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
-          <div className="h-3.5 w-px bg-gray-200 shrink-0" />
-          <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
-            확인필요만 보기
-            {flaggedEntries.length > 0 && (
-              <span className={`ml-1 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
-                {flaggedEntries.length}
-              </span>
-            )}
-          </TogglePill>
-          {!reviewOnly && selectedSession && (
-            <div className="flex items-center gap-1.5">
+        </div>
+        {/* Center col — matches AI table */}
+        <div className="flex-1 min-w-0 flex items-center justify-between px-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
+            <div className="h-3.5 w-px bg-gray-200 shrink-0" />
+            <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
+              확인필요만 보기
+              {flaggedEntries.length > 0 && (
+                <span className={`ml-1 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
+                  {flaggedEntries.length}
+                </span>
+              )}
+            </TogglePill>
+            {!reviewOnly && selectedSession && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
                 {selectedSession.client_name}
               </span>
-            </div>
-          )}
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">위하고T 엑셀</Button>
+            <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
+              {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
+            </Button>
+            <Button className="!text-[12px] !px-3 !py-1">신고 완료 처리</Button>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">위하고T 엑셀</Button>
-          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
-            {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
-          </Button>
-          <Button className="!text-[12px] !px-3 !py-1">신고 완료 처리</Button>
-        </div>
+        {/* Right col — matches original docs width */}
+        <div className="w-[280px] shrink-0 border-l border-gray-200" />
       </div>
 
       {/* Body */}
