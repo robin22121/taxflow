@@ -28,6 +28,7 @@ from app.models import (
     CollectionSession,
     MonthlyFiling,
     MonthlyFilingStatus,
+    PayrollEntry,
 )
 from app.api.collect import _ingest_message
 
@@ -115,31 +116,18 @@ async def kakao_webhook(
 ) -> dict:
     """카카오 i 오픈빌더 폴백 스킬 웹훅.
 
-    오픈빌더에서 "폴백 스킬"로 설정하면, 사용자가 비즈채널에서 보낸 모든 메시지가
-    이 엔드포인트로 전달됩니다.
+    세무사 직원이 거래처로부터 받은 급여자료를 이지원천 비즈채널로 전달하면,
+    거래처명 추출 → AI 파싱 → 서버 저장 → 상세 결과 응답.
 
-    요청 형식 (카카오 오픈빌더 스킬 표준):
-    {
-      "intent": {...},
-      "userRequest": {
-        "utterance": "김연호 500, 조명신 300",
-        "user": {
-          "id": "kakao_user_id",
-          "properties": {
-            "plusfriendUserKey": "unique_key"
-          }
-        }
-      },
-      "bot": {...},
-      "action": {...}
-    }
-
-    응답: 카카오 스킬 응답 형식 (simpleText)
+    플로우:
+    1. 직원이 거래처명을 명기하여 전송 (예: "하늘식품 김영수 500 박미영 300")
+    2. AI가 본문에서 거래처명 추출 → Client DB 매칭
+    3. 매칭 실패 시 → "거래처명을 입력해주세요" 되물음
+    4. 매칭 성공 → AI 파싱 → 상세 결과(이름+금액) 봇 응답
     """
     settings = get_settings()
     raw_body = await request.body()
 
-    # 카카오 오픈빌더 스킬 서버 서명 검증
     if settings.kakao_webhook_secret:
         signature = request.headers.get("x-kakao-signature", "")
         if not _verify_kakao_signature(settings.kakao_webhook_secret, raw_body, signature):
@@ -161,26 +149,21 @@ async def kakao_webhook(
     if not utterance:
         return _kakao_response("메시지 내용이 비어 있습니다.")
 
-    # 발신자 → Client 매칭: plusfriendUserKey 또는 phone으로 매칭
-    # Phase 1에서는 kakao_channel_id 필드로 매칭
-    client = None
-    if plusfriend_key:
-        client = (
-            await db.execute(
-                select(Client).where(Client.kakao_channel_id == plusfriend_key)
-            )
-        ).scalar_one_or_none()
+    # 거래처 매칭: 본문에서 거래처명 추출 → Client DB 매칭
+    client = await _match_client_from_text(db, utterance, plusfriend_key)
 
     if not client:
-        logger.warning("카카오 웹훅: 매칭 실패 (plusfriend_key=%s)", plusfriend_key)
+        logger.info("카카오 웹훅: 거래처 매칭 실패 (utterance=%s)", utterance[:100])
         return _kakao_response(
-            "거래처 매칭에 실패했습니다. 세무사사무소에 문의해주세요."
+            "거래처명을 확인할 수 없습니다.\n"
+            "거래처명을 포함하여 다시 보내주세요.\n\n"
+            "예) 하늘식품 김영수 500 박미영 300"
         )
 
     session = await _find_active_session(db, client)
     if not session:
         return _kakao_response(
-            "현재 진행 중인 자료 수집 건이 없습니다. 세무사사무소에 문의해주세요."
+            f"{client.name} — 현재 진행 중인 자료 수집 건이 없습니다."
         )
 
     try:
@@ -192,14 +175,25 @@ async def kakao_webhook(
             text=utterance,
             channel="kakao",
         )
-        followup = result.ambiguous + result.needs_followup
-        return _kakao_response(
-            f"자료가 접수되었습니다.\n"
-            f"기존직원 {result.matched}명 · 신규 {result.new_hire_suspected}명 "
-            f"· 퇴사 {result.resignation_suspected}명 · 확인필요 {followup}명\n"
-            f"세무사가 검증 후 추가 확인 사항이 있으면 연락드리겠습니다."
+        # 방금 저장된 entries 조회 → 상세 응답 생성
+        entries = (
+            await db.execute(
+                select(PayrollEntry)
+                .where(
+                    PayrollEntry.monthly_filing_id == session.monthly_filing_id,
+                    PayrollEntry.client_id == client.id,
+                )
+                .order_by(PayrollEntry.total_amount.desc())
+            )
+        ).scalars().all()
+
+        response_text = _build_detailed_response(
+            client_name=client.name,
+            filing_period=session.monthly_filing.period,
+            entries=list(entries),
         )
-    except Exception as e:
+        return _kakao_response(response_text)
+    except Exception:
         logger.exception("카카오 웹훅 처리 실패")
         return _kakao_response("자료 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
@@ -218,6 +212,103 @@ def _kakao_response(text: str) -> dict:
             ]
         }
     }
+
+
+async def _match_client_from_text(
+    db: AsyncSession, utterance: str, plusfriend_key: str = ""
+) -> Client | None:
+    """본문에서 거래처명을 추출하여 Client DB와 매칭.
+
+    1. DB의 모든 거래처명과 본문을 대조하여 가장 먼저 일치하는 거래처 반환
+    2. 매칭 실패 시 None 반환 → 봇이 거래처명 재요청
+    """
+    # 해당 사무소의 모든 거래처 조회
+    clients = (
+        await db.execute(select(Client).order_by(Client.name))
+    ).scalars().all()
+
+    if not clients:
+        return None
+
+    # 거래처명이 본문에 포함되어 있는지 확인 (긴 이름 우선 매칭)
+    sorted_clients = sorted(clients, key=lambda c: len(c.name), reverse=True)
+    for client in sorted_clients:
+        if client.name and client.name in utterance:
+            return client
+
+    # 부분 매칭: 거래처명에서 (주), 주식회사, 법인 등을 제거하고 재시도
+    for client in sorted_clients:
+        if not client.name:
+            continue
+        clean_name = (
+            client.name
+            .replace("(주)", "").replace("주식회사", "")
+            .replace("(유)", "").replace("유한회사", "")
+            .strip()
+        )
+        if clean_name and len(clean_name) >= 2 and clean_name in utterance:
+            return client
+
+    return None
+
+
+def _build_detailed_response(
+    client_name: str,
+    filing_period: str,
+    entries: list,
+) -> str:
+    """카카오 봇 응답: 파싱된 직원별 이름+금액 상세 결과."""
+    month = int(filing_period.split("-")[1]) if "-" in filing_period else ""
+    lines = [f"✅ {client_name} {month}월 급여자료 접수 완료"]
+
+    # 기존직원
+    matched = [e for e in entries if e.match_status == "MATCHED"]
+    if matched:
+        lines.append(f"\n[기존직원 {len(matched)}명]")
+        for e in matched:
+            lines.append(f"· {e.raw_name} {_fmt_amount(e.total_amount)}")
+
+    # 신규
+    new_hires = [e for e in entries if e.match_status == "NEW_HIRE_SUSPECTED"]
+    if new_hires:
+        lines.append(f"\n[신규 {len(new_hires)}명]")
+        for e in new_hires:
+            lines.append(f"· {e.raw_name} {_fmt_amount(e.total_amount)}")
+
+    # 퇴사
+    resigned = [e for e in entries if e.match_status == "RESIGNATION_SUSPECTED"]
+    if resigned:
+        lines.append(f"\n[퇴사 {len(resigned)}명]")
+        for e in resigned:
+            lines.append(f"· {e.raw_name} (퇴사)")
+
+    # 확인필요 (이상치)
+    flagged = [
+        e for e in entries
+        if e.anomaly_notes and len(e.anomaly_notes) > 0 and not e.approved
+    ]
+    if flagged:
+        lines.append(f"\n⚠️ 확인필요 {len(flagged)}건")
+        for e in flagged:
+            notes = e.anomaly_notes or {}
+            reason = next(iter(notes.values()), "") if notes else ""
+            prev = e.prev_amount
+            if prev:
+                lines.append(f"· {e.raw_name} {_fmt_amount(e.total_amount)} (전월 {_fmt_amount(prev)})")
+            else:
+                lines.append(f"· {e.raw_name} — {reason}")
+
+    if not entries:
+        lines.append("\n파싱된 데이터가 없습니다. 자료를 다시 확인해주세요.")
+
+    return "\n".join(lines)
+
+
+def _fmt_amount(amount: int | None) -> str:
+    """금액을 한국어 형식으로 포맷."""
+    if not amount:
+        return "0원"
+    return f"{amount:,}원"
 
 
 # ---------------------------------------------------------------------------

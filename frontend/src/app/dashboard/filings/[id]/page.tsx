@@ -89,59 +89,42 @@ export default function FilingDetailPage({
 
   return (
     <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Compact header — title + workflow + filters in 2 rows */}
-      <div className="border-b border-gray-200 bg-white shrink-0">
-        {/* Row 1: Title + workflow mini + actions */}
-        <div className="flex items-center justify-between px-5 h-11">
-          <div className="flex items-center gap-4">
-            <h1 className="text-[15px] font-bold tracking-tight">
-              <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
-                {Number(filing.period.split("-")[1])}월 원천세 신고
-              </Link>
-            </h1>
-            <span className={`text-[11px] font-semibold ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
-              마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`} · {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()}
-            </span>
-            <div className="h-4 w-px bg-gray-200" />
-            <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">위하고T 엑셀</Button>
-            <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
-              {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
-            </Button>
-            <Button className="!text-[12px] !px-3 !py-1">신고 완료 처리</Button>
-          </div>
-        </div>
-        {/* Row 2: Filters */}
-        <div className="flex items-center justify-between px-5 h-8 border-t border-gray-100">
-          <div className="flex items-center gap-2.5">
-            <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
-              확인필요만 보기
-              {flaggedEntries.length > 0 && (
-                <span className={`ml-1 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
-                  {flaggedEntries.length}
-                </span>
-              )}
-            </TogglePill>
-            {!reviewOnly && selectedSession && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-gray-400">선택</span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
-                  {selectedSession.client_name}
-                </span>
-                {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length > 0 && (
-                  <span className="text-[11px] text-gray-400">
-                    이상치 {selectedEntries.filter((e) => e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0).length}건
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-          <span className="inline-flex items-center gap-1 text-[10.5px] text-gray-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-            AI 자동검증 ON · ±30%
+      {/* Compact single-row header */}
+      <div className="flex items-center justify-between px-5 h-10 border-b border-gray-200 bg-white shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`text-[11px] font-semibold shrink-0 ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
+            마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`} · {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()}
           </span>
+          <h1 className="text-[13px] font-bold tracking-tight shrink-0">
+            <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
+              {Number(filing.period.split("-")[1])}월 원천세 신고
+            </Link>
+          </h1>
+          <div className="h-3.5 w-px bg-gray-200 shrink-0" />
+          <WorkflowStrip sessions={sessions} entries={allEntries} filingStatus={filing.status} />
+          <div className="h-3.5 w-px bg-gray-200 shrink-0" />
+          <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
+            확인필요만 보기
+            {flaggedEntries.length > 0 && (
+              <span className={`ml-1 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
+                {flaggedEntries.length}
+              </span>
+            )}
+          </TogglePill>
+          {!reviewOnly && selectedSession && (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
+                {selectedSession.client_name}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">위하고T 엑셀</Button>
+          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
+            {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
+          </Button>
+          <Button className="!text-[12px] !px-3 !py-1">신고 완료 처리</Button>
         </div>
       </div>
 
@@ -316,23 +299,23 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
       </div>
 
-      {/* CENTER — Original docs (compact thumbnails) */}
-      <div className="w-[280px] border-r border-gray-200 bg-white flex flex-col shrink-0">
-        {selectedSession ? (
-          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
-            highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">거래처 선택</div>
-        )}
-      </div>
-
-      {/* RIGHT — AI table */}
+      {/* CENTER — AI table */}
       <div className="flex-1 min-w-0 bg-white flex flex-col">
         {selectedSession ? (
           <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
             highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">AI 추출 결과</div>
+        )}
+      </div>
+
+      {/* RIGHT — Original docs */}
+      <div className="w-[280px] border-l border-gray-200 bg-white flex flex-col shrink-0">
+        {selectedSession ? (
+          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
+            highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">원본 자료</div>
         )}
       </div>
     </div>
@@ -375,17 +358,14 @@ function SessionItem({ session, entries, active, onClick }: {
       onClick={onClick}
       className={`w-full text-left px-3 py-2.5 rounded-[12px] transition-all ${
         active
-          ? "bg-white border border-gray-300 shadow-[0_1px_0_rgba(28,25,23,0.04),0_8px_22px_-14px_rgba(28,25,23,0.10)]"
+          ? "bg-blue-50 border border-blue-300 shadow-[0_1px_0_rgba(37,99,235,0.06),0_8px_22px_-14px_rgba(37,99,235,0.15)]"
           : "border border-transparent hover:bg-gray-50"
       }`}
     >
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center gap-1.5 mb-1 min-w-0">
           {review > 0 && <span className="w-[7px] h-[7px] rounded-full bg-red-500 shrink-0 shadow-[0_0_0_3px_rgba(185,28,28,0.10)]" />}
           {isDotted && review === 0 && <span className="w-[7px] h-[7px] rounded-full bg-gray-300 shrink-0" />}
           <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
-        </div>
-        <span className="text-[11px] text-gray-500 shrink-0">{status}</span>
       </div>
       <div className="flex gap-1.5 text-[11.5px] text-gray-500">
         {se.length > 0 && <span className="tabular-nums">{se.length}명</span>}
