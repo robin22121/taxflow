@@ -109,6 +109,22 @@ async def _find_active_session(
 # 카카오 i 오픈빌더 웹훅
 # ---------------------------------------------------------------------------
 
+@router.post("/kakao/welcome")
+async def kakao_welcome(request: Request) -> dict:
+    """카카오 웰컴 블록 스킬 — 현재 월 기반 동적 인사 메시지."""
+    from datetime import datetime, timezone, timedelta
+    kst = timezone(timedelta(hours=9))
+    now = datetime.now(kst)
+    # 원천세는 전월분을 당월에 신고 (예: 5월에 4월분 신고)
+    filing_month = now.month - 1 if now.month > 1 else 12
+    return _kakao_response(
+        f"이지원천입니다.\n"
+        f"{filing_month}월분 원천세 신고 자료를 보내주세요.\n"
+        f"거래처명과 급여자료를 함께 입력해주세요.\n\n"
+        f"예) 하늘식품 김영수 500 박미영 300"
+    )
+
+
 @router.post("/kakao")
 async def kakao_webhook(
     request: Request,
