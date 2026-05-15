@@ -22,7 +22,7 @@ async def test_dashboard_shows_anomalies(http: AsyncClient, auth_headers: dict):
     r = await http.get(f"/api/v1/filings/{apr['id']}/dashboard", headers=auth_headers)
     assert r.status_code == 200
     data = r.json()
-    assert len(data["sessions"]) == 3
+    assert len(data["sessions"]) == 7
     assert any(s["has_anomalies"] for s in data["sessions"])
 
 
@@ -49,7 +49,7 @@ async def test_clients_list(http: AsyncClient, auth_headers: dict):
     r = await http.get("/api/v1/clients", headers=auth_headers)
     assert r.status_code == 200
     names = [c["business_name"] for c in r.json()]
-    assert len(names) == 3
+    assert len(names) == 7
     assert "(주)에이상사" in names
 
 

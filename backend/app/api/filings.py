@@ -34,6 +34,11 @@ from app.services.invite import (
     get_or_create_session as _get_or_create_session,
     send_invite_to_client,
 )
+from app.services.insurance_excel import (
+    generate_acquisition_report,
+    generate_loss_report,
+    generate_remuneration_change_report,
+)
 from app.services.simple_statement_excel import (
     generate_business_statement,
     generate_wage_statement,
@@ -792,6 +797,98 @@ async def download_business_statement(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="statement_business_{filing.period}.xlsx"',
+        },
+    )
+
+
+async def _wage_entries_for_filing(
+    filing_id: str, db: AsyncSession
+) -> list[PayrollEntry]:
+    return list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.income_type == "WAGE",
+                    PayrollEntry.employee_id.isnot(None),
+                )
+                .options(selectinload(PayrollEntry.employee))
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+@router.get("/{filing_id}/insurance-acquisition")
+async def download_insurance_acquisition(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """4대 보험 자격취득 신고서 엑셀 다운로드."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    entries = await _wage_entries_for_filing(filing_id, db)
+    blob = generate_acquisition_report(entries, period=filing.period)
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="insurance_acquisition_{filing.period}.xlsx"'
+            ),
+        },
+    )
+
+
+@router.get("/{filing_id}/insurance-loss")
+async def download_insurance_loss(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """4대 보험 자격상실 신고서 엑셀 다운로드."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    entries = await _wage_entries_for_filing(filing_id, db)
+    blob = generate_loss_report(entries, period=filing.period)
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="insurance_loss_{filing.period}.xlsx"'
+            ),
+        },
+    )
+
+
+@router.get("/{filing_id}/insurance-change")
+async def download_insurance_change(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """4대 보험 보수월액 변경 신고서 엑셀 다운로드."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    entries = await _wage_entries_for_filing(filing_id, db)
+    blob = generate_remuneration_change_report(entries, period=filing.period)
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="insurance_change_{filing.period}.xlsx"'
+            ),
         },
     )
 

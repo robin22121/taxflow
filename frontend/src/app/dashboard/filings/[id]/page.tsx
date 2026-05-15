@@ -109,6 +109,25 @@ export default function FilingDetailPage({
     }
   }
 
+  async function downloadInsurance(
+    kind: "acquisition" | "loss" | "change",
+    label: string,
+  ) {
+    try {
+      const blob = await apiBlob(`/api/v1/filings/${id}/insurance-${kind}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `4대보험_${label}_${filing.period}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
   return (
     <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
       {/* Compact header — aligned with 3-pane columns on desktop, stacks on mobile */}
@@ -165,9 +184,13 @@ export default function FilingDetailPage({
               <Button variant="ghost" onClick={() => setShowExcelPopup((v) => !v)} className="!text-[12px] !px-2.5 !py-1">엑셀다운로드</Button>
               {showExcelPopup && (<>
                 <div className="fixed inset-0 z-40" onClick={() => setShowExcelPopup(false)} />
-                <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
+                <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
                   <button onClick={() => { setShowExcelPopup(false); downloadExcel(); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">전체 다운로드</button>
                   <button onClick={() => { setShowExcelPopup(false); downloadExcelForClient(); }} disabled={!selectedSession} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50 disabled:opacity-40">선택 ({selectedSession?.client_name ?? "업체명"}) 다운로드</button>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("acquisition", "자격취득"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">4대보험 자격취득</button>
+                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("loss", "자격상실"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">4대보험 자격상실</button>
+                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("change", "보수월액변경"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">4대보험 보수월액변경</button>
                 </div>
               </>)}
             </div>
