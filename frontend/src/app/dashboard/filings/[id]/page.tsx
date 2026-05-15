@@ -583,10 +583,27 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
   const { data: clients } = useClients();
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Partial<PayrollEntry>>({});
+  const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
+  const [expandedApproved, setExpandedApproved] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const clientDetail = clients?.find((c) => c.id === session.client_id);
+
+  // Initialize drafts for pending entries
+  const pendingEntries = entries.filter((e) => !e.approved);
+  const approvedEntries = entries.filter((e) => e.approved);
+
+  const getDraft = useCallback((e: PayrollEntry): Partial<PayrollEntry> => {
+    return drafts[e.id] ?? {
+      raw_name: e.raw_name, income_type: e.income_type, total_amount: e.total_amount,
+      bonus_amount: e.bonus_amount ?? 0, meal_amount: e.meal_amount, car_amount: e.car_amount, childcare_amount: e.childcare_amount,
+      national_pension: e.national_pension, health_insurance: e.health_insurance, employment_insurance: e.employment_insurance, longterm_care: e.longterm_care,
+      income_tax: e.income_tax, local_tax: e.local_tax,
+    };
+  }, [drafts]);
+
+  function setDraftFor(id: string, d: Partial<PayrollEntry>) {
+    setDrafts((prev) => ({ ...prev, [id]: d }));
+  }
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -606,31 +623,35 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
     setSelected(new Set());
   }
 
-  function startEdit(e: PayrollEntry) {
-    setEditingId(e.id);
-    setDraft({
-      raw_name: e.raw_name, income_type: e.income_type, total_amount: e.total_amount,
-      bonus_amount: e.bonus_amount ?? 0, meal_amount: e.meal_amount, car_amount: e.car_amount, childcare_amount: e.childcare_amount,
-      national_pension: e.national_pension, health_insurance: e.health_insurance, employment_insurance: e.employment_insurance, longterm_care: e.longterm_care,
-      income_tax: e.income_tax, local_tax: e.local_tax,
+  const DETAIL_FIELDS: (keyof PayrollEntry)[] = [
+    "raw_name", "income_type", "total_amount", "bonus_amount", "meal_amount", "car_amount", "childcare_amount",
+    "national_pension", "health_insurance", "employment_insurance", "longterm_care", "income_tax", "local_tax",
+  ];
+
+  function approveEntry(e: PayrollEntry) {
+    const d = getDraft(e);
+    const patch: Partial<PayrollEntry> = { approved: true };
+    for (const f of DETAIL_FIELDS) {
+      if (d[f] !== undefined && d[f] !== e[f]) (patch as Record<string, unknown>)[f] = d[f];
+    }
+    update.mutate({ id: e.id, patch }, {
+      onSuccess: () => setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }),
+      onError: (err) => alert((err as Error).message),
     });
   }
-  function cancelEdit() { setEditingId(null); setDraft({}); }
-  function save(e: PayrollEntry) {
-    const fields: (keyof PayrollEntry)[] = [
-      "raw_name", "income_type", "total_amount", "bonus_amount", "meal_amount", "car_amount", "childcare_amount",
-      "national_pension", "health_insurance", "employment_insurance", "longterm_care", "income_tax", "local_tax",
-    ];
-    const patch: Partial<PayrollEntry> = {};
-    for (const f of fields) {
-      if (draft[f] !== undefined && draft[f] !== e[f]) (patch as Record<string, unknown>)[f] = draft[f];
-    }
-    if (Object.keys(patch).length === 0) { cancelEdit(); return; }
-    update.mutate({ id: e.id, patch }, { onSuccess: cancelEdit, onError: (err) => alert((err as Error).message) });
-  }
 
-  const pendingEntries = entries.filter((e) => !e.approved);
-  const approvedEntries = entries.filter((e) => e.approved);
+  function saveApprovedEdit(e: PayrollEntry) {
+    const d = getDraft(e);
+    const patch: Partial<PayrollEntry> = {};
+    for (const f of DETAIL_FIELDS) {
+      if (d[f] !== undefined && d[f] !== e[f]) (patch as Record<string, unknown>)[f] = d[f];
+    }
+    if (Object.keys(patch).length === 0) { setExpandedApproved(null); return; }
+    update.mutate({ id: e.id, patch }, {
+      onSuccess: () => { setExpandedApproved(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
+      onError: (err) => alert((err as Error).message),
+    });
+  }
 
   return (
     <>
@@ -702,14 +723,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
                   검토 대상 ({pendingEntries.length}명)
                 </td></tr>
               )}
-              {pendingEntries.map((e) => <EntryRow key={e.id} e={e} editingId={editingId} draft={draft} setDraft={setDraft} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} startEdit={startEdit} cancelEdit={cancelEdit} save={save} update={update} remove={remove} />)}
+              {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => {}} expanded={true} update={update} remove={remove} />)}
               {/* ── 승인 완료 섹션 ── */}
               {approvedEntries.length > 0 && (
                 <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
                   승인 완료 ({approvedEntries.length}명)
                 </td></tr>
               )}
-              {approvedEntries.map((e) => <EntryRow key={e.id} e={e} editingId={editingId} draft={draft} setDraft={setDraft} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} startEdit={startEdit} cancelEdit={cancelEdit} save={save} update={update} remove={remove} />)}
+              {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedApproved(expandedApproved === e.id ? null : e.id)} expanded={expandedApproved === e.id} update={update} remove={remove} />)}
             </tbody>
           </table>
         ) : (
@@ -724,22 +745,23 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
 
 type EntryRowProps = {
   e: PayrollEntry;
-  editingId: string | null;
+  mode: "pending" | "approved";
   draft: Partial<PayrollEntry>;
   setDraft: (d: Partial<PayrollEntry>) => void;
   selected: Set<string>;
   toggleSelect: (id: string) => void;
   highlightEventId: string | null;
   onHighlight: (id: string | null) => void;
-  startEdit: (e: PayrollEntry) => void;
-  cancelEdit: () => void;
-  save: (e: PayrollEntry) => void;
+  onApprove: () => void;
+  onDelete: () => void;
+  onSave: () => void;
+  onToggleExpand: () => void;
+  expanded: boolean;
   update: ReturnType<typeof useUpdateEntry>;
   remove: ReturnType<typeof useDeleteEntry>;
 };
 
-function EntryRow({ e, editingId, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, startEdit, cancelEdit, save, update, remove }: EntryRowProps) {
-  const isEditing = editingId === e.id;
+function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onToggleExpand, expanded, update, remove }: EntryRowProps) {
   const hasFlag = !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved);
   const fieldChanges = (e.anomaly_notes?.field_changes ?? null) as Record<string, { prev: number; curr: number }> | null;
   const diff = computeDiff(e);
@@ -762,36 +784,32 @@ function EntryRow({ e, editingId, draft, setDraft, selected, toggleSelect, highl
         className={`border-b border-gray-50 transition-colors cursor-pointer ${
           highlightEventId && e.collection_event_id === highlightEventId
             ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
-            : hasFlag ? "bg-red-50/60" : isEditing ? "bg-blue-50/60" : e.approved ? "hover:bg-green-50/40" : "hover:bg-gray-50"
+            : hasFlag ? "bg-red-50/60" : mode === "approved" ? "hover:bg-green-50/40" : "hover:bg-gray-50"
         }`}>
-        <td className="py-3 pl-4">
+        <td className="py-2.5 pl-4">
           <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} onClick={(ev) => ev.stopPropagation()} className="h-3.5 w-3.5 accent-blue-600" />
         </td>
-        <td className="py-3 pl-2">
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</span>
-              {e.approved && <span className="text-[10px] text-green-600">✓</span>}
+        <td className="py-2.5 pl-2">
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</span>
+            {e.approved && <span className="text-[10px] text-green-600">✓</span>}
+          </div>
+          <div className="text-[11px] text-gray-500 mt-0.5">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
+        </td>
+        <td className="py-2.5 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
+        <td className="py-2.5 pr-3.5 text-right tabular-nums font-semibold">
+          <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
+          {fieldChanges && !expanded && (
+            <div className="flex flex-wrap gap-0.5 mt-0.5 justify-end">
+              {Object.keys(fieldChanges).map((k) => (
+                <span key={k} className="text-[9px] px-1 py-px rounded bg-red-100 text-red-600 font-medium" title={`전월 ${formatKrw(fieldChanges[k].prev)} → ${formatKrw(fieldChanges[k].curr)}`}>
+                  {FIELD_LABELS[k] ?? k}
+                </span>
+              ))}
             </div>
-            <div className="text-[11px] text-gray-500 mt-0.5">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
-          </div>
+          )}
         </td>
-        <td className="py-3 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
-        <td className="py-3 pr-3.5 text-right tabular-nums font-semibold">
-          <div>
-            <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
-            {fieldChanges && (
-              <div className="flex flex-wrap gap-0.5 mt-0.5 justify-end">
-                {Object.keys(fieldChanges).map((k) => (
-                  <span key={k} className="text-[9px] px-1 py-px rounded bg-red-100 text-red-600 font-medium" title={`전월 ${formatKrw(fieldChanges[k].prev)} → ${formatKrw(fieldChanges[k].curr)}`}>
-                    {FIELD_LABELS[k] ?? k}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </td>
-        <td className="py-3 pr-3.5 text-right">
+        <td className="py-2.5 pr-3.5 text-right">
           {diff ? (
             <DiffPill diff={diff} hasFlag={hasFlag} />
           ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
@@ -804,38 +822,43 @@ function EntryRow({ e, editingId, draft, setDraft, selected, toggleSelect, highl
             <span className="text-[11px] text-gray-400">—</span>
           )}
         </td>
-        <td className="py-3 pr-3 text-right" onClick={(ev) => ev.stopPropagation()}>
+        <td className="py-2.5 pr-3 text-right" onClick={(ev) => ev.stopPropagation()}>
           <div className="flex gap-1 justify-end">
-            <button onClick={() => isEditing ? cancelEdit() : startEdit(e)} className={`px-2 py-1 text-[11px] rounded-full ${isEditing ? "border border-gray-300 hover:bg-gray-50" : "text-blue-600 border border-blue-200 hover:bg-blue-50"}`}>
-              {isEditing ? "접기" : "수정"}
-            </button>
-            {e.approved ? (
+            {mode === "pending" ? (<>
+              <button onClick={onApprove} className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700" disabled={update.isPending}>승인</button>
+              <button onClick={onDelete} className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
+            </>) : (<>
+              <button onClick={onToggleExpand} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{expanded ? "접기" : "수정"}</button>
               <button onClick={() => update.mutate({ id: e.id, patch: { approved: false } })} className="px-2 py-1 text-[11px] text-amber-600 border border-amber-200 rounded-full hover:bg-amber-50">승인취소</button>
-            ) : (
-              <button onClick={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }}
-                className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
-            )}
+            </>)}
           </div>
         </td>
       </tr>
-      {/* ── 상세 편집 패널 ── */}
-      {isEditing && (
-        <tr className="bg-blue-50/40">
-          <td colSpan={6} className="px-4 py-3" onClick={(ev) => ev.stopPropagation()}>
-            <div className="space-y-2.5">
-              <div className="flex gap-2 items-end">
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">이름</label>
-                  <input className="w-24 px-1.5 py-1 border border-gray-300 rounded text-[12px]" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
+      {/* ── 상세 필드 (pending=항상, approved=수정시) ── */}
+      {expanded && (
+        <tr className={mode === "pending" ? "bg-gray-50/50" : "bg-blue-50/40"}>
+          <td colSpan={6} className="px-4 py-2.5" onClick={(ev) => ev.stopPropagation()}>
+            <div className="space-y-2">
+              {mode === "pending" && (
+                <div className="flex gap-2 items-end">
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">이름</label>
+                    <input className="w-24 px-1.5 py-1 border border-gray-300 rounded text-[12px]" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">소득구분</label>
+                    <select className="px-1.5 py-1 border border-gray-300 rounded text-[12px]" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
+                      <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
+                    </select>
+                  </div>
+                  {numInput("total_amount", "총지급액")}
                 </div>
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">소득구분</label>
-                  <select className="px-1.5 py-1 border border-gray-300 rounded text-[12px]" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
-                    <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
-                  </select>
+              )}
+              {mode === "approved" && (
+                <div className="flex gap-2 items-end">
+                  {numInput("total_amount", "총지급액")}
                 </div>
-                {numInput("total_amount", "총지급액")}
-              </div>
+              )}
               <div className="grid grid-cols-4 gap-2">
                 {numInput("bonus_amount", "상여")}
                 {numInput("meal_amount", "식대", !!fieldChanges?.meal_amount)}
@@ -852,10 +875,12 @@ function EntryRow({ e, editingId, draft, setDraft, selected, toggleSelect, highl
                 {numInput("income_tax", "소득세", !!fieldChanges?.income_tax)}
                 {numInput("local_tax", "지방소득세", !!fieldChanges?.local_tax)}
               </div>
-              <div className="flex gap-1.5 pt-1">
-                <button onClick={() => save(e)} className="px-3 py-1.5 text-[11px] bg-blue-600 text-white rounded-full font-medium" disabled={update.isPending}>{update.isPending ? "저장중..." : "저장"}</button>
-                <button onClick={cancelEdit} className="px-3 py-1.5 text-[11px] border border-gray-300 rounded-full hover:bg-gray-50">취소</button>
-              </div>
+              {mode === "approved" && (
+                <div className="flex gap-1.5 pt-1">
+                  <button onClick={onSave} className="px-3 py-1.5 text-[11px] bg-blue-600 text-white rounded-full font-medium" disabled={update.isPending}>{update.isPending ? "저장중..." : "저장"}</button>
+                  <button onClick={onToggleExpand} className="px-3 py-1.5 text-[11px] border border-gray-300 rounded-full hover:bg-gray-50">취소</button>
+                </div>
+              )}
             </div>
           </td>
         </tr>
