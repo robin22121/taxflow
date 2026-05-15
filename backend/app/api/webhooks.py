@@ -40,6 +40,9 @@ from app.api.collect import _ingest_message
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# asyncio.create_task의 약한 참조 문제 방지 — 태스크 참조를 보관
+_running_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+
 
 # ---------------------------------------------------------------------------
 # Webhook authentication helpers
@@ -325,7 +328,7 @@ async def _process_and_respond(
     client_name = client.business_name
     filing_period = session.monthly_filing.period
 
-    asyncio.create_task(
+    task = asyncio.create_task(
         _background_ingest_kakao(
             session_id=session_id,
             filing_id=filing_id,
@@ -337,6 +340,8 @@ async def _process_and_respond(
             attachments_meta=attachments_meta,
         )
     )
+    _running_tasks.add(task)
+    task.add_done_callback(_running_tasks.discard)
 
     return _kakao_response(
         f"✅ {client_name} 자료 접수 완료\n\n"
