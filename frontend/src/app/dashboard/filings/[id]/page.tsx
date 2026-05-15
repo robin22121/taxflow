@@ -294,12 +294,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
           <div className="flex items-center justify-between">
             <span className="text-[14px] font-semibold">거래처 {sessions.length}</span>
             <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v: boolean) => !v)}>
-              확인필요
-              {flaggedCount > 0 && (
-                <span className={`ml-0.5 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
-                  {flaggedCount}
-                </span>
-              )}
+              확인필요만 보기
             </TogglePill>
           </div>
           <div className="inline-flex items-center p-0.5 rounded-full bg-gray-50 border border-gray-200 text-[11px]">
