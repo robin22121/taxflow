@@ -771,6 +771,20 @@ SmartA에서 `[급여] → [급여대장] → 엑셀 저장`으로 내보낸 파
 
 ---
 
+## 5.5 백로그 (추후 진행)
+
+### 개별 세무사사무소 발신번호로 SMS 발송
+- **현재**: `ALIGO_SMS_SENDER` 환경변수 하나로 고정 (프로덕트 번호)
+- **목표**: 거래처에 문자 발송 시, 해당 거래처를 수임한 세무사사무소 번호로 발송
+- **구현 방향**:
+  1. `TaxOffice.phone` 필드 활용 (이미 존재)
+  2. SMS 발송 시 `sender` 파라미터를 `TaxOffice.phone`으로 동적 전달
+  3. `TaxOffice.phone`이 없으면 기존 `ALIGO_SMS_SENDER`로 fallback
+- **전제조건**: Aligo에 각 세무사사무소 번호를 발신번호로 사전 등록 (수동, 개수 제한 없음)
+- **영향 범위**: `invite.py`, `confirmation.py`의 `get_sms_channel()` 호출부에 sender 오버라이드 추가
+
+---
+
 ## 6. 추후 결정·심화 검토 영역
 
 기획서 이후 더 깊이 파볼 후보:

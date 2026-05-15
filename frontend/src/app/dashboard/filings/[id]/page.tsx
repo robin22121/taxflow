@@ -6,7 +6,6 @@ import Link from "next/link";
 
 import {
   useClients,
-  useConfirmWithClient,
   useDeleteEntry,
   useFilingDashboard,
   useFilingEntries,
@@ -144,17 +143,14 @@ export default function FilingDetailPage({
         {/* Center col — matches AI table */}
         <div className="flex-1 min-w-0 flex items-center justify-between px-3 md:px-4 py-1.5 md:py-0">
           <div className="flex items-center gap-2 md:gap-3 min-w-0">
-            <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
-              확인필요만 보기
-              {flaggedEntries.length > 0 && (
-                <span className={`ml-1 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
-                  {flaggedEntries.length}
-                </span>
-              )}
-            </TogglePill>
             {!reviewOnly && selectedSession && (
-              <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
                 {selectedSession.client_name}
+              </span>
+            )}
+            {reviewOnly && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100">
+                확인필요만 보기
               </span>
             )}
           </div>
@@ -193,6 +189,9 @@ export default function FilingDetailPage({
           setActiveSession={setActiveSession}
           selectedSession={selectedSession}
           selectedEntries={selectedEntries}
+          reviewOnly={reviewOnly}
+          setReviewOnly={setReviewOnly}
+          flaggedCount={flaggedEntries.length}
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}
         />
@@ -244,7 +243,7 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
 
 /* ═══ Default 3-Pane Mode ═══ */
 
-function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, showSidebar, setShowSidebar }: {
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar }: {
   filingId: string;
   sessions: CollectionSession[];
   entries: PayrollEntry[];
@@ -252,6 +251,9 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   setActiveSession: (id: string | null) => void;
   selectedSession: CollectionSession | null;
   selectedEntries: PayrollEntry[];
+  reviewOnly: boolean;
+  setReviewOnly: (v: boolean | ((prev: boolean) => boolean)) => void;
+  flaggedCount: number;
   showSidebar: boolean;
   setShowSidebar: (v: boolean) => void;
 }) {
@@ -291,6 +293,14 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         <div className="px-3 pt-3 pb-2 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[14px] font-semibold">거래처 {sessions.length}</span>
+            <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v: boolean) => !v)}>
+              확인필요
+              {flaggedCount > 0 && (
+                <span className={`ml-0.5 px-1.5 py-px rounded-full text-[10px] font-bold tabular-nums ${reviewOnly ? "bg-white/20 text-white" : "bg-red-50 text-red-600"}`}>
+                  {flaggedCount}
+                </span>
+              )}
+            </TogglePill>
           </div>
           <div className="inline-flex items-center p-0.5 rounded-full bg-gray-50 border border-gray-200 text-[11px]">
             {([["all", `전체`], ["review", `확인 ${reviewCount}`], ["waiting", `대기 ${waitingCount}`]] as const).map(([key, label]) => (
@@ -577,13 +587,10 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
-  const confirmWithClient = useConfirmWithClient(filingId);
   const { data: clients } = useClients();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<PayrollEntry>>({});
-  const [confirmResult, setConfirmResult] = useState<{ sent: boolean; channel: string; error: string | null } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showClientInfo, setShowClientInfo] = useState(false);
   const clientDetail = clients?.find((c) => c.id === session.client_id);
 
   function toggleSelect(id: string) {
@@ -622,79 +629,50 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
 
   return (
     <>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
-        <div>
-          <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 결과</span>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[15px] font-semibold">{session.client_name} · {entries.length}명</span>
-            {entries.length > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
-                {entries.filter((e) => e.approved).length}/{entries.length} 승인
-              </span>
+      <div className="px-4 py-3 border-b border-gray-100 shrink-0">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 결과</span>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[15px] font-semibold">{session.client_name} · {entries.length}명</span>
+              {entries.length > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
+                  {entries.filter((e) => e.approved).length}/{entries.length} 승인
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-1.5">
+            {selected.size > 0 && (
+              <>
+                <Button variant="primary" className="text-xs px-3 py-1.5"
+                  onClick={() => {
+                    selected.forEach((id) => {
+                      const entry = entries.find((e) => e.id === id);
+                      if (entry && !entry.approved) update.mutate({ id, patch: { approved: true } });
+                    });
+                    setSelected(new Set());
+                  }}
+                  disabled={update.isPending}>
+                  {update.isPending ? "승인중..." : `일괄 승인 (${selected.size})`}
+                </Button>
+                <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
+                  {remove.isPending ? "삭제중..." : `일괄 삭제 (${selected.size})`}
+                </Button>
+              </>
             )}
-            <button onClick={() => setShowClientInfo((v) => !v)} className="text-[11px] text-blue-600 hover:underline ml-1">
-              거래처 정보 {showClientInfo ? "▲" : "▼"}
-            </button>
           </div>
         </div>
-        <div className="flex gap-1.5">
-          {selected.size > 0 && (
-            <>
-              <Button variant="primary" className="text-xs px-3 py-1.5"
-                onClick={() => {
-                  selected.forEach((id) => {
-                    const entry = entries.find((e) => e.id === id);
-                    if (entry && !entry.approved) update.mutate({ id, patch: { approved: true } });
-                  });
-                  setSelected(new Set());
-                }}
-                disabled={update.isPending}>
-                {update.isPending ? "승인중..." : `일괄 승인 (${selected.size})`}
-              </Button>
-              <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
-                {remove.isPending ? "삭제중..." : `일괄 삭제 (${selected.size})`}
-              </Button>
-            </>
-          )}
-          <Button variant="ghost" className="text-xs px-3 py-1.5"
-            disabled={confirmWithClient.isPending || entries.length === 0}
-            onClick={() => {
-              setConfirmResult(null);
-              confirmWithClient.mutate(
-                { sessionId: session.id, channel: "auto" },
-                { onSuccess: (res) => setConfirmResult(res), onError: (e) => setConfirmResult({ sent: false, channel: "error", error: (e as Error).message }) },
-              );
-            }}>
-            {confirmWithClient.isPending ? "발송중..." : "확인요청"}
-          </Button>
-        </div>
+        {clientDetail && (
+          <div className="flex items-center gap-3 mt-2 text-[11px] text-gray-500 overflow-x-auto">
+            {clientDetail.business_number && <span>사업자 <strong className="text-gray-700">{clientDetail.business_number}</strong></span>}
+            {clientDetail.representative && <><span className="text-gray-300">|</span><span>대표 <strong className="text-gray-700">{clientDetail.representative}</strong></span></>}
+            {clientDetail.contact_phone && <><span className="text-gray-300">|</span><span><strong className="text-gray-700">{clientDetail.contact_phone}</strong></span></>}
+            {clientDetail.contact_email && <><span className="text-gray-300">|</span><span><strong className="text-gray-700">{clientDetail.contact_email}</strong></span></>}
+            {clientDetail.is_corporation !== undefined && <><span className="text-gray-300">|</span><span>{clientDetail.is_corporation ? "법인" : "개인"}</span></>}
+          </div>
+        )}
       </div>
-
-      {showClientInfo && clientDetail && (
-        <div className="border-b border-gray-100 shrink-0">
-          <div className="flex overflow-x-auto gap-3 px-4 py-3 snap-x snap-mandatory">
-            {[
-              { label: "사업자번호", value: clientDetail.business_number },
-              { label: "대표자", value: clientDetail.representative },
-              { label: "연락처", value: clientDetail.contact_phone },
-              { label: "이메일", value: clientDetail.contact_email },
-              { label: "법인여부", value: clientDetail.is_corporation ? "법인" : "개인" },
-              { label: "수집 이메일", value: clientDetail.collect_email },
-            ].filter((item) => item.value).map((item) => (
-              <div key={item.label} className="snap-start shrink-0 w-36 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
-                <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{item.label}</div>
-                <div className="text-[12px] font-semibold text-gray-800 mt-0.5 truncate">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {confirmResult && (
-        <div className={`px-4 py-1.5 text-xs border-b border-gray-100 ${confirmResult.sent ? "text-blue-600" : "text-red-600"}`}>
-          {confirmResult.sent ? `${confirmResult.channel}로 발송 완료` : `발송 실패 — ${confirmResult.error ?? "알 수 없는 오류"}`}
-        </div>
-      )}
 
       <div className="flex-1 overflow-auto">
         {entries.length > 0 ? (
