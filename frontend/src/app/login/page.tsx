@@ -9,8 +9,8 @@ import type { TokenPair } from "@/lib/types";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@example.com");
-  const [password, setPassword] = useState("admin1234!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -50,12 +50,13 @@ export default function LoginPage() {
           <form className="space-y-4" onSubmit={onSubmit}>
             <div>
               <label className="block text-[12px] font-medium text-gray-700 mb-1.5">
-                이메일
+                아이디 (사업자번호)
               </label>
               <Input
-                type="email"
+                type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="0000000000"
                 required
               />
             </div>
@@ -96,8 +97,11 @@ export default function LoginPage() {
             카카오로 시작
           </button>
 
-          <p className="text-center text-[11px] text-gray-500 mt-4">
-            비밀번호를 잊으셨나요?
+          <p className="text-center text-[12px] text-gray-500 mt-4">
+            계정이 없으신가요?{" "}
+            <a href="/register" className="text-blue-600 hover:underline font-medium">
+              회원가입
+            </a>
           </p>
         </Card>
       </div>

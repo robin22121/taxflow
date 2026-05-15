@@ -4,6 +4,15 @@ export type CurrentUser = {
   name: string;
   tax_office_id: string;
   is_admin: boolean;
+  short_code: string | null;
+};
+
+export type RegisterResponse = {
+  office_id: string;
+  short_code: string;
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
 };
 
 export type TokenPair = {

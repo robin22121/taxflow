@@ -23,6 +23,10 @@ def upgrade() -> None:
         "tax_offices",
         sa.Column("short_code", sa.String(20), nullable=True),
     )
+    op.add_column(
+        "tax_offices",
+        sa.Column("address", sa.String(500), nullable=True),
+    )
     op.create_index("ix_tax_offices_short_code", "tax_offices", ["short_code"], unique=True)
 
     op.create_table(
@@ -56,4 +60,5 @@ def downgrade() -> None:
     op.drop_index("ix_kakao_binding_key", table_name="kakao_user_bindings")
     op.drop_table("kakao_user_bindings")
     op.drop_index("ix_tax_offices_short_code", table_name="tax_offices")
+    op.drop_column("tax_offices", "address")
     op.drop_column("tax_offices", "short_code")
