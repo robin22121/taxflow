@@ -67,6 +67,7 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
         business_number=payload.business_number,
         representative=payload.representative,
         phone=payload.phone,
+        email=str(payload.email),
         address=payload.address,
     )
     db.add(office)

@@ -8,14 +8,12 @@ import {
   useClientEmployees,
   useImportEmployees,
   useImportPayroll,
-  useSendClientInvite,
   useUpdateClient,
 } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
 import type {
   Client,
-  ClientInviteResult,
   ImportEmployeeResult,
   ImportPayrollResult,
 } from "@/lib/types";
@@ -31,7 +29,6 @@ export default function ClientDetailPage({
   const importEmp = useImportEmployees(id);
   const importPay = useImportPayroll(id);
   const updateClient = useUpdateClient(id);
-  const sendInvite = useSendClientInvite(id);
 
   const empFileRef = useRef<HTMLInputElement>(null);
   const payFileRef = useRef<HTMLInputElement>(null);
@@ -40,8 +37,6 @@ export default function ClientDetailPage({
   const [payResult, setPayResult] = useState<ImportPayrollResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [inviteResult, setInviteResult] = useState<ClientInviteResult | null>(null);
-  const [inviteError, setInviteError] = useState<string | null>(null);
 
   if (isLoading || !client) return <p className="p-6 text-gray-900">로딩 중...</p>;
 
@@ -60,25 +55,7 @@ export default function ClientDetailPage({
           <h1 className="text-2xl font-semibold text-gray-900">{client.business_name}</h1>
           <div className="flex gap-2 shrink-0">
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
-              연락처 편집
-            </Button>
-            <Button
-              onClick={async () => {
-                setInviteError(null);
-                setInviteResult(null);
-                try {
-                  const res = await sendInvite.mutateAsync();
-                  setInviteResult(res);
-                } catch (err) {
-                  setInviteError((err as Error).message);
-                }
-              }}
-              disabled={
-                sendInvite.isPending ||
-                (!client.contact_phone && !client.contact_email)
-              }
-            >
-              {sendInvite.isPending ? "발송 중..." : "초대장 발송"}
+              편집
             </Button>
           </div>
         </div>
@@ -110,10 +87,6 @@ export default function ClientDetailPage({
               {client.invite_sent ? "✅ 초대장 발송 완료" : "⏳ 초대장 미발송"}
             </p>
           </div>
-        )}
-        {inviteResult && <InviteResultBanner result={inviteResult} />}
-        {inviteError && (
-          <p className="mt-3 text-sm text-red-600">{inviteError}</p>
         )}
       </Card>
 
@@ -316,57 +289,6 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge tone="warning">대기</Badge>;
 }
 
-function InviteResultBanner({ result }: { result: ClientInviteResult }) {
-  const stubChannels = result.channels.filter((c) => c.endsWith("_stub"));
-  const realChannels = result.channels.filter((c) => !c.endsWith("_stub"));
-  const allStub = stubChannels.length > 0 && realChannels.length === 0;
-  const failedAttempts = (result.attempts ?? []).filter(
-    (a) => !a.accepted && a.channel !== "alimtalk_skipped",
-  );
-
-  return (
-    <div className="mt-3 space-y-2">
-      {result.sent && realChannels.length > 0 && (
-        <div className="text-sm text-green-700">
-          ✅ {result.filing_period} 초대장 발송 완료 ({realChannels.join(", ")})
-        </div>
-      )}
-
-      {result.sent && allStub && (
-        <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-sm">
-          <p className="font-medium text-amber-800">
-            ⚠️ 테스트 모드 — 실제로 발송되지 않았습니다
-          </p>
-          <p className="text-xs text-amber-700 mt-1">
-            성공한 채널: {stubChannels.join(", ")}
-          </p>
-        </div>
-      )}
-
-      {!result.sent && (
-        <div className="text-sm text-amber-700">
-          ⚠️ 발송 실패 — {result.detail ?? "알 수 없는 오류"}
-        </div>
-      )}
-
-      {failedAttempts.length > 0 && (
-        <div className="p-3 rounded-md bg-red-50 border border-red-200 text-sm">
-          <p className="font-medium text-red-800 mb-1">
-            실패/스킵된 채널 ({failedAttempts.length}건):
-          </p>
-          <ul className="text-xs text-red-700 space-y-0.5">
-            {failedAttempts.map((a, i) => (
-              <li key={i}>
-                <code className="font-mono">{a.channel}</code>
-                {a.error ? ` — ${a.error}` : ""}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function ClientEditModal({
   client,
@@ -379,15 +301,19 @@ function ClientEditModal({
   onSubmit: (patch: Partial<Client>) => Promise<void>;
   pending: boolean;
 }) {
+  const [businessName, setBusinessName] = useState(client.business_name);
+  const [businessNumber, setBusinessNumber] = useState(client.business_number ?? "");
+  const [representative, setRepresentative] = useState(client.representative ?? "");
   const [phone, setPhone] = useState(digitsOnly(client.contact_phone ?? ""));
   const [email, setEmail] = useState(client.contact_email ?? "");
+  const [isCorporation, setIsCorporation] = useState(client.is_corporation);
   const [err, setErr] = useState<string | null>(null);
 
   return (
     <Modal
       open={true}
       onClose={onClose}
-      title="거래처 연락처 편집"
+      title="거래처 편집"
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={pending}>
@@ -395,11 +321,19 @@ function ClientEditModal({
           </Button>
           <Button
             onClick={async () => {
+              if (!businessName.trim()) {
+                setErr("상호를 입력해주세요");
+                return;
+              }
               setErr(null);
               try {
                 await onSubmit({
+                  business_name: businessName.trim(),
+                  business_number: digitsOnly(businessNumber) || null,
+                  representative: representative.trim() || null,
                   contact_phone: digitsOnly(phone) || null,
                   contact_email: email.trim() || null,
+                  is_corporation: isCorporation,
                 });
               } catch (e) {
                 setErr((e as Error).message);
@@ -415,6 +349,32 @@ function ClientEditModal({
       <div className="space-y-3 text-sm">
         <div>
           <label className="block text-xs text-gray-500 mb-1">
+            상호 <span className="text-red-600">*</span>
+          </label>
+          <Input
+            placeholder="(주)에이상사"
+            value={businessName}
+            onChange={(e) => setBusinessName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">사업자번호</label>
+          <Input
+            placeholder="123-45-67890"
+            value={formatBizNumber(businessNumber)}
+            onChange={(e) => setBusinessNumber(digitsOnly(e.target.value))}
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">대표자</label>
+          <Input
+            placeholder="홍길동"
+            value={representative}
+            onChange={(e) => setRepresentative(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">
             전화번호 (휴대폰)
           </label>
           <Input
@@ -423,9 +383,6 @@ function ClientEditModal({
             value={formatPhone(phone)}
             onChange={(e) => setPhone(digitsOnly(e.target.value))}
           />
-          <p className="text-xs text-gray-400 mt-1">
-            알림톡·SMS 발송에 사용됩니다.
-          </p>
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">이메일</label>
@@ -435,9 +392,18 @@ function ClientEditModal({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          <p className="text-xs text-gray-400 mt-1">
-            초대장 이메일이 이 주소로 발송됩니다.
-          </p>
+        </div>
+        <div className="flex items-center gap-2 pt-1">
+          <input
+            id="edit_is_corporation"
+            type="checkbox"
+            checked={isCorporation}
+            onChange={(e) => setIsCorporation(e.target.checked)}
+            className="h-4 w-4 accent-blue-600"
+          />
+          <label htmlFor="edit_is_corporation" className="text-[13px] text-gray-900">
+            법인 거래처
+          </label>
         </div>
         {err && <p className="text-red-600">{err}</p>}
       </div>

@@ -18,6 +18,7 @@ export default function RegisterPage() {
     address: "",
     representative: "",
     phone: "",
+    email: "",
   });
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,6 +39,8 @@ export default function RegisterPage() {
     if (!form.office_name.trim()) return "상호를 입력해주세요";
     if (!form.representative.trim()) return "담당자명을 입력해주세요";
     if (!form.phone.trim()) return "연락처를 입력해주세요";
+    if (!form.email.trim()) return "이메일을 입력해주세요";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "올바른 이메일 형식이 아닙니다";
     return null;
   }
 
@@ -60,6 +63,7 @@ export default function RegisterPage() {
           address: form.address,
           representative: form.representative,
           phone: form.phone,
+          email: form.email,
         },
       });
       setResult(res);
@@ -178,6 +182,15 @@ export default function RegisterPage() {
                 value={form.phone}
                 onChange={set("phone")}
                 placeholder="010-0000-0000"
+                required
+              />
+            </Field>
+            <Field label="이메일" required hint="거래처 회신 시 참조로 발송됩니다">
+              <Input
+                type="email"
+                value={form.email}
+                onChange={set("email")}
+                placeholder="example@office.com"
                 required
               />
             </Field>

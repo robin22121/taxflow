@@ -13,6 +13,7 @@ class RegisterRequest(BaseModel):
     address: str
     representative: str
     phone: str
+    email: EmailStr
 
     @field_validator("password")
     @classmethod

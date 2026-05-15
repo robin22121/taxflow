@@ -45,6 +45,12 @@ def upgrade() -> None:
             sa.Column("address", sa.String(500), nullable=True),
         )
 
+    if not _has_column("tax_offices", "email"):
+        op.add_column(
+            "tax_offices",
+            sa.Column("email", sa.String(200), nullable=True),
+        )
+
     if not _has_table("kakao_user_bindings"):
         op.create_table(
             "kakao_user_bindings",
