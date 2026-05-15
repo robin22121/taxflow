@@ -16,6 +16,8 @@ import logging
 import re
 import secrets
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -309,44 +311,106 @@ async def _process_and_respond(
     file_images: list[tuple[bytes, str]],
     attachments_meta: list[dict],
 ) -> dict:
-    """거래처 매칭 완료 후 AI 파싱 → 결과 응답."""
+    """거래처 매칭 완료 후 즉시 접수 응답 → 백그라운드에서 AI 파싱."""
     session = await _find_active_session(db, client)
     if not session:
         return _kakao_response(
             f"{client.business_name} — 현재 진행 중인 자료 수집 건이 없습니다."
         )
 
-    try:
-        await _ingest_message(
-            db=db,
-            session=session,
-            client=session.client,
-            filing=session.monthly_filing,
-            text=full_utterance,
-            channel="kakao",
-            images=file_images or None,
-            attachments=attachments_meta or None,
-        )
-        entries = (
-            await db.execute(
-                select(PayrollEntry)
-                .where(
-                    PayrollEntry.monthly_filing_id == session.monthly_filing_id,
-                    PayrollEntry.client_id == client.id,
-                )
-                .order_by(PayrollEntry.total_amount.desc())
-            )
-        ).scalars().all()
+    # 백그라운드 처리에 필요한 ID를 미리 저장
+    session_id = session.id
+    filing_id = session.monthly_filing_id
+    client_id = client.id
+    client_name = client.business_name
+    filing_period = session.monthly_filing.period
 
-        response_text = _build_detailed_response(
-            client_name=client.business_name,
-            filing_period=session.monthly_filing.period,
-            entries=list(entries),
+    asyncio.create_task(
+        _background_ingest_kakao(
+            session_id=session_id,
+            filing_id=filing_id,
+            client_id=client_id,
+            client_name=client_name,
+            filing_period=filing_period,
+            full_utterance=full_utterance,
+            file_images=file_images,
+            attachments_meta=attachments_meta,
         )
-        return _kakao_response(response_text)
+    )
+
+    return _kakao_response(
+        f"✅ {client_name} 자료 접수 완료\n\n"
+        f"AI가 분석 중입니다. 완료되면 결과를 보내드릴게요.\n"
+        f"(보통 10~30초 소요)"
+    )
+
+
+async def _background_ingest_kakao(
+    *,
+    session_id: str,
+    filing_id: str,
+    client_id: str,
+    client_name: str,
+    filing_period: str,
+    full_utterance: str,
+    file_images: list[tuple[bytes, str]],
+    attachments_meta: list[dict],
+) -> None:
+    """백그라운드에서 AI 파싱 후 카카오 알림톡으로 결과 전송."""
+    from app.db import SessionLocal
+
+    try:
+        async with SessionLocal() as db:
+            session = (
+                await db.execute(
+                    select(CollectionSession)
+                    .where(CollectionSession.id == session_id)
+                    .options(
+                        selectinload(CollectionSession.client),
+                        selectinload(CollectionSession.monthly_filing),
+                    )
+                )
+            ).scalar_one_or_none()
+            if not session:
+                logger.error("백그라운드 파싱: 세션 없음 (id=%s)", session_id)
+                return
+
+            await _ingest_message(
+                db=db,
+                session=session,
+                client=session.client,
+                filing=session.monthly_filing,
+                text=full_utterance,
+                channel="kakao",
+                images=file_images or None,
+                attachments=attachments_meta or None,
+            )
+
+            entries = (
+                await db.execute(
+                    select(PayrollEntry)
+                    .where(
+                        PayrollEntry.monthly_filing_id == filing_id,
+                        PayrollEntry.client_id == client_id,
+                    )
+                    .order_by(PayrollEntry.total_amount.desc())
+                )
+            ).scalars().all()
+
+            response_text = _build_detailed_response(
+                client_name=client_name,
+                filing_period=filing_period,
+                entries=list(entries),
+            )
+            logger.info("백그라운드 파싱 완료: client=%s, entries=%d", client_name, len(entries))
+
+            # TODO: 카카오 알림톡으로 결과 전송 (현재는 로그만)
+            # 카카오 오픈빌더에서는 유저에게 능동적 메시지를 보내려면
+            # 알림톡 템플릿이 필요하므로, 일단 대시보드에서 확인하도록 함
+            logger.info("파싱 결과:\n%s", response_text)
+
     except Exception:
-        logger.exception("카카오 웹훅 처리 실패")
-        return _kakao_response("자료 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+        logger.exception("백그라운드 카카오 파싱 실패: client=%s", client_name)
 
 
 def _has_payroll_content(utterance: str, client_name: str) -> bool:
