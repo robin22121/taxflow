@@ -341,7 +341,8 @@ async def _process_and_respond(
     return _kakao_response(
         f"✅ {client_name} 자료 접수 완료\n\n"
         f"AI가 분석 중입니다. 완료되면 결과를 보내드릴게요.\n"
-        f"(보통 10~30초 소요)"
+        f"(보통 10~30초 소요)\n\n"
+        f"※ 반드시 이 채팅방에서 직접 입력해야 자료가 전송됩니다"
     )
 
 
