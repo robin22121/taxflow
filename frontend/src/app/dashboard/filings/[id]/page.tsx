@@ -608,19 +608,29 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
 
   function startEdit(e: PayrollEntry) {
     setEditingId(e.id);
-    setDraft({ raw_name: e.raw_name, income_type: e.income_type, total_amount: e.total_amount, income_tax: e.income_tax, local_tax: e.local_tax });
+    setDraft({
+      raw_name: e.raw_name, income_type: e.income_type, total_amount: e.total_amount,
+      bonus_amount: e.bonus_amount ?? 0, meal_amount: e.meal_amount, car_amount: e.car_amount, childcare_amount: e.childcare_amount,
+      national_pension: e.national_pension, health_insurance: e.health_insurance, employment_insurance: e.employment_insurance, longterm_care: e.longterm_care,
+      income_tax: e.income_tax, local_tax: e.local_tax,
+    });
   }
   function cancelEdit() { setEditingId(null); setDraft({}); }
   function save(e: PayrollEntry) {
+    const fields: (keyof PayrollEntry)[] = [
+      "raw_name", "income_type", "total_amount", "bonus_amount", "meal_amount", "car_amount", "childcare_amount",
+      "national_pension", "health_insurance", "employment_insurance", "longterm_care", "income_tax", "local_tax",
+    ];
     const patch: Partial<PayrollEntry> = {};
-    if (draft.raw_name !== undefined && draft.raw_name !== e.raw_name) patch.raw_name = draft.raw_name;
-    if (draft.income_type !== undefined && draft.income_type !== e.income_type) patch.income_type = draft.income_type;
-    if (draft.total_amount !== undefined && draft.total_amount !== e.total_amount) patch.total_amount = draft.total_amount;
-    if (draft.income_tax !== undefined && draft.income_tax !== e.income_tax) patch.income_tax = draft.income_tax;
-    if (draft.local_tax !== undefined && draft.local_tax !== e.local_tax) patch.local_tax = draft.local_tax;
+    for (const f of fields) {
+      if (draft[f] !== undefined && draft[f] !== e[f]) (patch as Record<string, unknown>)[f] = draft[f];
+    }
     if (Object.keys(patch).length === 0) { cancelEdit(); return; }
     update.mutate({ id: e.id, patch }, { onSuccess: cancelEdit, onError: (err) => alert((err as Error).message) });
   }
+
+  const pendingEntries = entries.filter((e) => !e.approved);
+  const approvedEntries = entries.filter((e) => e.approved);
 
   return (
     <>
@@ -649,10 +659,10 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
                     setSelected(new Set());
                   }}
                   disabled={update.isPending}>
-                  {update.isPending ? "승인중..." : `일괄 승인 (${selected.size})`}
+                  {update.isPending ? "승인중..." : selected.size === 1 ? "승인" : `일괄 승인 (${selected.size})`}
                 </Button>
                 <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
-                  {remove.isPending ? "삭제중..." : `일괄 삭제 (${selected.size})`}
+                  {remove.isPending ? "삭제중..." : selected.size === 1 ? "삭제" : `일괄 삭제 (${selected.size})`}
                 </Button>
               </>
             )}
@@ -686,96 +696,170 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => {
-                const isEditing = editingId === e.id;
-                const hasFlag = !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved);
-                const fieldChanges = (e.anomaly_notes?.field_changes ?? null) as Record<string, { prev: number; curr: number }> | null;
-                const diff = computeDiff(e);
-                return (
-                  <tr key={e.id}
-                    onClick={() => e.collection_event_id && onHighlight(highlightEventId === e.collection_event_id ? null : e.collection_event_id)}
-                    className={`border-b border-gray-50 transition-colors cursor-pointer ${
-                      highlightEventId && e.collection_event_id === highlightEventId
-                        ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
-                        : hasFlag ? "bg-red-50/60" : isEditing ? "bg-blue-50/60" : "hover:bg-gray-50"
-                    }`}>
-                    <td className="py-3 pl-4">
-                      <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} onClick={(ev) => ev.stopPropagation()} className="h-3.5 w-3.5 accent-blue-600" />
-                    </td>
-                    <td className="py-3 pl-2">
-                      {isEditing ? (
-                        <div className="space-y-1">
-                          <input className="w-24 px-1.5 py-1 border border-gray-300 rounded text-sm" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
-                          <select className="px-1.5 py-1 border border-gray-300 rounded text-sm" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
-                            <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
-                          </select>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</span>
-                            {e.approved && <span className="text-[10px] text-green-600">✓</span>}
-                          </div>
-                          <div className="text-[11px] text-gray-500 mt-0.5">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
-                    <td className="py-3 pr-3.5 text-right tabular-nums font-semibold">
-                      {isEditing ? (
-                        <input type="number" className="w-24 px-1.5 py-1 border border-gray-300 rounded text-sm text-right" value={draft.total_amount ?? 0}
-                          onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })} />
-                      ) : (
-                        <div>
-                          <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
-                          {fieldChanges && (
-                            <div className="flex flex-wrap gap-0.5 mt-0.5 justify-end">
-                              {Object.keys(fieldChanges).map((k) => (
-                                <span key={k} className="text-[9px] px-1 py-px rounded bg-red-100 text-red-600 font-medium" title={`전월 ${formatKrw(fieldChanges[k].prev)} → ${formatKrw(fieldChanges[k].curr)}`}>
-                                  {FIELD_LABELS[k] ?? k}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 pr-3.5 text-right">
-                      {diff ? (
-                        <DiffPill diff={diff} hasFlag={hasFlag} />
-                      ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600">신규</span>
-                      ) : e.match_status === "RESIGNATION_SUSPECTED" ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600">퇴사</span>
-                      ) : e.match_status === "UNCONFIRMED" ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-600">미확인</span>
-                      ) : (
-                        <span className="text-[11px] text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 pr-3 text-right" onClick={(ev) => ev.stopPropagation()}>
-                      {isEditing ? (
-                        <div className="flex gap-1 justify-end">
-                          <button onClick={() => save(e)} className="px-2 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium" disabled={update.isPending}>저장</button>
-                          <button onClick={cancelEdit} className="px-2 py-1 text-[11px] border border-gray-300 rounded-full hover:bg-gray-50">취소</button>
-                        </div>
-                      ) : (
-                        <div className="flex gap-1 justify-end">
-                          <button onClick={() => startEdit(e)} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">수정</button>
-                          <button onClick={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }}
-                            className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {/* ── 검토 대상 섹션 ── */}
+              {pendingEntries.length > 0 && (
+                <tr><td colSpan={6} className="px-4 py-1.5 bg-amber-50/70 text-[10.5px] font-semibold text-amber-700 uppercase tracking-wider border-b border-amber-100">
+                  검토 대상 ({pendingEntries.length}명)
+                </td></tr>
+              )}
+              {pendingEntries.map((e) => <EntryRow key={e.id} e={e} editingId={editingId} draft={draft} setDraft={setDraft} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} startEdit={startEdit} cancelEdit={cancelEdit} save={save} update={update} remove={remove} />)}
+              {/* ── 승인 완료 섹션 ── */}
+              {approvedEntries.length > 0 && (
+                <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
+                  승인 완료 ({approvedEntries.length}명)
+                </td></tr>
+              )}
+              {approvedEntries.map((e) => <EntryRow key={e.id} e={e} editingId={editingId} draft={draft} setDraft={setDraft} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} startEdit={startEdit} cancelEdit={cancelEdit} save={save} update={update} remove={remove} />)}
             </tbody>
           </table>
         ) : (
           <div className="flex items-center justify-center h-full text-sm text-gray-400">아직 파싱된 항목이 없습니다</div>
         )}
       </div>
+    </>
+  );
+}
+
+/* ═══ Entry Row ═══ */
+
+type EntryRowProps = {
+  e: PayrollEntry;
+  editingId: string | null;
+  draft: Partial<PayrollEntry>;
+  setDraft: (d: Partial<PayrollEntry>) => void;
+  selected: Set<string>;
+  toggleSelect: (id: string) => void;
+  highlightEventId: string | null;
+  onHighlight: (id: string | null) => void;
+  startEdit: (e: PayrollEntry) => void;
+  cancelEdit: () => void;
+  save: (e: PayrollEntry) => void;
+  update: ReturnType<typeof useUpdateEntry>;
+  remove: ReturnType<typeof useDeleteEntry>;
+};
+
+function EntryRow({ e, editingId, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, startEdit, cancelEdit, save, update, remove }: EntryRowProps) {
+  const isEditing = editingId === e.id;
+  const hasFlag = !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved);
+  const fieldChanges = (e.anomaly_notes?.field_changes ?? null) as Record<string, { prev: number; curr: number }> | null;
+  const diff = computeDiff(e);
+
+  function numInput(field: keyof PayrollEntry, label: string, anomaly?: boolean) {
+    return (
+      <div>
+        <label className={`block text-[10px] mb-0.5 ${anomaly ? "text-red-600 font-semibold" : "text-gray-500"}`}>{label}</label>
+        <input type="number" className={`w-full px-1.5 py-1 border rounded text-[12px] text-right tabular-nums ${anomaly ? "border-red-300 bg-red-50" : "border-gray-300"}`}
+          value={(draft[field] as number) ?? 0}
+          onChange={(ev) => setDraft({ ...draft, [field]: Number(ev.target.value) || 0 })} />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <tr
+        onClick={() => e.collection_event_id && onHighlight(highlightEventId === e.collection_event_id ? null : e.collection_event_id)}
+        className={`border-b border-gray-50 transition-colors cursor-pointer ${
+          highlightEventId && e.collection_event_id === highlightEventId
+            ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
+            : hasFlag ? "bg-red-50/60" : isEditing ? "bg-blue-50/60" : e.approved ? "hover:bg-green-50/40" : "hover:bg-gray-50"
+        }`}>
+        <td className="py-3 pl-4">
+          <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} onClick={(ev) => ev.stopPropagation()} className="h-3.5 w-3.5 accent-blue-600" />
+        </td>
+        <td className="py-3 pl-2">
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</span>
+              {e.approved && <span className="text-[10px] text-green-600">✓</span>}
+            </div>
+            <div className="text-[11px] text-gray-500 mt-0.5">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
+          </div>
+        </td>
+        <td className="py-3 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
+        <td className="py-3 pr-3.5 text-right tabular-nums font-semibold">
+          <div>
+            <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
+            {fieldChanges && (
+              <div className="flex flex-wrap gap-0.5 mt-0.5 justify-end">
+                {Object.keys(fieldChanges).map((k) => (
+                  <span key={k} className="text-[9px] px-1 py-px rounded bg-red-100 text-red-600 font-medium" title={`전월 ${formatKrw(fieldChanges[k].prev)} → ${formatKrw(fieldChanges[k].curr)}`}>
+                    {FIELD_LABELS[k] ?? k}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </td>
+        <td className="py-3 pr-3.5 text-right">
+          {diff ? (
+            <DiffPill diff={diff} hasFlag={hasFlag} />
+          ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600">신규</span>
+          ) : e.match_status === "RESIGNATION_SUSPECTED" ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600">퇴사</span>
+          ) : e.match_status === "UNCONFIRMED" ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-600">미확인</span>
+          ) : (
+            <span className="text-[11px] text-gray-400">—</span>
+          )}
+        </td>
+        <td className="py-3 pr-3 text-right" onClick={(ev) => ev.stopPropagation()}>
+          <div className="flex gap-1 justify-end">
+            <button onClick={() => isEditing ? cancelEdit() : startEdit(e)} className={`px-2 py-1 text-[11px] rounded-full ${isEditing ? "border border-gray-300 hover:bg-gray-50" : "text-blue-600 border border-blue-200 hover:bg-blue-50"}`}>
+              {isEditing ? "접기" : "수정"}
+            </button>
+            {e.approved ? (
+              <button onClick={() => update.mutate({ id: e.id, patch: { approved: false } })} className="px-2 py-1 text-[11px] text-amber-600 border border-amber-200 rounded-full hover:bg-amber-50">승인취소</button>
+            ) : (
+              <button onClick={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }}
+                className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {/* ── 상세 편집 패널 ── */}
+      {isEditing && (
+        <tr className="bg-blue-50/40">
+          <td colSpan={6} className="px-4 py-3" onClick={(ev) => ev.stopPropagation()}>
+            <div className="space-y-2.5">
+              <div className="flex gap-2 items-end">
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-0.5">이름</label>
+                  <input className="w-24 px-1.5 py-1 border border-gray-300 rounded text-[12px]" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-0.5">소득구분</label>
+                  <select className="px-1.5 py-1 border border-gray-300 rounded text-[12px]" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
+                    <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
+                  </select>
+                </div>
+                {numInput("total_amount", "총지급액")}
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {numInput("bonus_amount", "상여")}
+                {numInput("meal_amount", "식대", !!fieldChanges?.meal_amount)}
+                {numInput("car_amount", "자가운전보조금", !!fieldChanges?.car_amount)}
+                {numInput("childcare_amount", "육아수당", !!fieldChanges?.childcare_amount)}
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {numInput("national_pension", "국민연금", !!fieldChanges?.national_pension)}
+                {numInput("health_insurance", "건강보험", !!fieldChanges?.health_insurance)}
+                {numInput("employment_insurance", "고용보험", !!fieldChanges?.employment_insurance)}
+                {numInput("longterm_care", "장기요양", !!fieldChanges?.longterm_care)}
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {numInput("income_tax", "소득세", !!fieldChanges?.income_tax)}
+                {numInput("local_tax", "지방소득세", !!fieldChanges?.local_tax)}
+              </div>
+              <div className="flex gap-1.5 pt-1">
+                <button onClick={() => save(e)} className="px-3 py-1.5 text-[11px] bg-blue-600 text-white rounded-full font-medium" disabled={update.isPending}>{update.isPending ? "저장중..." : "저장"}</button>
+                <button onClick={cancelEdit} className="px-3 py-1.5 text-[11px] border border-gray-300 rounded-full hover:bg-gray-50">취소</button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
     </>
   );
 }
