@@ -110,7 +110,7 @@ export default function FilingDetailPage({
   }
 
   async function downloadInsurance(
-    kind: "acquisition" | "loss" | "change",
+    kind: "acquisition" | "loss" | "change" | "combined",
     label: string,
   ) {
     try {
@@ -119,6 +119,22 @@ export default function FilingDetailPage({
       const a = document.createElement("a");
       a.href = url;
       a.download = `4대보험_${label}_${filing.period}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  async function downloadPayslips() {
+    try {
+      const blob = await apiBlob(`/api/v1/filings/${id}/payslips`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `급여명세서_${filing.period}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -188,9 +204,12 @@ export default function FilingDetailPage({
                   <button onClick={() => { setShowExcelPopup(false); downloadExcel(); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">전체 다운로드</button>
                   <button onClick={() => { setShowExcelPopup(false); downloadExcelForClient(); }} disabled={!selectedSession} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50 disabled:opacity-40">선택 ({selectedSession?.client_name ?? "업체명"}) 다운로드</button>
                   <div className="my-1 border-t border-gray-100" />
-                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("acquisition", "자격취득"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">4대보험 자격취득</button>
-                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("loss", "자격상실"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">4대보험 자격상실</button>
-                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("change", "보수월액변경"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">4대보험 보수월액변경</button>
+                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("combined", "통합"); }} className="w-full text-left px-3 py-2 text-[12px] font-medium text-gray-700 hover:bg-gray-50">4대보험 통합 (3시트)</button>
+                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("acquisition", "자격취득"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">· 4대보험 자격취득</button>
+                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("loss", "자격상실"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">· 4대보험 자격상실</button>
+                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("change", "보수월액변경"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">· 4대보험 보수월액변경</button>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button onClick={() => { setShowExcelPopup(false); downloadPayslips(); }} className="w-full text-left px-3 py-2 text-[12px] font-medium text-gray-700 hover:bg-gray-50">급여명세서 (직원별)</button>
                 </div>
               </>)}
             </div>
@@ -607,7 +626,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
   const remove = useDeleteEntry(filingId);
   const { data: clients } = useClients();
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
-  const [expandedApproved, setExpandedApproved] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const clientDetail = clients?.find((c) => c.id === session.client_id);
 
@@ -669,9 +688,9 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
     for (const f of DETAIL_FIELDS) {
       if (d[f] !== undefined && d[f] !== e[f]) (patch as Record<string, unknown>)[f] = d[f];
     }
-    if (Object.keys(patch).length === 0) { setExpandedApproved(null); return; }
+    if (Object.keys(patch).length === 0) { setExpandedId(null); return; }
     update.mutate({ id: e.id, patch }, {
-      onSuccess: () => { setExpandedApproved(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
+      onSuccess: () => { setExpandedId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
       onError: (err) => alert((err as Error).message),
     });
   }
@@ -746,14 +765,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
                   검토 대상 ({pendingEntries.length}명)
                 </td></tr>
               )}
-              {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => {}} expanded={true} update={update} remove={remove} />)}
+              {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
               {/* ── 승인 완료 섹션 ── */}
               {approvedEntries.length > 0 && (
                 <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
                   승인 완료 ({approvedEntries.length}명)
                 </td></tr>
               )}
-              {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedApproved(expandedApproved === e.id ? null : e.id)} expanded={expandedApproved === e.id} update={update} remove={remove} />)}
+              {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
             </tbody>
           </table>
         ) : (
@@ -790,12 +809,16 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
   const diff = computeDiff(e);
 
   function numInput(field: keyof PayrollEntry, label: string, anomaly?: boolean) {
+    const v = (draft[field] as number) ?? 0;
     return (
       <div>
-        <label className={`block text-[10px] mb-0.5 ${anomaly ? "text-red-600 font-semibold" : "text-gray-500"}`}>{label}</label>
-        <input type="number" className={`w-full px-1.5 py-1 border rounded text-[12px] text-right tabular-nums ${anomaly ? "border-red-300 bg-red-50" : "border-gray-300"}`}
-          value={(draft[field] as number) ?? 0}
-          onChange={(ev) => setDraft({ ...draft, [field]: Number(ev.target.value) || 0 })} />
+        <label className={`block text-[11px] mb-1 ${anomaly ? "text-red-600 font-semibold" : "text-gray-500"}`}>{label}</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          className={`w-full px-2 py-1.5 border rounded-md text-[13px] text-right tabular-nums focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none ${anomaly ? "border-red-300 bg-red-50" : "border-gray-300"}`}
+          value={v.toLocaleString("ko-KR")}
+          onChange={(ev) => setDraft({ ...draft, [field]: Number(ev.target.value.replace(/[^\d]/g, "")) || 0 })} />
       </div>
     );
   }
@@ -803,10 +826,11 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
   return (
     <>
       <tr
-        onClick={() => e.collection_event_id && onHighlight(highlightEventId === e.collection_event_id ? null : e.collection_event_id)}
+        onClick={() => { onToggleExpand(); if (e.collection_event_id) onHighlight(highlightEventId === e.collection_event_id ? null : e.collection_event_id); }}
         className={`border-b border-gray-50 transition-colors cursor-pointer ${
           highlightEventId && e.collection_event_id === highlightEventId
             ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
+            : expanded ? "bg-blue-50/30"
             : hasFlag ? "bg-red-50/60" : mode === "approved" ? "hover:bg-green-50/40" : "hover:bg-gray-50"
         }`}>
         <td className="py-2.5 pl-4">
@@ -814,10 +838,11 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
         </td>
         <td className="py-2.5 pl-2">
           <div className="flex items-center gap-1.5">
+            <span className={`text-[10px] text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}>▶</span>
             <span className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</span>
             {e.approved && <span className="text-[10px] text-green-600">✓</span>}
           </div>
-          <div className="text-[11px] text-gray-500 mt-0.5">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
+          <div className="text-[11px] text-gray-500 mt-0.5 pl-[18px]">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
         </td>
         <td className="py-2.5 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
         <td className="py-2.5 pr-3.5 text-right tabular-nums font-semibold">
@@ -861,49 +886,60 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
       {expanded && (
         <tr className={mode === "pending" ? "bg-gray-50/50" : "bg-blue-50/40"}>
           <td colSpan={6} className="px-4 py-2.5" onClick={(ev) => ev.stopPropagation()}>
-            <div className="space-y-2">
-              {mode === "pending" && (
-                <div className="flex gap-2 items-end">
+            <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+              {/* 기본 정보 */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {mode === "pending" && (<>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5">이름</label>
-                    <input className="w-24 px-1.5 py-1 border border-gray-300 rounded text-[12px]" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
+                    <label className="block text-[11px] text-gray-500 mb-1">이름</label>
+                    <input className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-[13px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5">소득구분</label>
-                    <select className="px-1.5 py-1 border border-gray-300 rounded text-[12px]" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
+                    <label className="block text-[11px] text-gray-500 mb-1">소득구분</label>
+                    <select className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-[13px] bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
                       <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
                     </select>
                   </div>
-                  {numInput("total_amount", "총지급액")}
-                </div>
-              )}
-              {mode === "approved" && (
-                <div className="flex gap-2 items-end">
-                  {numInput("total_amount", "총지급액")}
-                </div>
-              )}
-              <div className="grid grid-cols-4 gap-2">
-                {numInput("bonus_amount", "상여")}
-                {numInput("meal_amount", "식대", !!fieldChanges?.meal_amount)}
-                {numInput("car_amount", "자가운전보조금", !!fieldChanges?.car_amount)}
-                {numInput("childcare_amount", "육아수당", !!fieldChanges?.childcare_amount)}
+                </>)}
+                {numInput("total_amount", "총지급액")}
               </div>
-              <div className="grid grid-cols-4 gap-2">
-                {numInput("national_pension", "국민연금", !!fieldChanges?.national_pension)}
-                {numInput("health_insurance", "건강보험", !!fieldChanges?.health_insurance)}
-                {numInput("employment_insurance", "고용보험", !!fieldChanges?.employment_insurance)}
-                {numInput("longterm_care", "장기요양", !!fieldChanges?.longterm_care)}
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {numInput("income_tax", "소득세", !!fieldChanges?.income_tax)}
-                {numInput("local_tax", "지방소득세", !!fieldChanges?.local_tax)}
-              </div>
-              {mode === "approved" && (
-                <div className="flex gap-1.5 pt-1">
-                  <button onClick={onSave} className="px-3 py-1.5 text-[11px] bg-blue-600 text-white rounded-full font-medium" disabled={update.isPending}>{update.isPending ? "저장중..." : "저장"}</button>
-                  <button onClick={onToggleExpand} className="px-3 py-1.5 text-[11px] border border-gray-300 rounded-full hover:bg-gray-50">취소</button>
+
+              <div className="border-t border-gray-100 pt-3">
+                <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-2">지급 항목</div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {numInput("bonus_amount", "상여")}
+                  {numInput("meal_amount", "식대", !!fieldChanges?.meal_amount)}
+                  {numInput("car_amount", "자가운전보조금", !!fieldChanges?.car_amount)}
+                  {numInput("childcare_amount", "육아수당", !!fieldChanges?.childcare_amount)}
                 </div>
-              )}
+              </div>
+
+              <div className="border-t border-gray-100 pt-3">
+                <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-2">4대보험 공제</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {numInput("national_pension", "국민연금", !!fieldChanges?.national_pension)}
+                  {numInput("health_insurance", "건강보험", !!fieldChanges?.health_insurance)}
+                  {numInput("employment_insurance", "고용보험", !!fieldChanges?.employment_insurance)}
+                  {numInput("longterm_care", "장기요양", !!fieldChanges?.longterm_care)}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 pt-3">
+                <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-2">세금</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {numInput("income_tax", "소득세", !!fieldChanges?.income_tax)}
+                  {numInput("local_tax", "지방소득세", !!fieldChanges?.local_tax)}
+                </div>
+              </div>
+
+              <div className="flex gap-1.5 pt-1 border-t border-gray-100">
+                {mode === "approved" ? (<>
+                  <button onClick={onSave} className="px-3 py-1.5 mt-3 text-[12px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700" disabled={update.isPending}>{update.isPending ? "저장중..." : "저장"}</button>
+                  <button onClick={onToggleExpand} className="px-3 py-1.5 mt-3 text-[12px] border border-gray-300 rounded-full hover:bg-gray-50">접기</button>
+                </>) : (
+                  <button onClick={onToggleExpand} className="px-3 py-1.5 mt-3 text-[12px] border border-gray-300 rounded-full hover:bg-gray-50">접기</button>
+                )}
+              </div>
             </div>
           </td>
         </tr>

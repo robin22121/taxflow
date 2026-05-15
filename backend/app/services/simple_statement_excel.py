@@ -213,6 +213,10 @@ def _add_summary_row(ws, entry_count: int, col_count: int, sum_cols: list[int]) 
     ws.append(summary)
     for col_idx in range(1, col_count + 1):
         ws.cell(row=entry_count + 2, column=col_idx).font = Font(bold=True)
+    # 금액 컬럼(=sum_cols) 천단위 콤마 표기 (데이터 행 + 합계 행)
+    for col in sum_cols:
+        for r in range(2, entry_count + 3):
+            ws.cell(row=r, column=col).number_format = "#,##0"
 
 
 __all__ = [

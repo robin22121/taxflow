@@ -11,6 +11,7 @@ from app.models.payroll import IncomeType, MatchStatus
 from app.services.crypto import encrypt_rrn
 from app.services.insurance_excel import (
     generate_acquisition_report,
+    generate_combined_insurance_report,
     generate_loss_report,
     generate_remuneration_change_report,
 )
@@ -95,3 +96,17 @@ def test_empty_returns_valid_workbook():
     blob = generate_acquisition_report([], "2026-04")
     ws = load_workbook(BytesIO(blob)).active
     assert [c.value for c in ws[1]][0] == "일련번호"
+
+
+def test_combined_has_three_sheets():
+    acq = _entry(_emp("김신규"), 3_000_000, match=MatchStatus.NEW_HIRE_SUSPECTED)
+    loss = _entry(_emp("최퇴사", resigned=date(2026, 4, 20)), 2_000_000,
+                  match=MatchStatus.RESIGNATION_SUSPECTED)
+    chg = _entry(_emp("오변동", hired=date(2023, 1, 1)), 3_300_000, prev=3_000_000)
+
+    wb = load_workbook(BytesIO(
+        generate_combined_insurance_report([acq, loss, chg], "2026-04")))
+    assert wb.sheetnames == ["자격취득신고서", "자격상실신고서", "보수월액변경신고서"]
+    assert wb["자격취득신고서"]["B2"].value == "김신규"
+    assert wb["자격상실신고서"]["B2"].value == "최퇴사"
+    assert wb["보수월액변경신고서"]["B2"].value == "오변동"

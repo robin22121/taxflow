@@ -148,6 +148,11 @@ def generate_wehago_excel(
     for col_idx in range(1, len(WEHAGO_COLUMNS) + 1):
         ws.cell(row=summary_cell_row, column=col_idx).font = Font(bold=True)
 
+    # 금액 컬럼(총지급액·비과세·과세·소득세·지방소득세) 천단위 콤마
+    for col in (6, 7, 8, 9, 10):
+        for r in range(2, summary_cell_row + 1):
+            ws.cell(row=r, column=col).number_format = "#,##0"
+
     # 컬럼 폭 자동
     widths = [10, 12, 18, 12, 12, 14, 12, 14, 12, 12, 14]
     for i, w in enumerate(widths, start=1):
