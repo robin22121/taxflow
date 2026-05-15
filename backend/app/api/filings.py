@@ -141,7 +141,7 @@ async def request_collection_single(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> CollectionSessionOut:
-    """Send alimtalk to a single client (by session)."""
+    """Send invite (알림톡 → SMS fallback + 이메일) to a single client."""
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
@@ -154,7 +154,11 @@ async def request_collection_single(
     if not session or session.monthly_filing_id != filing_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
 
-    await _send_collection_alimtalk(db, session, session.client, filing)
+    from app.models import TaxOffice
+    office = await db.get(TaxOffice, user.tax_office_id)
+    office_name = office.name if office else "세무사사무소"
+
+    await send_invite_to_client(db, filing, session.client, office_name)
     await db.commit()
     return _session_out(session, session.client)
 
