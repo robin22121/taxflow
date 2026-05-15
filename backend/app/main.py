@@ -29,6 +29,12 @@ def create_app() -> FastAPI:
     )
 
     origins = [settings.app_public_url]
+    # auto-add www / non-www variant
+    pub = settings.app_public_url
+    if "://www." in pub:
+        origins.append(pub.replace("://www.", "://"))
+    elif "://" in pub:
+        origins.append(pub.replace("://", "://www."))
     if settings.cors_extra_origins:
         origins.extend(settings.cors_extra_origins.split(","))
     app.add_middleware(

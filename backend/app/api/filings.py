@@ -680,22 +680,26 @@ async def download_payroll_excel(
 
     filters = [
         PayrollEntry.monthly_filing_id == filing_id,
-        PayrollEntry.approved.is_(True),
     ]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
 
-    entries = (
+    all_entries = (
         await db.execute(
             select(PayrollEntry)
             .where(*filters)
             .options(selectinload(PayrollEntry.employee))
         )
     ).scalars().all()
+
+    # 승인된 항목 우선, 없으면 전체 항목으로 fallback
+    entries = [e for e in all_entries if e.approved]
+    if not entries:
+        entries = list(all_entries)
     if not entries:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "승인된 엔트리가 없습니다. 먼저 검증·승인을 완료하세요.",
+            "엔트리가 없습니다.",
         )
 
     client = await db.get(Client, entries[0].client_id)
