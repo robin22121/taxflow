@@ -20,6 +20,7 @@ from app.models import TaxOffice, User
 from app.schemas.auth import (
     CurrentUser,
     LoginRequest,
+    ProfileUpdate,
     RefreshRequest,
     RegisterRequest,
     RegisterResponse,
@@ -157,4 +158,43 @@ async def me(
         tax_office_id=user.tax_office_id,
         is_admin=user.is_admin,
         short_code=office.short_code if office else None,
+        office_name=office.name if office else None,
+        office_phone=office.phone if office else None,
+        office_email=str(office.email) if office and office.email else None,
+        office_address=office.address if office else None,
+        office_representative=office.representative if office else None,
+    )
+
+
+@router.patch("/me", response_model=CurrentUser)
+async def update_me(
+    payload: ProfileUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CurrentUser:
+    if payload.name is not None:
+        user.name = payload.name
+    office = await db.get(TaxOffice, user.tax_office_id)
+    if office:
+        if payload.office_phone is not None:
+            office.phone = payload.office_phone
+        if payload.office_email is not None:
+            office.email = payload.office_email
+        if payload.office_address is not None:
+            office.address = payload.office_address
+        if payload.office_representative is not None:
+            office.representative = payload.office_representative
+    await db.commit()
+    return CurrentUser(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        tax_office_id=user.tax_office_id,
+        is_admin=user.is_admin,
+        short_code=office.short_code if office else None,
+        office_name=office.name if office else None,
+        office_phone=office.phone if office else None,
+        office_email=str(office.email) if office and office.email else None,
+        office_address=office.address if office else None,
+        office_representative=office.representative if office else None,
     )

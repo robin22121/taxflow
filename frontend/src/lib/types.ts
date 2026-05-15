@@ -5,6 +5,11 @@ export type CurrentUser = {
   tax_office_id: string;
   is_admin: boolean;
   short_code: string | null;
+  office_name: string | null;
+  office_phone: string | null;
+  office_email: string | null;
+  office_address: string | null;
+  office_representative: string | null;
 };
 
 export type RegisterResponse = {

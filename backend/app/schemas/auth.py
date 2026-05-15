@@ -58,3 +58,16 @@ class CurrentUser(BaseModel):
     tax_office_id: str
     is_admin: bool
     short_code: str | None = None
+    office_name: str | None = None
+    office_phone: str | None = None
+    office_email: str | None = None
+    office_address: str | None = None
+    office_representative: str | None = None
+
+
+class ProfileUpdate(BaseModel):
+    name: str | None = None
+    office_phone: str | None = None
+    office_email: str | None = None
+    office_address: str | None = None
+    office_representative: str | None = None
