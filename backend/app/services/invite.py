@@ -113,7 +113,20 @@ async def send_invite_to_client(
     sms_result: SendResult | None = None
     if not alimtalk_result.accepted and client.contact_phone:
         sms = get_sms_channel()
-        sms_body = f"[{office_name}] {filing.period} 원천세 자료 요청: {url}"
+        sms_body = (
+            f"[{office_name}]\n"
+            f"\n"
+            f"안녕하세요, {greeting}.\n"
+            f"{office_name}입니다.\n"
+            f"\n"
+            f"{filing.period} 원천세 신고를 위한 급여 자료를 보내주시면 감사하겠습니다.\n"
+            f"\n"
+            f"아래 링크에서 편하게 보내실 수 있습니다.\n"
+            f"{url}\n"
+            f"\n"
+            f"이메일 회신이나 카카오톡으로 보내주셔도 됩니다.\n"
+            f"감사합니다."
+        )
         sms_result = await sms.send(
             MessageRecipient(name=client.business_name, phone=client.contact_phone),
             body=sms_body,

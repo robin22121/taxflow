@@ -149,9 +149,9 @@ export default function FilingDetailPage({
               </span>
             )}
             {reviewOnly && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100">
-                확인필요만 보기
-              </span>
+              <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer">
+                확인필요만 보기 ✕
+              </button>
             )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
