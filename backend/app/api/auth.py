@@ -90,7 +90,14 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
         sms = get_sms_channel()
         await sms.send(
             MessageRecipient(name=payload.representative, phone=payload.phone),
-            body=f"[이지원천] 사무소 인가코드: {short_code}\n카카오톡 채널에서 '등록 {short_code}'을 입력하세요.",
+            body=(
+                f"[이지원천] 사무소 인가코드: {short_code}\n"
+                f"카카오톡 채널 '이지원천'\n"
+                f"http://pf.kakao.com/_lxazsX\n"
+                f"채널 가입 및 채팅방 입장 후\n"
+                f"인가코드를 다음과 같이 입력하세요\n"
+                f"입력할 내용 : 등록 {short_code}"
+            ),
         )
     except Exception:
         logger.exception("인가코드 SMS 발송 실패 (가입은 정상 완료)")
