@@ -224,14 +224,14 @@ export default function PublicCollectPage({
                   gridTemplateColumns: `repeat(${
                     2
                     + (result.resignation_suspected > 0 ? 1 : 0)
-                    + (result.ambiguous + (result.needs_followup ?? 0) > 0 ? 1 : 0)
+                    + (result.ambiguous > 0 ? 1 : 0)
                   }, 1fr)`,
                 }}>
                   {([
                     ["기존", result.matched, "gray-900"],
                     ["신규", result.new_hire_suspected, "blue-600"],
                     ...(result.resignation_suspected > 0 ? [["퇴사", result.resignation_suspected, "gray-500"] as const] : []),
-                    ...(result.ambiguous + (result.needs_followup ?? 0) > 0 ? [["확인", result.ambiguous + (result.needs_followup ?? 0), "red-600"] as const] : []),
+                    ...(result.ambiguous > 0 ? [["확인", result.ambiguous, "red-600"] as const] : []),
                   ] as const).map(([label, val, tone], i, arr) => (
                     <div key={i} className="flex flex-col items-center gap-0.5" style={{ borderRight: i < arr.length - 1 ? "1px solid #E3E3E5" : "none" }}>
                       <span className={`text-xl font-extrabold tabular-nums text-${tone}`}>{val}</span>
