@@ -55,7 +55,7 @@ export default function LoginPage() {
               <Input
                 type="text"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value.replace(/[^0-9]/g, ""))}
                 placeholder="0000000000"
                 required
               />

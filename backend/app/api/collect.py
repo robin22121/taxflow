@@ -161,6 +161,32 @@ async def _parse_and_match(
     return reconcile(parsed, masters, prev_by_emp)
 
 
+def _detect_field_anomalies(
+    anomaly: dict,
+    cand,
+    prev: PayrollEntry,
+    tax,
+    si_np: int, si_hi: int, si_ei: int, si_ltc: int,
+) -> None:
+    """전월 대비 필드별 이상치를 anomaly_notes에 기록."""
+    fields: dict[str, tuple[int, int]] = {}
+    # 총액 변동은 기존 large_change로 이미 처리됨
+    # 4대보험 변동 감지 (전월과 다르면 기록)
+    if prev.national_pension > 0 and abs(si_np - prev.national_pension) > 1000:
+        fields["national_pension"] = (prev.national_pension, si_np)
+    if prev.health_insurance > 0 and abs(si_hi - prev.health_insurance) > 1000:
+        fields["health_insurance"] = (prev.health_insurance, si_hi)
+    # 소득세 변동 (20% 이상이면 기록)
+    if prev.income_tax and prev.income_tax > 0:
+        tax_change = abs(tax.income_tax - prev.income_tax) / prev.income_tax
+        if tax_change > 0.2:
+            fields["income_tax"] = (prev.income_tax, tax.income_tax)
+    if fields:
+        anomaly["field_changes"] = {
+            k: {"prev": v[0], "curr": v[1]} for k, v in fields.items()
+        }
+
+
 async def _persist_results(
     db: AsyncSession,
     session: CollectionSession,
@@ -173,6 +199,7 @@ async def _persist_results(
     attachments: list[dict] | None = None,
     sender_name: str | None = None,
     received_date: "date | None" = None,
+    prev_entries: list[PayrollEntry] | None = None,
 ) -> CollectMessageOut:
     """Save collection event and payroll entries to DB."""
     payload: dict = {
@@ -216,25 +243,75 @@ async def _persist_results(
         existing_keys.add(key)
 
     emp_by_id = {e.id: e for e in employees}
+    # 전월 엔트리 lookup (employee_id 기준)
+    prev_by_emp: dict[str, PayrollEntry] = {}
+    if prev_entries:
+        for pe in prev_entries:
+            if pe.employee_id:
+                prev_by_emp[pe.employee_id] = pe
     needs_followup_count = 0
 
     for cand in matching.entries:
         dedup_key = cand.employee_id if cand.employee_id else f"__name:{cand.raw_name}"
         if dedup_key in existing_keys:
             continue
-        # 비과세 세분이 있으면 그 합으로 non_taxable 재계산 (정합 보장)
-        breakdown_sum = cand.meal_amount + cand.car_amount + cand.childcare_amount
-        non_taxable = max(cand.non_taxable, breakdown_sum)
-        taxable = cand.total_amount - non_taxable
+
         matched_emp = emp_by_id.get(cand.employee_id) if cand.employee_id else None
         biz_code = matched_emp.business_type_code if matched_emp and cand.income_type == IncomeType.BUSINESS else None
+        a_code = income_type_to_a_code(cand.income_type, is_corporation=client.is_corporation)
+
+        # 전월 데이터에서 세부 항목 상속
+        prev = prev_by_emp.get(cand.employee_id) if cand.employee_id else None
+
+        # AI가 세부 항목을 추출했는지 확인
+        ai_has_breakdown = (cand.meal_amount > 0 or cand.car_amount > 0 or cand.childcare_amount > 0)
+
+        if prev and not ai_has_breakdown:
+            # 전월 데이터 기반: 비과세 항목 복사, 기본급만 총액 차이로 조정
+            meal = prev.meal_amount
+            car = prev.car_amount
+            childcare = prev.childcare_amount
+            bonus = prev.bonus_amount or 0
+            non_taxable_items = meal + car + childcare
+            base_salary = cand.total_amount - bonus - non_taxable_items
+            if base_salary < 0:
+                base_salary = cand.total_amount
+                bonus = 0
+            non_taxable = non_taxable_items
+            salary_amt = base_salary + bonus + non_taxable_items if cand.income_type == IncomeType.WAGE else None
+            bonus_amt = bonus if cand.income_type == IncomeType.WAGE else None
+        else:
+            # AI 추출값 또는 기본값
+            meal = cand.meal_amount
+            car = cand.car_amount
+            childcare = cand.childcare_amount
+            breakdown_sum = meal + car + childcare
+            non_taxable = max(cand.non_taxable, breakdown_sum)
+            salary_amt = cand.total_amount if cand.income_type == IncomeType.WAGE else None
+            bonus_amt = 0 if cand.income_type == IncomeType.WAGE else None
+
+        taxable = cand.total_amount - non_taxable
         tax = calculate_withholding_tax(
             cand.income_type, taxable, dependents=1, business_type_code=biz_code,
         )
-        si = calculate_social_insurance(taxable, cand.income_type)
-        a_code = income_type_to_a_code(cand.income_type, is_corporation=client.is_corporation)
-        salary_amt = cand.total_amount if cand.income_type == IncomeType.WAGE else None
-        bonus_amt = 0 if cand.income_type == IncomeType.WAGE else None
+
+        # 4대보험: 전월 데이터가 있으면 복사 (월별 변동 거의 없음), 없으면 계산
+        if prev and prev.national_pension > 0:
+            si_np = prev.national_pension
+            si_hi = prev.health_insurance
+            si_ei = prev.employment_insurance
+            si_ltc = prev.longterm_care
+        else:
+            si = calculate_social_insurance(taxable, cand.income_type)
+            si_np = si.national_pension
+            si_hi = si.health_insurance
+            si_ei = si.employment_insurance
+            si_ltc = si.longterm_care
+
+        # 필드별 이상치 감지
+        anomaly = dict(cand.anomaly_notes) if cand.anomaly_notes else {}
+        if prev:
+            _detect_field_anomalies(anomaly, cand, prev, tax, si_np, si_hi, si_ei, si_ltc)
 
         entry = PayrollEntry(
             monthly_filing_id=filing.id,
@@ -250,19 +327,19 @@ async def _persist_results(
             salary_amount=salary_amt,
             bonus_amount=bonus_amt,
             non_taxable=non_taxable,
-            meal_amount=cand.meal_amount,
-            car_amount=cand.car_amount,
-            childcare_amount=cand.childcare_amount,
+            meal_amount=meal,
+            car_amount=car,
+            childcare_amount=childcare,
             taxable=taxable,
-            national_pension=si.national_pension,
-            health_insurance=si.health_insurance,
-            employment_insurance=si.employment_insurance,
-            longterm_care=si.longterm_care,
+            national_pension=si_np,
+            health_insurance=si_hi,
+            employment_insurance=si_ei,
+            longterm_care=si_ltc,
             income_tax=tax.income_tax,
             local_tax=tax.local_tax,
             match_status=cand.match_status,
             prev_amount=cand.prev_amount,
-            anomaly_notes=cand.anomaly_notes or None,
+            anomaly_notes=anomaly or None,
         )
         if (
             cand.needs_followup
@@ -328,6 +405,7 @@ async def _ingest_message(
     return await _persist_results(
         db, session, client, filing, matching, employees, text, channel, attachments,
         sender_name=sender_name, received_date=received_date,
+        prev_entries=prev_entries,
     )
 
 

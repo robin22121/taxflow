@@ -689,6 +689,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
               {entries.map((e) => {
                 const isEditing = editingId === e.id;
                 const hasFlag = !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved);
+                const fieldChanges = (e.anomaly_notes?.field_changes ?? null) as Record<string, { prev: number; curr: number }> | null;
                 const diff = computeDiff(e);
                 return (
                   <tr key={e.id}
@@ -725,7 +726,18 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
                         <input type="number" className="w-24 px-1.5 py-1 border border-gray-300 rounded text-sm text-right" value={draft.total_amount ?? 0}
                           onChange={(ev) => setDraft({ ...draft, total_amount: Number(ev.target.value) || 0 })} />
                       ) : (
-                        <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
+                        <div>
+                          <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
+                          {fieldChanges && (
+                            <div className="flex flex-wrap gap-0.5 mt-0.5 justify-end">
+                              {Object.keys(fieldChanges).map((k) => (
+                                <span key={k} className="text-[9px] px-1 py-px rounded bg-red-100 text-red-600 font-medium" title={`전월 ${formatKrw(fieldChanges[k].prev)} → ${formatKrw(fieldChanges[k].curr)}`}>
+                                  {FIELD_LABELS[k] ?? k}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="py-3 pr-3.5 text-right">
@@ -1091,6 +1103,19 @@ function channelLabel(ch: string | null): string {
   if (!ch) return "—";
   return { kakao: "카톡", email: "이메일", sms: "문자", voice: "전화", manual: "직접입력", public_url: "URL폼" }[ch] ?? ch;
 }
+
+const FIELD_LABELS: Record<string, string> = {
+  national_pension: "국민연금",
+  health_insurance: "건강보험",
+  employment_insurance: "고용보험",
+  longterm_care: "장기요양",
+  income_tax: "소득세",
+  local_tax: "지방소득세",
+  meal_amount: "식대",
+  car_amount: "자가운전",
+  childcare_amount: "육아수당",
+  bonus_amount: "상여",
+};
 
 function incomeLabel(type: string): string {
   return { WAGE: "일반근로", BUSINESS: "사업소득", OTHER: "기타소득", DAILY: "일용근로", RETIREMENT: "퇴직소득" }[type] ?? type;

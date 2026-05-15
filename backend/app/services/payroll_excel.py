@@ -109,16 +109,15 @@ def _data_row(entry: PayrollEntry, idx: int) -> list:
     emp = entry.employee
     income_tax, local_tax = _ensure_taxes(entry)
 
-    salary = entry.salary_amount or entry.total_amount
     bonus = entry.bonus_amount or 0
     meal_allowance = entry.meal_amount or 0
     car_allowance = entry.car_amount or 0
     childcare = entry.childcare_amount or 0
 
     # 기본급 = 총액 - 상여 - 비과세 항목들
-    base_salary = salary - bonus - meal_allowance - car_allowance - childcare
+    base_salary = entry.total_amount - bonus - meal_allowance - car_allowance - childcare
     if base_salary < 0:
-        base_salary = salary
+        base_salary = entry.total_amount
 
     gross = base_salary + bonus + meal_allowance + car_allowance + childcare
 
@@ -131,9 +130,12 @@ def _data_row(entry: PayrollEntry, idx: int) -> list:
                        + longterm_care + income_tax + local_tax)
     net_pay = gross - deduction_total
 
+    emp_code = (emp.employee_code if emp else None) or str(idx)
+    emp_name = (emp.name if emp else None) or entry.raw_name
+
     return [
-        emp.employee_code or str(idx),       # A: 사원코드
-        emp.name if emp else entry.raw_name,  # B: 사원명
+        emp_code,                             # A: 사원코드
+        emp_name,                             # B: 사원명
         "",                                   # C: 부서
         "",                                   # D: 직급
         "",                                   # E: 직종
@@ -177,8 +179,6 @@ def generate_payroll_excel(
     data_start = 3
     row_count = 0
     for idx, entry in enumerate(entries, start=1):
-        if not entry.employee:
-            raise PayrollExcelError(f"엔트리 {entry.id}: 직원 미매칭 상태로 엑셀 생성 불가")
         row_data = _data_row(entry, idx)
         ws.append(row_data)
         r = data_start + row_count
