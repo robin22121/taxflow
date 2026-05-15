@@ -335,6 +335,7 @@ async def _process_and_respond(
             client_id=client_id,
             client_name=client_name,
             filing_period=filing_period,
+            tax_office_id=client.tax_office_id,
             full_utterance=full_utterance,
             file_images=file_images,
             attachments_meta=attachments_meta,
@@ -358,11 +359,12 @@ async def _background_ingest_kakao(
     client_id: str,
     client_name: str,
     filing_period: str,
+    tax_office_id: str,
     full_utterance: str,
     file_images: list[tuple[bytes, str]],
     attachments_meta: list[dict],
 ) -> None:
-    """백그라운드에서 AI 파싱 후 카카오 알림톡으로 결과 전송."""
+    """백그라운드에서 AI 파싱 후 세무사사무소에 SMS로 결과 전송."""
     from app.db import SessionLocal
 
     try:
@@ -410,10 +412,20 @@ async def _background_ingest_kakao(
             )
             logger.info("백그라운드 파싱 완료: client=%s, entries=%d", client_name, len(entries))
 
-            # TODO: 카카오 알림톡으로 결과 전송 (현재는 로그만)
-            # 카카오 오픈빌더에서는 유저에게 능동적 메시지를 보내려면
-            # 알림톡 템플릿이 필요하므로, 일단 대시보드에서 확인하도록 함
-            logger.info("파싱 결과:\n%s", response_text)
+            # 세무사 사무소에 SMS로 결과 전송
+            office = await db.get(TaxOffice, tax_office_id)
+            if office and office.phone:
+                try:
+                    from app.channels.sms import get_sms_channel
+                    from app.channels.base import MessageRecipient
+                    sms = get_sms_channel()
+                    await sms.send(
+                        MessageRecipient(name=office.representative or office.name, phone=office.phone),
+                        body=f"[이지원천] 카카오 자료 분석 완료\n\n{response_text}",
+                    )
+                    logger.info("파싱 결과 SMS 전송: office=%s", office.name)
+                except Exception:
+                    logger.exception("파싱 결과 SMS 전송 실패: office=%s", office.name)
 
     except Exception:
         logger.exception("백그라운드 카카오 파싱 실패: client=%s", client_name)
