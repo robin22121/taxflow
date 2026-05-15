@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { useBulkUploadClients, useClients, useCreateClient, useSendClientInvite } from "@/lib/queries";
+import { useBulkUploadClients, useClients, useCreateClient } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
 
@@ -175,13 +175,9 @@ function CreateClientModal({ onClose }: { onClose: () => void }) {
   const [contactEmail, setContactEmail] = useState("");
   const [isCorporation, setIsCorporation] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [createdId, setCreatedId] = useState<string | null>(null);
-  const sendInvite = useSendClientInvite(createdId ?? "__none__");
-
   const canSubmit = businessName.trim().length > 0 && !create.isPending;
-  const hasContact = contactPhone.trim().length > 0 || contactEmail.trim().length > 0;
 
-  async function doCreate(andInvite: boolean) {
+  async function doCreate() {
     setErr(null);
     try {
       const created = await create.mutateAsync({
@@ -192,10 +188,6 @@ function CreateClientModal({ onClose }: { onClose: () => void }) {
         contact_email: contactEmail.trim() || null,
         is_corporation: isCorporation,
       });
-      if (andInvite) {
-        setCreatedId(created.id);
-        try { await sendInvite.mutateAsync(); } catch { /* invite failure is non-blocking */ }
-      }
       onClose();
       router.push(`/dashboard/clients/${created.id}`);
     } catch (e) {
@@ -213,12 +205,8 @@ function CreateClientModal({ onClose }: { onClose: () => void }) {
           <Button variant="ghost" onClick={onClose} disabled={create.isPending}>
             취소
           </Button>
-          <Button variant="secondary" disabled={!canSubmit} onClick={() => doCreate(false)}>
+          <Button disabled={!canSubmit} onClick={() => doCreate()}>
             {create.isPending ? "등록 중..." : "등록"}
-          </Button>
-          <Button disabled={!canSubmit || !hasContact} onClick={() => doCreate(true)}
-            title={!hasContact ? "연락처 입력 시 초대 발송 가능" : ""}>
-            {create.isPending ? "등록 중..." : "저장 + 초대 발송"}
           </Button>
         </>
       }
