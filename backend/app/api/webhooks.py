@@ -412,20 +412,8 @@ async def _background_ingest_kakao(
             )
             logger.info("백그라운드 파싱 완료: client=%s, entries=%d", client_name, len(entries))
 
-            # 세무사 사무소에 SMS로 결과 전송
-            office = await db.get(TaxOffice, tax_office_id)
-            if office and office.phone:
-                try:
-                    from app.channels.sms import get_sms_channel
-                    from app.channels.base import MessageRecipient
-                    sms = get_sms_channel()
-                    await sms.send(
-                        MessageRecipient(name=office.representative or office.name, phone=office.phone),
-                        body=f"[이지원천] 카카오 자료 분석 완료\n\n{response_text}",
-                    )
-                    logger.info("파싱 결과 SMS 전송: office=%s", office.name)
-                except Exception:
-                    logger.exception("파싱 결과 SMS 전송 실패: office=%s", office.name)
+            # TODO: 카카오 알림톡 템플릿 등록 후 결과 전송 구현 (plan.md 백로그 참조)
+            logger.info("파싱 결과 (알림톡 미구현, 대시보드에서 확인):\n%s", response_text)
 
     except Exception:
         logger.exception("백그라운드 카카오 파싱 실패: client=%s", client_name)
