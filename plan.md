@@ -510,8 +510,11 @@ def generate_smarta_excel(
 - 자격상실 신고서: 퇴사(`RESIGNATION_SUSPECTED` 또는 퇴사일 귀속월) 대상 — 상실부호·당월보수총액
 - 보수월액 변경 신고서: 전월 대비 금액 변동(취득·상실 제외) — 변경전/후·증감
 - 기존 `PayrollEntry` 4대보험 컬럼 + `tax_calc.calculate_social_insurance()` 재사용 → **스키마 변경 없음**
-- API: `GET /filings/{id}/insurance-acquisition|loss|change` · 대시보드 엑셀다운로드 팝업에 3항목
-- 4insure/공단 EDI **자동 신고(RPA)는 Phase 3** — 본 단계는 세무사 수동 업로드용 표준 엑셀까지
+- API: `GET /filings/{id}/insurance-acquisition|loss|change`, 통합 `GET /filings/{id}/insurance-combined`(3시트 단일 워크북)
+- **통합 다운로드 UX**: "엑셀다운로드"는 무조건 통합 — 미수신/미확인/의심 시 경고창 후 **원천세 일괄(단일 파일) + 4대보험 통합(단일 파일·3시트)** 동시 다운로드
+- 4insure/공단 EDI **자동 신고(RPA)는 Phase 3, 현재 보류**
+  - 시트 분리(자격취득/상실/보수변경)는 RPA에 구조적으로 유리하나, **4insure 통합포털 실제 업로드 양식·자동화 정책이 미확보**(research.md §7·§8.4)라 RPA 자동신고 가능 여부를 지금 확정 불가
+  - 양식 실측 + 약관 확인 후 가능하면 Phase 2~3에서 처리 (현 단계는 세무사 수동 업로드용 표준 엑셀까지)
 
 #### Phase 3 이후 추가 출력물
 

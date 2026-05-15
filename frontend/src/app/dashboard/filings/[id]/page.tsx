@@ -36,7 +36,6 @@ export default function FilingDetailPage({
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [bulkPassword, setBulkPassword] = useState("");
   const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
-  const [showExcelPopup, setShowExcelPopup] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
 
   const allEntries = entries ?? [];
@@ -92,23 +91,6 @@ export default function FilingDetailPage({
     }
   }
 
-  async function downloadExcelForClient() {
-    if (!selectedSession) return;
-    try {
-      const blob = await apiBlob(`/api/v1/filings/${id}/payroll-excel?client_id=${selectedSession.client_id}`);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `급여대장_${selectedSession.client_name}_${filing.period}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  }
-
   async function downloadInsurance(
     kind: "acquisition" | "loss" | "change" | "combined",
     label: string,
@@ -142,6 +124,41 @@ export default function FilingDetailPage({
     } catch (e) {
       alert((e as Error).message);
     }
+  }
+
+  // 통합 다운로드: 무조건 전체 거래처 신고자료. 미수신/미확인/의심 시 경고.
+  // 원천세 = 일괄신고 단일 파일, 4대보험 = 단일 파일(3시트 분리).
+  async function downloadUnified() {
+    const unreceived = sessions.filter(
+      (s) => s.status === "PENDING" || s.status === "SENT",
+    );
+    const anomalySessions = sessions.filter((s) => s.has_anomalies);
+    const suspectEntries = allEntries.filter(
+      (e) =>
+        e.match_status === "UNCONFIRMED" ||
+        e.match_status === "AMBIGUOUS" ||
+        (e.anomaly_notes &&
+          Object.keys(e.anomaly_notes).length > 0 &&
+          !e.approved),
+    );
+    const probs: string[] = [];
+    if (unreceived.length)
+      probs.push(
+        `미수신 거래처 ${unreceived.length}곳: ${unreceived.map((s) => s.client_name).join(", ")}`,
+      );
+    if (anomalySessions.length)
+      probs.push(`이상치/확인필요 거래처 ${anomalySessions.length}곳`);
+    if (suspectEntries.length)
+      probs.push(`미확인·의심 항목 ${suspectEntries.length}건`);
+    if (probs.length > 0) {
+      const ok = window.confirm(
+        `⚠️ 미해결 사항이 있습니다:\n\n- ${probs.join("\n- ")}\n\n` +
+          "그래도 전체 거래처의 신고자료(원천세 + 4대보험)를 다운로드하시겠습니까?",
+      );
+      if (!ok) return;
+    }
+    await downloadExcel(); // 원천세 일괄신고 — 단일 파일
+    await downloadInsurance("combined", "통합"); // 4대보험 — 단일 파일(3시트 분리)
   }
 
   return (
@@ -196,23 +213,8 @@ export default function FilingDetailPage({
             <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1 hidden sm:inline-flex">
               {requestCollection.isPending ? "발송중..." : "선택업체 자료요청"}
             </Button>
-            <div className="relative">
-              <Button variant="ghost" onClick={() => setShowExcelPopup((v) => !v)} className="!text-[12px] !px-2.5 !py-1">엑셀다운로드</Button>
-              {showExcelPopup && (<>
-                <div className="fixed inset-0 z-40" onClick={() => setShowExcelPopup(false)} />
-                <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
-                  <button onClick={() => { setShowExcelPopup(false); downloadExcel(); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">전체 다운로드</button>
-                  <button onClick={() => { setShowExcelPopup(false); downloadExcelForClient(); }} disabled={!selectedSession} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50 disabled:opacity-40">선택 ({selectedSession?.client_name ?? "업체명"}) 다운로드</button>
-                  <div className="my-1 border-t border-gray-100" />
-                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("combined", "통합"); }} className="w-full text-left px-3 py-2 text-[12px] font-medium text-gray-700 hover:bg-gray-50">4대보험 통합 (3시트)</button>
-                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("acquisition", "자격취득"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">· 4대보험 자격취득</button>
-                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("loss", "자격상실"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">· 4대보험 자격상실</button>
-                  <button onClick={() => { setShowExcelPopup(false); downloadInsurance("change", "보수월액변경"); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">· 4대보험 보수월액변경</button>
-                  <div className="my-1 border-t border-gray-100" />
-                  <button onClick={() => { setShowExcelPopup(false); downloadPayslips(); }} className="w-full text-left px-3 py-2 text-[12px] font-medium text-gray-700 hover:bg-gray-50">급여명세서 (직원별)</button>
-                </div>
-              </>)}
-            </div>
+            <Button variant="secondary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
+            <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
           </div>
         </div>
         {/* Right col — matches original docs width (desktop only) */}
