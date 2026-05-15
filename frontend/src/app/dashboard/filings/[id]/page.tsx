@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 
 import {
+  useClients,
   useConfirmWithClient,
   useDeleteEntry,
   useFilingDashboard,
@@ -30,9 +31,13 @@ export default function FilingDetailPage({
   const { data, isLoading } = useFilingDashboard(id);
   const { data: entries } = useFilingEntries(id);
   const sendInvite = useSendInvite(id);
+  const requestCollection = useRequestCollection(id);
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkPassword, setBulkPassword] = useState("");
+  const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
+  const [showExcelPopup, setShowExcelPopup] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
 
   const allEntries = entries ?? [];
@@ -79,6 +84,23 @@ export default function FilingDetailPage({
       const a = document.createElement("a");
       a.href = url;
       a.download = `급여대장_${filing.period}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  async function downloadExcelForClient() {
+    if (!selectedSession) return;
+    try {
+      const blob = await apiBlob(`/api/v1/filings/${id}/payroll-excel?client_id=${selectedSession.client_id}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `급여대장_${selectedSession.client_name}_${filing.period}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -137,11 +159,22 @@ export default function FilingDetailPage({
             )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-            <Button variant="ghost" onClick={downloadExcel} className="!text-[12px] !px-2.5 !py-1">위하고T 엑셀</Button>
             <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1 hidden sm:inline-flex">
-              {sendInvite.isPending ? "발송중..." : "자료요청 일괄전송"}
+              {sendInvite.isPending ? "발송중..." : "전체 업체 자료요청"}
             </Button>
-            <Button className="!text-[12px] !px-3 !py-1 hidden sm:inline-flex">신고 완료 처리</Button>
+            <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1 hidden sm:inline-flex">
+              {requestCollection.isPending ? "발송중..." : "선택업체 자료요청"}
+            </Button>
+            <div className="relative">
+              <Button variant="ghost" onClick={() => setShowExcelPopup((v) => !v)} className="!text-[12px] !px-2.5 !py-1">엑셀다운로드</Button>
+              {showExcelPopup && (<>
+                <div className="fixed inset-0 z-40" onClick={() => setShowExcelPopup(false)} />
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
+                  <button onClick={() => { setShowExcelPopup(false); downloadExcel(); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">전체 다운로드</button>
+                  <button onClick={() => { setShowExcelPopup(false); downloadExcelForClient(); }} disabled={!selectedSession} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50 disabled:opacity-40">선택 ({selectedSession?.client_name ?? "업체명"}) 다운로드</button>
+                </div>
+              </>)}
+            </div>
           </div>
         </div>
         {/* Right col — matches original docs width (desktop only) */}
@@ -166,12 +199,25 @@ export default function FilingDetailPage({
       )}
 
       {showBulkConfirm && (
-        <Modal open={true} onClose={() => setShowBulkConfirm(false)} title="자료요청 일괄전송"
+        <Modal open={true} onClose={() => { setShowBulkConfirm(false); setBulkPassword(""); }} title="전체 업체 자료요청"
           footer={<>
-            <Button variant="ghost" onClick={() => setShowBulkConfirm(false)}>취소</Button>
-            <Button onClick={() => { setShowBulkConfirm(false); sendInvite.mutate(); }}>확인</Button>
+            <Button variant="ghost" onClick={() => { setShowBulkConfirm(false); setBulkPassword(""); }}>취소</Button>
+            <Button disabled={!bulkPassword} onClick={() => { setShowBulkConfirm(false); setBulkPassword(""); sendInvite.mutate(); }}>발송</Button>
           </>}>
-          <p className="text-[13px] text-gray-700">모든 거래처에 자료요청 안내문을 보냅니다. 진행하시겠습니까?</p>
+          <p className="text-[13px] text-gray-700 mb-3">모든 거래처에 자료요청 안내문을 이메일과 문자로 보냅니다.</p>
+          <label className="block text-[12px] font-medium text-gray-600 mb-1">비밀번호 확인</label>
+          <input type="password" value={bulkPassword} onChange={(e) => setBulkPassword(e.target.value)} placeholder="비밀번호를 입력하세요"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500" />
+        </Modal>
+      )}
+
+      {showSelectedRequestConfirm && selectedSession && (
+        <Modal open={true} onClose={() => setShowSelectedRequestConfirm(false)} title="선택업체 자료요청"
+          footer={<>
+            <Button variant="ghost" onClick={() => setShowSelectedRequestConfirm(false)}>취소</Button>
+            <Button onClick={() => { setShowSelectedRequestConfirm(false); requestCollection.mutate(selectedSession.id); }}>확인</Button>
+          </>}>
+          <p className="text-[13px] text-gray-700"><strong>{selectedSession.client_name}</strong>에 자료요청 안내문을 이메일과 문자로 보냅니다. 진행하시겠습니까?</p>
         </Modal>
       )}
     </div>
@@ -337,7 +383,8 @@ function SessionItem({ session, entries, active, onClick }: {
     >
       <div className="flex items-center gap-1.5 mb-1 min-w-0">
           {review > 0 && <span className="w-[7px] h-[7px] rounded-full bg-red-500 shrink-0 shadow-[0_0_0_3px_rgba(185,28,28,0.10)]" />}
-          {isDotted && review === 0 && <span className="w-[7px] h-[7px] rounded-full bg-gray-300 shrink-0" />}
+          {isDotted && review === 0 && <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-gray-300"}`} />}
+          {!isDotted && review === 0 && <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-green-500"}`} />}
           <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
       </div>
       <div className="flex gap-1.5 text-[11.5px] text-gray-500">
@@ -531,10 +578,13 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
   const confirmWithClient = useConfirmWithClient(filingId);
+  const { data: clients } = useClients();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<PayrollEntry>>({});
   const [confirmResult, setConfirmResult] = useState<{ sent: boolean; channel: string; error: string | null } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showClientInfo, setShowClientInfo] = useState(false);
+  const clientDetail = clients?.find((c) => c.id === session.client_id);
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -582,6 +632,9 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
                 {entries.filter((e) => e.approved).length}/{entries.length} 승인
               </span>
             )}
+            <button onClick={() => setShowClientInfo((v) => !v)} className="text-[11px] text-blue-600 hover:underline ml-1">
+              거래처 정보 {showClientInfo ? "▲" : "▼"}
+            </button>
           </div>
         </div>
         <div className="flex gap-1.5">
@@ -616,6 +669,26 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
           </Button>
         </div>
       </div>
+
+      {showClientInfo && clientDetail && (
+        <div className="border-b border-gray-100 shrink-0">
+          <div className="flex overflow-x-auto gap-3 px-4 py-3 snap-x snap-mandatory">
+            {[
+              { label: "사업자번호", value: clientDetail.business_number },
+              { label: "대표자", value: clientDetail.representative },
+              { label: "연락처", value: clientDetail.contact_phone },
+              { label: "이메일", value: clientDetail.contact_email },
+              { label: "법인여부", value: clientDetail.is_corporation ? "법인" : "개인" },
+              { label: "수집 이메일", value: clientDetail.collect_email },
+            ].filter((item) => item.value).map((item) => (
+              <div key={item.label} className="snap-start shrink-0 w-36 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
+                <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{item.label}</div>
+                <div className="text-[12px] font-semibold text-gray-800 mt-0.5 truncate">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {confirmResult && (
         <div className={`px-4 py-1.5 text-xs border-b border-gray-100 ${confirmResult.sent ? "text-blue-600" : "text-red-600"}`}>

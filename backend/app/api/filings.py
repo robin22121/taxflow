@@ -665,22 +665,27 @@ async def download_wehago_excel(
 @router.get("/{filing_id}/payroll-excel")
 async def download_payroll_excel(
     filing_id: str,
+    client_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """급여대장 엑셀 다운로드."""
+    """급여대장 엑셀 다운로드. client_id가 있으면 해당 업체만."""
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
 
+    filters = [
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.approved.is_(True),
+        PayrollEntry.employee_id.isnot(None),
+    ]
+    if client_id:
+        filters.append(PayrollEntry.client_id == client_id)
+
     entries = (
         await db.execute(
             select(PayrollEntry)
-            .where(
-                PayrollEntry.monthly_filing_id == filing_id,
-                PayrollEntry.approved.is_(True),
-                PayrollEntry.employee_id.isnot(None),
-            )
+            .where(*filters)
             .options(selectinload(PayrollEntry.employee))
         )
     ).scalars().all()
