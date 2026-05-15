@@ -77,26 +77,6 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-4">
-            <div className="flex-1 border-t border-gray-200" />
-            <span className="text-[11px] text-gray-500">또는</span>
-            <div className="flex-1 border-t border-gray-200" />
-          </div>
-
-          {/* Kakao button (visual only) */}
-          <button
-            type="button"
-            className="w-full flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium transition-colors"
-            style={{ background: "#FEE500", color: "#191919" }}
-            onClick={() => alert("카카오 로그인은 추후 지원 예정입니다.")}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 3C6.48 3 2 6.58 2 10.94c0 2.8 1.86 5.27 4.66 6.67l-1.19 4.36a.35.35 0 00.53.38l5.05-3.33c.31.03.63.04.95.04 5.52 0 10-3.58 10-7.99C22 6.58 17.52 3 12 3z" />
-            </svg>
-            카카오로 시작
-          </button>
-
           <p className="text-center text-[12px] text-gray-500 mt-4">
             계정이 없으신가요?{" "}
             <a href="/register" className="text-blue-600 hover:underline font-medium">
