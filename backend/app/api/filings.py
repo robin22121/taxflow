@@ -681,7 +681,6 @@ async def download_payroll_excel(
     filters = [
         PayrollEntry.monthly_filing_id == filing_id,
         PayrollEntry.approved.is_(True),
-        PayrollEntry.employee_id.isnot(None),
     ]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
