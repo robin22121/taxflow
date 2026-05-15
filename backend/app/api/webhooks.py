@@ -534,12 +534,17 @@ async def _notify_office_unregistered_client(
             from app.channels.email import get_email_channel
             from app.channels.base import MessageRecipient
             email_ch = get_email_channel()
-            await email_ch.send(
+            result = await email_ch.send(
                 MessageRecipient(name=office.representative or office.name, email=str(office.email)),
                 body=msg,
+                template_code="[이지원천] 미등록 거래처 자료 수신",
             )
+            logger.info("미등록 거래처 이메일 알림: office=%s, email=%s, channel=%s, accepted=%s, error=%s",
+                         office.name, office.email, result.channel, result.accepted, result.error)
         except Exception:
             logger.exception("미등록 거래처 이메일 알림 실패 (office=%s)", office.name)
+    else:
+        logger.warning("미등록 거래처 이메일 알림 스킵: office=%s — email 미등록", office.name)
 
     logger.info("미등록 거래처 알림 전송: office=%s, preview=%s", office.name, data_preview[:50])
 
