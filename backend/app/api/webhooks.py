@@ -238,40 +238,20 @@ async def kakao_webhook(
                     db, client, full_utterance, file_images, attachments_meta,
                 )
 
-        if pending:
-            # 이전 펜딩(자료) 있는데 또 매칭 실패 → 펜딩 교체
-            if file_text or file_images:
-                await _save_pending(db, plusfriend_key, tax_office_id,
-                                    utterance=utterance, file_text=file_text,
-                                    attachments_meta=attachments_meta)
-                return _kakao_response(
-                    "새 자료로 교체 저장했습니다.\n"
-                    "거래처명을 보내주세요.\n\n"
-                    "예) 하늘식품"
-                )
-            # 텍스트만 보냈는데 매칭 실패
-            return _kakao_response(
-                "거래처명을 확인할 수 없습니다.\n"
-                "등록된 거래처 상호명을 정확히 보내주세요.\n\n"
-                "예) 하늘식품"
-            )
+        # 미등록 거래처 — 자료 저장 보류, 세무사에게 알림
+        data_preview = (utterance or "")[:200]
+        if file_text:
+            data_preview = ((utterance or "") + "\n" + file_text)[:200]
 
-        # 펜딩 없음 — 자료가 있으면 임시 저장
-        if file_text or file_images or utterance:
-            await _save_pending(db, plusfriend_key, tax_office_id,
-                                utterance=utterance, file_text=file_text,
-                                attachments_meta=attachments_meta)
-            logger.info("카카오 웹훅: 자료 임시 저장 (utterance=%s, file=%s)", utterance[:50], bool(file_text))
-            return _kakao_response(
-                "자료를 임시 저장했습니다.\n"
-                "거래처명을 보내주세요.\n\n"
-                "예) 하늘식품"
-            )
+        if data_preview.strip():
+            await _notify_office_unregistered_client(db, tax_office_id, data_preview)
 
+        await _delete_pending(db, plusfriend_key)
         return _kakao_response(
-            "거래처명을 확인할 수 없습니다.\n"
-            "거래처명을 포함하여 다시 보내주세요.\n\n"
-            "예) 하늘식품 김영수 500 박미영 300"
+            "등록되지 않은 거래처입니다.\n\n"
+            "수신된 자료를 세무사사무소에 전달했습니다.\n"
+            "사무소에서 거래처를 등록한 후 다시 보내주세요.\n\n"
+            "거래처 등록: 이지원천 웹사이트 → 거래처 관리 → 거래처 추가"
         )
 
     # ── 거래처 매칭 성공 ──
@@ -446,6 +426,52 @@ async def _download_and_process_kakao_media(
         logger.exception("카카오 파일 처리 실패: url=%s", url)
 
     return file_text, images, attachments_meta
+
+
+async def _notify_office_unregistered_client(
+    db: AsyncSession, tax_office_id: str, data_preview: str
+) -> None:
+    """미등록 거래처 자료 수신 시 세무사사무소에 알림 (SMS + 이메일)."""
+    office = await db.get(TaxOffice, tax_office_id)
+    if not office:
+        return
+
+    msg = (
+        f"[이지원천] 미등록 거래처 자료 수신\n\n"
+        f"아래 자료가 수신되었으나, 등록되지 않은 거래처입니다.\n"
+        f"거래처를 확인 후 웹사이트에서 등록해주세요.\n\n"
+        f"--- 수신 내용 ---\n"
+        f"{data_preview}\n"
+        f"----------------"
+    )
+
+    # SMS 알림
+    if office.phone:
+        try:
+            from app.channels.sms import get_sms_channel
+            from app.channels.base import MessageRecipient
+            sms = get_sms_channel()
+            await sms.send(
+                MessageRecipient(name=office.representative or office.name, phone=office.phone),
+                body=msg,
+            )
+        except Exception:
+            logger.exception("미등록 거래처 SMS 알림 실패 (office=%s)", office.name)
+
+    # 이메일 알림
+    if office.email:
+        try:
+            from app.channels.email import get_email_channel
+            from app.channels.base import MessageRecipient
+            email_ch = get_email_channel()
+            await email_ch.send(
+                MessageRecipient(name=office.representative or office.name, email=str(office.email)),
+                body=msg,
+            )
+        except Exception:
+            logger.exception("미등록 거래처 이메일 알림 실패 (office=%s)", office.name)
+
+    logger.info("미등록 거래처 알림 전송: office=%s, preview=%s", office.name, data_preview[:50])
 
 
 async def _get_kakao_binding(
