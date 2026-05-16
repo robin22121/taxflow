@@ -220,26 +220,38 @@ def generate_loss_report(entries: list[PayrollEntry], period: str) -> bytes:
 # 보수월액 변경 신고서
 # ---------------------------------------------------------------------------
 
+# 웹EDI 보수(소득)월액 변경신청서 — 공식 파일올리기(일괄등록) 레이아웃
+# (웹EDI 가입·업무처리 매뉴얼 25.8, 한 건 = 한 행). EDI 업로드용 머신 포맷
+# 이므로 천단위 콤마·합계행 미적용(원시 숫자) — research.md §8 참고.
 _CHANGE_COLUMNS = [
-    "일련번호",
+    "국민연금",            # 신청여부 Y/N
+    "건강보험",            # 신청여부 Y/N
+    "고용보험",            # 신청여부 Y/N
+    "산재보험",            # 신청여부 Y/N
     "성명",
     "주민등록번호",
-    "변경전 보수월액",
-    "변경후 보수월액",
-    "증감",
-    "변경월",
-    "비고",
+    "건강증번호",
+    "연금-현재소득월액",
+    "연금-변경후소득월액",
+    "연금-근로자동의",      # 1:동의 2:미동의
+    "건강-변경연월",        # YYYYMM
+    "건강-보수월액",
+    "고용-월평균보수",
+    "고용-변경사유",        # 1:보수인상 2:보수인하 3:착오정정
+    "산재-월평균보수",
+    "산재-변경사유",        # 1:보수인상 2:보수인하 3:착오정정
 ]
 
 
 def _change_payload(entries: list[PayrollEntry], period: str) -> _SheetPayload:
+    yyyymm = period.replace("-", "")[:6]
     rows: list[list] = []
-    idx = 1
     for entry in entries:
         emp = entry.employee
         if not emp:
             continue
-        if entry.prev_amount is None or entry.prev_amount == entry.total_amount:
+        prev, cur = entry.prev_amount, entry.total_amount
+        if prev is None or prev == cur:
             continue
         is_acq_or_loss = (
             entry.match_status
@@ -249,23 +261,32 @@ def _change_payload(entries: list[PayrollEntry], period: str) -> _SheetPayload:
         )
         if is_acq_or_loss:
             continue
+        # 국민연금: 기준소득월액 20% 이상 변동 시에만 신청 가능
+        nps = "Y" if prev > 0 and abs(cur - prev) >= prev * 0.2 else "N"
+        # 변경사유: 1 보수인상 / 2 보수인하 (착오정정 3은 판별 불가)
+        reason = "1" if cur > prev else "2"
         rows.append([
-            idx,
+            nps, "Y", "Y", "Y",
             emp.name,
             _safe_decrypt_rrn(emp.rrn_encrypted),
-            entry.prev_amount,
-            entry.total_amount,
-            entry.total_amount - entry.prev_amount,
-            period,
-            "",
+            "",            # 건강증번호 (미보유)
+            prev,          # 연금-현재소득월액
+            cur,           # 연금-변경후소득월액
+            "1",           # 연금-근로자동의 (세무사 검토 전제 기본 동의)
+            yyyymm,        # 건강-변경연월
+            cur,           # 건강-보수월액
+            cur,           # 고용-월평균보수
+            reason,        # 고용-변경사유
+            cur,           # 산재-월평균보수
+            reason,        # 산재-변경사유
         ])
-        idx += 1
+    # EDI 업로드 머신 포맷 → 합계행·콤마 미적용 (sum_cols 비움)
     return _SheetPayload(
         "보수월액변경신고서",
         _CHANGE_COLUMNS,
-        [8, 12, 18, 16, 16, 12, 10, 12],
+        [8, 8, 8, 8, 12, 16, 12, 14, 14, 12, 10, 14, 14, 10, 14, 10],
         rows,
-        [4, 5, 6],
+        [],
     )
 
 

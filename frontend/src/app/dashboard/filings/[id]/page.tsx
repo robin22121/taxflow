@@ -662,6 +662,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [tab, setTab] = useState<"wht" | "insurance">("wht");
   const clientDetail = clients?.find((c) => c.id === session.client_id);
 
   // Initialize drafts for pending entries
@@ -774,10 +775,22 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
             {clientDetail.is_corporation !== undefined && <><span className="text-gray-300">|</span><span>{clientDetail.is_corporation ? "법인" : "개인"}</span></>}
           </div>
         )}
+        <div className="flex gap-1 mt-2.5">
+          <button onClick={() => setTab("wht")}
+            className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            원천세 관리
+          </button>
+          <button onClick={() => setTab("insurance")}
+            className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            4대보험 관리
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
-        {entries.length > 0 ? (
+        {tab === "insurance" ? (
+          <InsuranceTab filingId={filingId} session={session} entries={entries} />
+        ) : entries.length > 0 ? (
           <table className="w-full text-[12px]">
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-gray-200">
@@ -814,6 +827,107 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
         )}
       </div>
     </>
+  );
+}
+
+/* ═══ 4대보험 관리 탭 ═══ */
+
+function InsuranceTab({ filingId, session, entries }: {
+  filingId: string;
+  session: CollectionSession;
+  entries: PayrollEntry[];
+}) {
+  const acq = entries.filter((e) => e.match_status === "NEW_HIRE_SUSPECTED");
+  const loss = entries.filter((e) => e.match_status === "RESIGNATION_SUSPECTED");
+  const chg = entries.filter(
+    (e) =>
+      e.match_status !== "NEW_HIRE_SUSPECTED" &&
+      e.match_status !== "RESIGNATION_SUSPECTED" &&
+      e.prev_amount != null &&
+      e.prev_amount !== e.total_amount,
+  );
+
+  async function dl(
+    kind: "combined" | "acquisition" | "loss" | "change",
+    label: string,
+  ) {
+    try {
+      const blob = await apiBlob(
+        `/api/v1/filings/${filingId}/insurance-${kind}?client_id=${session.client_id}`,
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `4대보험_${label}_${session.client_name}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  function Section({ title, list, kind, label, change }: {
+    title: string;
+    list: PayrollEntry[];
+    kind: "acquisition" | "loss" | "change";
+    label: string;
+    change?: boolean;
+  }) {
+    return (
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+          <span className="text-[12px] font-semibold text-gray-700">
+            {title} <span className="text-blue-600">{list.length}</span>명
+          </span>
+          <button
+            onClick={() => dl(kind, label)}
+            disabled={list.length === 0}
+            className="text-[11px] text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline">
+            엑셀 다운로드
+          </button>
+        </div>
+        {list.length === 0 ? (
+          <div className="px-3 py-3 text-[12px] text-gray-400 text-center">대상 없음</div>
+        ) : (
+          <ul className="divide-y divide-gray-50">
+            {list.map((e) => (
+              <li key={e.id} className="flex items-center justify-between px-3 py-2 text-[12px]">
+                <span className="font-medium text-gray-800">{e.raw_name}</span>
+                <span className="tabular-nums text-gray-600">
+                  {change && e.prev_amount != null
+                    ? `${formatKrw(e.prev_amount)} → ${formatKrw(e.total_amount)}`
+                    : formatKrw(e.total_amount)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[12px] text-gray-500">
+          {session.client_name} · 이번 달 4대보험 신고 대상
+        </div>
+        <button
+          onClick={() => dl("combined", "통합")}
+          className="px-3 py-1.5 text-[12px] font-semibold bg-blue-600 text-white rounded-md hover:bg-blue-700">
+          4대보험 통합 다운로드 (3시트)
+        </button>
+      </div>
+      <Section title="자격취득" list={acq} kind="acquisition" label="자격취득" />
+      <Section title="자격상실" list={loss} kind="loss" label="자격상실" />
+      <Section title="보수월액 변경" list={chg} kind="change" label="보수월액변경" change />
+      <p className="text-[11px] text-gray-400 leading-relaxed">
+        ※ 표기는 현재 거래처 데이터 기준 추정 분류입니다. 실제 신고 대상·코드(취득/상실부호,
+        국민연금 20% 기준 등)는 다운로드 엑셀에서 확정됩니다. EDI 자동 제출은 Phase 2~3.
+      </p>
+    </div>
   );
 }
 

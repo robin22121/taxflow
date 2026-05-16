@@ -84,12 +84,19 @@ def test_remuneration_change_only_changed_amounts():
     new_hire = _entry(_emp("신규자", hired=date(2026, 4, 1)),
                       2_000_000, prev=None)
 
+    big = _entry(_emp("대폭변동", hired=date(2023, 5, 1)),
+                 3_900_000, prev=3_000_000)  # +30% → 국민연금 Y
+
     rows = _rows(generate_remuneration_change_report(
-        [changed, same, new_hire], "2026-04"))
-    data = rows[1:-1]
-    assert {r[1] for r in data} == {"오변동"}
-    # 증감 = 변경후 - 변경전
-    assert data[0][5] == 300_000
+        [changed, same, new_hire, big], "2026-04"))
+    data = rows[1:]  # 헤더만 제외 (공식 레이아웃 = 합계행 없음)
+    by_name = {r[4]: r for r in data}  # 성명 = 5번째 컬럼
+    assert set(by_name) == {"오변동", "대폭변동"}
+    # 오변동: +10% → 국민연금 N, 연금 현재/변경후, 고용 변경사유 1(인상)
+    o = by_name["오변동"]
+    assert o[0] == "N" and o[7] == 3_000_000 and o[8] == 3_300_000 and o[13] == "1"
+    # 대폭변동: +30% → 국민연금 Y
+    assert by_name["대폭변동"][0] == "Y"
 
 
 def test_empty_returns_valid_workbook():
@@ -109,4 +116,5 @@ def test_combined_has_three_sheets():
     assert wb.sheetnames == ["자격취득신고서", "자격상실신고서", "보수월액변경신고서"]
     assert wb["자격취득신고서"]["B2"].value == "김신규"
     assert wb["자격상실신고서"]["B2"].value == "최퇴사"
-    assert wb["보수월액변경신고서"]["B2"].value == "오변동"
+    # 보수월액변경 공식 레이아웃: 성명 = E열
+    assert wb["보수월액변경신고서"]["E2"].value == "오변동"

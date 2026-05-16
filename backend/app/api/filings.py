@@ -884,17 +884,20 @@ async def download_business_statement(
 
 
 async def _wage_entries_for_filing(
-    filing_id: str, db: AsyncSession
+    filing_id: str, db: AsyncSession, client_id: str | None = None
 ) -> list[PayrollEntry]:
+    filters = [
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.income_type == "WAGE",
+        PayrollEntry.employee_id.isnot(None),
+    ]
+    if client_id:
+        filters.append(PayrollEntry.client_id == client_id)
     return list(
         (
             await db.execute(
                 select(PayrollEntry)
-                .where(
-                    PayrollEntry.monthly_filing_id == filing_id,
-                    PayrollEntry.income_type == "WAGE",
-                    PayrollEntry.employee_id.isnot(None),
-                )
+                .where(*filters)
                 .options(selectinload(PayrollEntry.employee))
             )
         )
@@ -906,15 +909,16 @@ async def _wage_entries_for_filing(
 @router.get("/{filing_id}/insurance-acquisition")
 async def download_insurance_acquisition(
     filing_id: str,
+    client_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """4대 보험 자격취득 신고서 엑셀 다운로드."""
+    """4대 보험 자격취득 신고서 엑셀 다운로드. client_id 시 해당 거래처만."""
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
 
-    entries = await _wage_entries_for_filing(filing_id, db)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id)
     blob = generate_acquisition_report(entries, period=filing.period)
     return Response(
         content=blob,
@@ -930,15 +934,16 @@ async def download_insurance_acquisition(
 @router.get("/{filing_id}/insurance-loss")
 async def download_insurance_loss(
     filing_id: str,
+    client_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """4대 보험 자격상실 신고서 엑셀 다운로드."""
+    """4대 보험 자격상실 신고서 엑셀 다운로드. client_id 시 해당 거래처만."""
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
 
-    entries = await _wage_entries_for_filing(filing_id, db)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id)
     blob = generate_loss_report(entries, period=filing.period)
     return Response(
         content=blob,
@@ -954,15 +959,16 @@ async def download_insurance_loss(
 @router.get("/{filing_id}/insurance-change")
 async def download_insurance_change(
     filing_id: str,
+    client_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """4대 보험 보수월액 변경 신고서 엑셀 다운로드."""
+    """4대 보험 보수월액 변경 신고서 엑셀 다운로드. client_id 시 해당 거래처만."""
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
 
-    entries = await _wage_entries_for_filing(filing_id, db)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id)
     blob = generate_remuneration_change_report(entries, period=filing.period)
     return Response(
         content=blob,
@@ -978,15 +984,16 @@ async def download_insurance_change(
 @router.get("/{filing_id}/insurance-combined")
 async def download_insurance_combined(
     filing_id: str,
+    client_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """4대 보험 통합 — 자격취득·자격상실·보수월액변경 3시트 단일 워크북."""
+    """4대 보험 통합 — 3시트 단일 워크북. client_id 시 해당 거래처만."""
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
 
-    entries = await _wage_entries_for_filing(filing_id, db)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id)
     blob = generate_combined_insurance_report(entries, period=filing.period)
     return Response(
         content=blob,
