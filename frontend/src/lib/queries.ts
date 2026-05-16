@@ -19,6 +19,7 @@ import type {
   ImportPayrollResult,
   PayrollEntry,
   SessionAttachment,
+  SessionTimelineEvent,
 } from "./types";
 
 export function useMe() {
@@ -68,6 +69,17 @@ export function useSessionAttachments(filingId: string, sessionId: string | null
     queryFn: () =>
       api<SessionAttachment[]>(
         `/api/v1/filings/${filingId}/sessions/${sessionId}/attachments`,
+      ),
+    enabled: !!sessionId,
+  });
+}
+
+export function useSessionTimeline(filingId: string, sessionId: string | null) {
+  return useQuery({
+    queryKey: ["filings", filingId, "sessions", sessionId, "timeline"],
+    queryFn: () =>
+      api<SessionTimelineEvent[]>(
+        `/api/v1/filings/${filingId}/sessions/${sessionId}/timeline`,
       ),
     enabled: !!sessionId,
   });

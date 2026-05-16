@@ -69,6 +69,17 @@ export type SessionAttachment = {
   received_at: string | null;
 };
 
+export type SessionTimelineEvent = {
+  id: string;
+  at: string | null;
+  direction: "out" | "in" | "system";
+  channel: string;
+  event_type: string;
+  label: string;
+  sender_name: string | null;
+  detail: string;
+};
+
 export type CollectionSession = {
   id: string;
   client_id: string;

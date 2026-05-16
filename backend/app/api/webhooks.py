@@ -9,6 +9,7 @@ into the shared ``_ingest_message()`` pipeline.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -16,8 +17,7 @@ import logging
 import re
 import secrets
 
-import asyncio
-
+import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,7 +40,7 @@ from app.api.collect import _ingest_message
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# asyncio.create_task의 약한 참조 문제 방지 — 태스크 참조를 보관
+# asyncio.create_task 약한 참조 방지 — 콜백 태스크 참조 보관
 _running_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
 
 
@@ -136,7 +136,7 @@ async def kakao_welcome(request: Request) -> dict:
         f"• 거래처명 필수 (사업자등록증 상호명)\n"
         f"• 한 거래처씩 따로 전송\n"
         f"• 잘못 보낸 경우 다시 보내면 덮어씌움\n"
-        f"• 반드시 이 채팅방에서 직접 입력해야 자료가 전송됩니다"
+        f"• 반드시 챗봇에게 메시지 입력, 파일첨부해야 자료가 전송됩니다."
     )
 
 
@@ -177,6 +177,8 @@ async def kakao_webhook(
     utterance = user_request.get("utterance", "").strip()
     user_props = user_request.get("user", {}).get("properties", {})
     plusfriend_key = user_props.get("plusfriendUserKey", "")
+    # 오픈빌더 콜백 — 블록에 콜백 사용 설정 시 페이로드에 포함됨
+    callback_url = user_request.get("callbackUrl")
 
     # ── 사무소 바인딩 확인 ──
     binding = await _get_kakao_binding(db, plusfriend_key)
@@ -241,6 +243,7 @@ async def kakao_webhook(
                 logger.info("카카오 웹훅: 펜딩 거래처와 합침 (client=%s)", client.business_name)
                 return await _process_and_respond(
                     db, client, full_utterance, file_images, attachments_meta,
+                    callback_url,
                 )
 
         # 미등록 거래처 — 자료 저장 보류, 세무사에게 알림
@@ -288,6 +291,7 @@ async def kakao_webhook(
 
     return await _process_and_respond(
         db, client, full_utterance, file_images, attachments_meta,
+        callback_url,
     )
 
 
@@ -313,60 +317,107 @@ async def _process_and_respond(
     full_utterance: str,
     file_images: list[tuple[bytes, str]],
     attachments_meta: list[dict],
+    callback_url: str | None = None,
 ) -> dict:
-    """거래처 매칭 완료 후 즉시 접수 응답 → 백그라운드에서 AI 파싱."""
+    """거래처 매칭 완료 후 자료 접수.
+
+    오픈빌더 콜백 사용 시(권장): ① 즉시 '자료 접수 안내'(useCallback) →
+    ② 백그라운드 파싱 후 callbackUrl로 '분석 결과 안내' push — 2회 응답.
+    콜백 미설정(폴백): 동기 파싱 후 요약 1회 응답.
+    """
     session = await _find_active_session(db, client)
     if not session:
         return _kakao_response(
             f"{client.business_name} — 현재 진행 중인 자료 수집 건이 없습니다."
         )
 
-    # 백그라운드 처리에 필요한 ID를 미리 저장
-    session_id = session.id
-    filing_id = session.monthly_filing_id
-    client_id = client.id
+    filing = session.monthly_filing
     client_name = client.business_name
-    filing_period = session.monthly_filing.period
 
-    task = asyncio.create_task(
-        _background_ingest_kakao(
-            session_id=session_id,
-            filing_id=filing_id,
-            client_id=client_id,
-            client_name=client_name,
-            filing_period=filing_period,
-            tax_office_id=client.tax_office_id,
-            full_utterance=full_utterance,
-            file_images=file_images,
-            attachments_meta=attachments_meta,
+    if callback_url:
+        task = asyncio.create_task(
+            _callback_ingest_kakao(
+                callback_url=callback_url,
+                session_id=session.id,
+                filing_id=filing.id,
+                client_id=client.id,
+                client_name=client_name,
+                filing_period=filing.period,
+                full_utterance=full_utterance,
+                file_images=file_images,
+                attachments_meta=attachments_meta,
+            )
         )
-    )
-    _running_tasks.add(task)
-    task.add_done_callback(_running_tasks.discard)
+        _running_tasks.add(task)
+        task.add_done_callback(_running_tasks.discard)
+        return {
+            "version": "2.0",
+            "useCallback": True,
+            "data": {
+                "text": (
+                    f"✅ {client_name} 자료 접수\n"
+                    f"AI가 분석 중입니다. 잠시 후 결과를 보내드릴게요.\n"
+                    f"(보통 10~30초 소요)"
+                )
+            },
+        }
 
-    return _kakao_response(
-        f"✅ {client_name} 자료 접수 완료\n\n"
-        f"AI가 분석 중입니다. 완료되면 결과를 보내드릴게요.\n"
-        f"(보통 10~30초 소요)\n\n"
-        f"※ 반드시 이 채팅방에서 직접 입력해야 자료가 전송됩니다"
-    )
+    # 콜백 미설정 — 동기 파싱 폴백 (오픈빌더 타임아웃 위험: 파일/이미지 건)
+    try:
+        await _ingest_message(
+            db=db,
+            session=session,
+            client=client,
+            filing=filing,
+            text=full_utterance,
+            channel="kakao",
+            images=file_images or None,
+            attachments=attachments_meta or None,
+        )
+        entries = (
+            await db.execute(
+                select(PayrollEntry)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing.id,
+                    PayrollEntry.client_id == client.id,
+                )
+                .order_by(PayrollEntry.total_amount.desc())
+            )
+        ).scalars().all()
+        return _kakao_response(
+            _build_detailed_response(
+                client_name=client_name,
+                filing_period=filing.period,
+                entries=list(entries),
+            )
+        )
+    except Exception:
+        logger.exception("카카오 동기 파싱 실패: client=%s", client_name)
+        return _kakao_response(
+            f"{client_name} 자료를 받았으나 처리 중 오류가 발생했습니다.\n"
+            f"잠시 후 다시 보내주시거나 담당자에게 문의해주세요."
+        )
 
 
-async def _background_ingest_kakao(
+async def _callback_ingest_kakao(
     *,
+    callback_url: str,
     session_id: str,
     filing_id: str,
     client_id: str,
     client_name: str,
     filing_period: str,
-    tax_office_id: str,
     full_utterance: str,
     file_images: list[tuple[bytes, str]],
     attachments_meta: list[dict],
 ) -> None:
-    """백그라운드에서 AI 파싱 후 세무사사무소에 SMS로 결과 전송."""
+    """백그라운드: AI 파싱 후 오픈빌더 callbackUrl로 결과 안내 push.
+
+    오픈빌더 콜백은 ack 후 1분 이내 1회 응답해야 함 (파싱 10~30초로 충족).
+    """
     from app.db import SessionLocal
 
+    summary: str
     try:
         async with SessionLocal() as db:
             session = (
@@ -380,7 +431,7 @@ async def _background_ingest_kakao(
                 )
             ).scalar_one_or_none()
             if not session:
-                logger.error("백그라운드 파싱: 세션 없음 (id=%s)", session_id)
+                logger.error("콜백 파싱: 세션 없음 (id=%s)", session_id)
                 return
 
             await _ingest_message(
@@ -393,7 +444,6 @@ async def _background_ingest_kakao(
                 images=file_images or None,
                 attachments=attachments_meta or None,
             )
-
             entries = (
                 await db.execute(
                     select(PayrollEntry)
@@ -404,19 +454,25 @@ async def _background_ingest_kakao(
                     .order_by(PayrollEntry.total_amount.desc())
                 )
             ).scalars().all()
-
-            response_text = _build_detailed_response(
+            summary = _build_detailed_response(
                 client_name=client_name,
                 filing_period=filing_period,
                 entries=list(entries),
             )
-            logger.info("백그라운드 파싱 완료: client=%s, entries=%d", client_name, len(entries))
-
-            # TODO: 카카오 알림톡 템플릿 등록 후 결과 전송 구현 (plan.md 백로그 참조)
-            logger.info("파싱 결과 (알림톡 미구현, 대시보드에서 확인):\n%s", response_text)
-
     except Exception:
-        logger.exception("백그라운드 카카오 파싱 실패: client=%s", client_name)
+        logger.exception("콜백 카카오 파싱 실패: client=%s", client_name)
+        summary = (
+            f"{client_name} 자료 처리 중 오류가 발생했습니다.\n"
+            f"잠시 후 다시 보내주시거나 담당자에게 문의해주세요."
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            await http.post(callback_url, json=_kakao_response(summary))
+    except Exception:
+        logger.exception(
+            "콜백 전송 실패: client=%s url=%s", client_name, callback_url
+        )
 
 
 def _has_payroll_content(utterance: str, client_name: str) -> bool:

@@ -308,6 +308,86 @@ async def list_session_attachments(
     return out
 
 
+_EVENT_LABELS = {
+    "SEND_ALIMTALK": ("out", "자료요청 발송"),
+    "SEND_INVITE": ("out", "초대장 발송"),
+    "SEND_CONFIRMATION": ("out", "확인 회신 발송"),
+    "FOLLOWUP_SENT": ("out", "후속질문 발송"),
+    "PARSE_RESULT": ("system", "AI 파싱 완료"),
+    "IMPORT_PAYROLL": ("system", "급여 임포트"),
+}
+_CHANNEL_KO = {
+    "kakao": "카카오톡", "email": "이메일", "sms": "문자",
+    "voice": "전화", "manual": "직접", "url": "웹폼",
+}
+
+
+@router.get("/{filing_id}/sessions/{session_id}/timeline")
+async def session_timeline(
+    filing_id: str,
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict]:
+    """세션(=해당 월) 고객 소통 내역 타임라인.
+
+    direction: out=프로덕트/세무사→고객, in=고객사→서버, system=내부처리.
+    """
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    session = await db.get(CollectionSession, session_id)
+    if not session or session.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+
+    events = (
+        await db.execute(
+            select(CollectionEvent)
+            .where(CollectionEvent.session_id == session_id)
+            .order_by(CollectionEvent.created_at)
+        )
+    ).scalars().all()
+
+    out: list[dict] = []
+    for ev in events:
+        et = ev.event_type or ""
+        if et in _EVENT_LABELS:
+            direction, label = _EVENT_LABELS[et]
+        elif et.startswith("SEND") or et.endswith("_SENT"):
+            direction, label = "out", "발송"
+        elif et.startswith("RECEIVE"):
+            direction = "in"
+            label = "자료 제출 (파싱 실패)" if et.endswith("_UNPARSEABLE") else "자료 제출"
+        else:
+            direction, label = "system", et or "이벤트"
+
+        atts = (ev.raw_payload or {}).get("attachments") or []
+        if atts:
+            detail = f"첨부 {len(atts)}건"
+        elif ev.raw_text:
+            detail = " ".join(ev.raw_text.split())[:60]
+        else:
+            detail = ""
+
+        at = (
+            ev.received_date.isoformat()
+            if ev.received_date
+            else (ev.created_at.isoformat() if ev.created_at else None)
+        )
+        out.append({
+            "id": ev.id,
+            "at": at,
+            "direction": direction,
+            "channel": _CHANNEL_KO.get(ev.channel or "", ev.channel or ""),
+            "event_type": et,
+            "label": label,
+            "sender_name": ev.sender_name,
+            "detail": detail,
+        })
+    return out
+
+
 @router.get("/{filing_id}/sessions/{session_id}/attachments/raw")
 async def get_attachment(
     filing_id: str,

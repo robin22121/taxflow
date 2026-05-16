@@ -12,12 +12,13 @@ import {
   useRequestCollection,
   useSendInvite,
   useSessionAttachments,
+  useSessionTimeline,
   useSubmitMessage,
   useUpdateEntry,
 } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
-import type { CollectionSession, PayrollEntry, SessionAttachment, SourceEvent } from "@/lib/types";
+import type { CollectionSession, PayrollEntry, SessionAttachment, SessionTimelineEvent, SourceEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
 
@@ -383,7 +384,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
           <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
             highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">원본 자료</div>
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">고객 소통 내역</div>
         )}
       </div>
     </div>
@@ -459,6 +460,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
 }) {
   const qc = useQueryClient();
   const { data: attachments } = useSessionAttachments(filingId, session.id);
+  const { data: timeline } = useSessionTimeline(filingId, session.id);
   const submit = useSubmitMessage(filingId);
   const requestCollection = useRequestCollection(filingId);
   const [showInput, setShowInput] = useState(false);
@@ -490,9 +492,9 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
 
   return (
     <>
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100 shrink-0">
+      <div className="flex items-center justify-between px-3 pt-2.5 pb-2 shrink-0">
         <div>
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">원본 자료</span>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">고객 소통 내역</span>
           <div className="text-[13px] font-semibold mt-0.5">{session.client_name}</div>
         </div>
         <div className="flex gap-1.5 text-[10px]">
@@ -507,6 +509,36 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
       </div>
 
       <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+        {timeline && timeline.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-0.5">소통 타임라인</div>
+            {timeline.map((t: SessionTimelineEvent) => (
+              <div key={t.id} className="flex items-start gap-2 px-2 py-1.5 rounded-md bg-gray-50 border border-gray-100">
+                <span className={`mt-px shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                  t.direction === "out" ? "bg-blue-50 text-blue-600"
+                    : t.direction === "in" ? "bg-green-50 text-green-600"
+                    : "bg-gray-100 text-gray-500"
+                }`}>
+                  {t.direction === "out" ? "프로덕트→고객" : t.direction === "in" ? "고객사→서버" : "시스템"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 text-[11.5px] text-gray-700">
+                    <span className="tabular-nums text-gray-400">
+                      {t.at ? new Date(t.at).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : ""}
+                    </span>
+                    <span className="font-medium">{t.label}</span>
+                    {t.channel && <span className="text-gray-400">· {t.channel}</span>}
+                  </div>
+                  {(t.sender_name || t.detail) && (
+                    <div className="text-[11px] text-gray-500 truncate">
+                      {t.sender_name ? `${t.sender_name} · ` : ""}{t.detail}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         {visibleAttachments.length > 0 && (
           <div className="grid grid-cols-3 gap-1.5">
             {visibleAttachments.map((a) => (
