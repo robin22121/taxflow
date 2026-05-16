@@ -321,9 +321,11 @@ async def _process_and_respond(
 ) -> dict:
     """거래처 매칭 완료 후 자료 접수.
 
-    오픈빌더 콜백 사용 시(권장): ① 즉시 '자료 접수 안내'(useCallback) →
-    ② 백그라운드 파싱 후 callbackUrl로 '분석 결과 안내' push — 2회 응답.
-    콜백 미설정(폴백): 동기 파싱 후 요약 1회 응답.
+    파싱은 항상 백그라운드에서 수행하고, 사용자에게는 '접수되었습니다'만
+    즉시 응답한다 (분석 결과는 대시보드에서 확인). 동기 파싱으로 인한
+    오픈빌더 타임아웃·오류를 제거.
+
+    콜백 활성(오픈빌더 AI 챗봇 전환) 시에만 추가로 callbackUrl로 결과 push.
     """
     session = await _find_active_session(db, client)
     if not session:
@@ -333,6 +335,7 @@ async def _process_and_respond(
 
     filing = session.monthly_filing
     client_name = client.business_name
+    ack = f"✅ {client_name} 자료가 접수되었습니다."
 
     if callback_url:
         task = asyncio.create_task(
@@ -350,53 +353,21 @@ async def _process_and_respond(
         )
         _running_tasks.add(task)
         task.add_done_callback(_running_tasks.discard)
-        return {
-            "version": "2.0",
-            "useCallback": True,
-            "data": {
-                "text": (
-                    f"✅ {client_name} 자료 접수\n"
-                    f"AI가 분석 중입니다. 잠시 후 결과를 보내드릴게요.\n"
-                    f"(보통 10~30초 소요)"
-                )
-            },
-        }
+        return {"version": "2.0", "useCallback": True, "data": {"text": ack}}
 
-    # 콜백 미설정 — 동기 파싱 폴백 (오픈빌더 타임아웃 위험: 파일/이미지 건)
-    try:
-        await _ingest_message(
-            db=db,
-            session=session,
-            client=client,
-            filing=filing,
-            text=full_utterance,
-            channel="kakao",
-            images=file_images or None,
-            attachments=attachments_meta or None,
+    # 콜백 미설정 — 백그라운드 파싱(결과는 대시보드 확인), 즉시 접수 응답만
+    task = asyncio.create_task(
+        _bg_ingest_kakao(
+            session_id=session.id,
+            client_name=client_name,
+            full_utterance=full_utterance,
+            file_images=file_images,
+            attachments_meta=attachments_meta,
         )
-        entries = (
-            await db.execute(
-                select(PayrollEntry)
-                .where(
-                    PayrollEntry.monthly_filing_id == filing.id,
-                    PayrollEntry.client_id == client.id,
-                )
-                .order_by(PayrollEntry.total_amount.desc())
-            )
-        ).scalars().all()
-        return _kakao_response(
-            _build_detailed_response(
-                client_name=client_name,
-                filing_period=filing.period,
-                entries=list(entries),
-            )
-        )
-    except Exception:
-        logger.exception("카카오 동기 파싱 실패: client=%s", client_name)
-        return _kakao_response(
-            f"{client_name} 자료를 받았으나 처리 중 오류가 발생했습니다.\n"
-            f"잠시 후 다시 보내주시거나 담당자에게 문의해주세요."
-        )
+    )
+    _running_tasks.add(task)
+    task.add_done_callback(_running_tasks.discard)
+    return _kakao_response(ack)
 
 
 async def _callback_ingest_kakao(
@@ -473,6 +444,47 @@ async def _callback_ingest_kakao(
         logger.exception(
             "콜백 전송 실패: client=%s url=%s", client_name, callback_url
         )
+
+
+async def _bg_ingest_kakao(
+    *,
+    session_id: str,
+    client_name: str,
+    full_utterance: str,
+    file_images: list[tuple[bytes, str]],
+    attachments_meta: list[dict],
+) -> None:
+    """백그라운드: 자료 파싱·저장만 수행. 챗봇 push 없음 (결과는 대시보드 확인)."""
+    from app.db import SessionLocal
+
+    try:
+        async with SessionLocal() as db:
+            session = (
+                await db.execute(
+                    select(CollectionSession)
+                    .where(CollectionSession.id == session_id)
+                    .options(
+                        selectinload(CollectionSession.client),
+                        selectinload(CollectionSession.monthly_filing),
+                    )
+                )
+            ).scalar_one_or_none()
+            if not session:
+                logger.error("백그라운드 파싱: 세션 없음 (id=%s)", session_id)
+                return
+            await _ingest_message(
+                db=db,
+                session=session,
+                client=session.client,
+                filing=session.monthly_filing,
+                text=full_utterance,
+                channel="kakao",
+                images=file_images or None,
+                attachments=attachments_meta or None,
+            )
+            logger.info("백그라운드 파싱 완료: client=%s", client_name)
+    except Exception:
+        logger.exception("백그라운드 카카오 파싱 실패: client=%s", client_name)
 
 
 def _has_payroll_content(utterance: str, client_name: str) -> bool:
