@@ -5,7 +5,16 @@ def register_routes(app: FastAPI) -> None:
     """Wire all routers."""
     # Routers are registered in later tasks (auth, clients, filings, collect, dashboard).
     # Importing here so adding new routers is a one-line edit.
-    from app.api import auth, clients, collect, filings, imports, public_collect, webhooks
+    from app.api import (
+        auth,
+        billing,
+        clients,
+        collect,
+        filings,
+        imports,
+        public_collect,
+        webhooks,
+    )
 
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(clients.router, prefix="/api/v1/clients", tags=["clients"])
@@ -14,3 +23,4 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(collect.router, prefix="/api/v1/collect", tags=["collect"])
     app.include_router(public_collect.router, prefix="/api/v1/public", tags=["public"])
     app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])
+    app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])

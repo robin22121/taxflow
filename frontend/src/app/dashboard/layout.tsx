@@ -12,6 +12,7 @@ import { Button, Input, Modal } from "@/components/ui";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "월별 신고" },
   { href: "/dashboard/clients", label: "거래처" },
+  { href: "/dashboard/billing", label: "결제" },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

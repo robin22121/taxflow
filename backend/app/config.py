@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     ncp_object_storage_secret_key: str = ""
     ncp_object_storage_bucket: str = "taxflow-uploads"
 
+    # ── 결제 (토스페이먼츠 — 카드 빌링키 정기결제) ──────────
+    toss_secret_key: str = ""   # test_sk_... / live_sk_... (서버 전용)
+    toss_client_key: str = ""   # 프론트 노출용 클라이언트 키 (참고 보관)
+    toss_api_base: str = "https://api.tosspayments.com"
+    billing_cron_secret: str = ""  # POST /billing/cron/charge-due 호출 보호용
+
 
 @lru_cache
 def get_settings() -> Settings:

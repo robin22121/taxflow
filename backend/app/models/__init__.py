@@ -1,3 +1,10 @@
+from app.models.billing import (
+    Payment,
+    PaymentStatus,
+    Subscription,
+    SubscriptionPlan,
+    SubscriptionStatus,
+)
 from app.models.business_type import BUSINESS_TYPE_CODES, BusinessTypeCode
 from app.models.client import Client
 from app.models.collection import (
@@ -29,8 +36,13 @@ __all__ = [
     "MatchStatus",
     "MonthlyFiling",
     "MonthlyFilingStatus",
+    "Payment",
+    "PaymentStatus",
     "PayrollEntry",
     "SecureToken",
+    "Subscription",
+    "SubscriptionPlan",
+    "SubscriptionStatus",
     "TaxOffice",
     "User",
 ]

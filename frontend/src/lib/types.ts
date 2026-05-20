@@ -164,3 +164,41 @@ export type PayrollEntry = {
   approved: boolean;
   source_event: SourceEvent | null;
 };
+
+// ── 결제·구독 (토스 카드 빌링키 정기결제) ──────────────────
+export type BillingPlan = {
+  code: string;
+  label: string;
+  amount: number;
+  clients_limit: string;
+  phase: string;
+};
+
+export type Subscription = {
+  id: string;
+  plan: string;
+  plan_label: string;
+  status: string; // INACTIVE | ACTIVE | PAST_DUE | CANCELED
+  amount: number;
+  customer_key: string;
+  card_company: string | null;
+  card_number_masked: string | null;
+  card_type: string | null;
+  current_period_start: string | null;
+  next_billing_date: string | null;
+  canceled_at: string | null;
+};
+
+export type Payment = {
+  id: string;
+  order_id: string;
+  order_name: string;
+  amount: number;
+  status: string; // PENDING | PAID | FAILED
+  billing_period: string;
+  method: string | null;
+  failure_message: string | null;
+  receipt_url: string | null;
+  approved_at: string | null;
+  created_at: string;
+};

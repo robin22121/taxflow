@@ -9,6 +9,7 @@ import {
 import { api } from "./api";
 import { apiUpload } from "./api";
 import type {
+  BillingPlan,
   Client,
   ClientInviteResult,
   CurrentUser,
@@ -17,9 +18,11 @@ import type {
   FilingDashboard,
   ImportEmployeeResult,
   ImportPayrollResult,
+  Payment,
   PayrollEntry,
   SessionAttachment,
   SessionTimelineEvent,
+  Subscription,
 } from "./types";
 
 export function useMe() {
@@ -268,5 +271,83 @@ export function useSubmitMessage(filingId: string) {
       }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["filings", filingId] }),
+  });
+}
+
+// ── 결제·구독 (토스 카드 빌링키 정기결제) ──────────────────
+
+export function useBillingPlans() {
+  return useQuery({
+    queryKey: ["billing", "plans"],
+    queryFn: () => api<BillingPlan[]>("/api/v1/billing/plans"),
+    staleTime: 1000 * 60 * 60,
+  });
+}
+
+export function useSubscription() {
+  return useQuery({
+    queryKey: ["billing", "subscription"],
+    queryFn: () => api<Subscription>("/api/v1/billing/subscription"),
+  });
+}
+
+export function usePayments() {
+  return useQuery({
+    queryKey: ["billing", "payments"],
+    queryFn: () => api<Payment[]>("/api/v1/billing/payments"),
+  });
+}
+
+function invalidateBilling(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["billing", "subscription"] });
+  qc.invalidateQueries({ queryKey: ["billing", "payments"] });
+}
+
+export function useRegisterBilling() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      auth_key: string;
+      customer_key: string;
+      plan: string;
+    }) =>
+      api<Subscription>("/api/v1/billing/billing-key", {
+        method: "POST",
+        json: vars,
+      }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+export function useChangePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (plan: string) =>
+      api<Subscription>("/api/v1/billing/subscription/plan", {
+        method: "POST",
+        json: { plan },
+      }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+export function useCancelSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<Subscription>("/api/v1/billing/subscription", { method: "DELETE" }),
+    onSuccess: () => invalidateBilling(qc),
+  });
+}
+
+export function useRetryPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<Subscription>("/api/v1/billing/subscription/retry", {
+        method: "POST",
+        json: {},
+      }),
+    onSuccess: () => invalidateBilling(qc),
   });
 }

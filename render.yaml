@@ -78,5 +78,42 @@ services:
         sync: false
       - key: SENDGRID_FROM_EMAIL
         sync: false
+      # ── 결제 (토스페이먼츠 카드 빌링키 정기결제) ──────────
+      - key: TOSS_SECRET_KEY
+        sync: false                   # test_sk_... / live_sk_...
+      - key: TOSS_CLIENT_KEY
+        sync: false                   # 참고 보관 (프론트는 Vercel 환경변수 사용)
+      - key: BILLING_CRON_SECRET
+        generateValue: true           # /billing/cron/charge-due 보호 — cron 서비스와 동일값 필요
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+
+  # ── 정기결제 Cron (매일 1회, 02:30 KST = 17:30 UTC) ──────
+  # next_billing_date 도래 구독을 일괄 청구. 멱등(중복 청구 없음).
+  - type: cron
+    name: taxflow-billing-cron
+    runtime: python
+    region: singapore
+    rootDir: backend
+    schedule: "30 17 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.scripts.charge_due
+    envVars:
+      - key: APP_ENV
+        value: prod
+      - key: APP_DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: taxflow-db
+          property: connectionString
+      - key: APP_SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: RRN_ENCRYPTION_KEY
+        sync: false                   # prod 가드 통과용 (cron은 미사용, 1회 설정)
+      - key: TOSS_SECRET_KEY
+        sync: false
       - key: PYTHON_VERSION
         value: "3.12.8"

@@ -148,6 +148,11 @@
   - 세무사 영업 무기: "저희 사무소에 맡기면 명세서 교부 의무도 자동 해결"
   - 배경: 의무화 3년 경과에도 직장인 23.8% 미수령, 숙박·음식점업 48.5% 미교부
   - 과태료 1차 30만원 → 2차 50만원 → 3차 100만원 (직원 1명당 매월 별도 산정)
+- **결제·구독 과금 (토스페이먼츠 카드 정기결제)**
+  - 세무사사무소 단위 월 구독(스타터/프로/엔터프라이즈, §4.2) — **토스 카드 빌링키 자동결제만** 사용
+  - 카드 1회 등록(빌링키 발급) → 매월 정기 자동결제, 결제 이력·실패 재시도·플랜 변경·해지
+  - 가상계좌·계좌이체·간편결제·해외결제 등 **카드 외 수단 미사용** (요구사항)
+  - 상세 설계: 3.9절
 
 **산출물**
 - 세무사가 다운로드해서 SmartA에 그대로 업로드 가능한 급여대장 양식 엑셀
@@ -689,6 +694,94 @@ SmartA에서 `[급여] → [급여대장] → 엑셀 저장`으로 내보낸 파
 
 ---
 
+### 3.9 결제·구독 과금 — 토스페이먼츠 카드 빌링키 정기결제 (v3.3)
+
+> **결제수단은 토스페이먼츠 "카드" 단일**(빌링키 자동결제)로 한정. 가상계좌·계좌이체·간편결제·휴대폰·해외결제 등은 사용하지 않음(요구사항).
+> 과금 단위는 **세무사사무소(TaxOffice)** — §4.2 가격정책(스타터 15만 / 프로 25만 / 엔터프라이즈 50만)의 월 구독을 자동결제로 집행.
+
+#### 왜 빌링키(자동결제)인가
+- §4.2가 **월 정액 구독**이므로 매월 수기 결제는 비현실적 → 토스 **빌링키(billingKey)** 발급 후 서버가 매월 자동 승인.
+- 카드 정보는 토스가 보관(빌링키만 우리 DB에 저장) → PCI 부담·민감정보 비보관.
+
+#### 데이터 모델 (신규 2테이블, 기존 스키마 불변)
+
+```
+TaxOffice (1) ──── (1) Subscription ──── (N) Payment
+                       │                      │
+   plan(STARTER/PRO/ENTERPRISE)         order_id(고유)
+   status(INACTIVE/ACTIVE/             amount, status(PENDING/PAID/FAILED)
+          PAST_DUE/CANCELED)           billing_period("YYYY-MM")
+   amount(월 결제액 스냅샷)            toss_payment_key, receipt_url
+   toss_customer_key                   failure_code/message, approved_at
+   toss_billing_key
+   card_company/number_masked/type
+   current_period_start
+   next_billing_date
+   canceled_at
+```
+
+- `Subscription`: 사무소당 1행(`tax_office_id` unique). 카드 미등록=INACTIVE.
+- `Payment`: 정기결제 1건 = 1행. `order_id` unique(멱등·재조회 키).
+
+#### 결제 플로우
+
+```
+[카드 등록 — 빌링키 발급]
+ ① 프론트: GET /billing/subscription → customer_key 확보(없으면 INACTIVE 구독 lazy 생성)
+ ② 프론트: 토스 SDK requestBillingAuth("카드", { customerKey, successUrl, failUrl })
+    └ "카드" 메서드 고정 → 카드 외 수단 노출 안 됨
+ ③ 토스 인증창 → successUrl?customerKey=&authKey= 로 리다이렉트
+ ④ 프론트(success): POST /billing/billing-key { auth_key, customer_key, plan }
+ ⑤ 백엔드: 토스 POST /v1/billing/authorizations/issue → billingKey + 카드정보 수신·저장
+ ⑥ 백엔드: 즉시 1개월분 청구(charge) → 성공 시 status=ACTIVE, next_billing_date=+1개월
+
+[매월 정기결제]
+ · Render Cron(매일 1회) → `python -m app.scripts.charge_due`
+   또는 외부 스케줄러 → POST /billing/cron/charge-due (X-Cron-Secret 헤더)
+ · next_billing_date ≤ 오늘 & status∈{ACTIVE,PAST_DUE} & billing_key 보유 대상 일괄 청구
+ · 성공 → next_billing_date += 1개월 / 실패 → status=PAST_DUE(다음 회차 재시도)
+
+[플랜 변경/해지]
+ · 변경: plan·amount 갱신(다음 회차부터 신액 적용, 비례정산 없음)
+ · 해지: status=CANCELED, canceled_at 기록 → cron 청구 제외(기간 만료까지 서비스 유지)
+ · 결제 재시도: PAST_DUE 구독에 한해 POST /billing/subscription/retry
+```
+
+> Celery는 requirements에만 있고 미구성 + 배포가 Render+Vercel이므로, 정기결제 스케줄러는 **Celery beat 신규 인프라 대신 멱등 cron 스크립트/엔드포인트**로 구현(기존 `python -m app.scripts.seed` 운용 패턴과 동일, render.yaml에 `type: cron` 1개 추가). Phase 2에서 Celery 도입 시 태스크로 이관 가능.
+
+#### API 설계 (`/api/v1/billing`, 인증 필요 — cron 제외)
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/plans` | 플랜 카탈로그(코드·금액·한도) |
+| GET | `/subscription` | 현재 사무소 구독(없으면 INACTIVE lazy 생성, `customer_key` 포함) |
+| POST | `/billing-key` | authKey→빌링키 발급·저장 + 첫 달 즉시 결제 |
+| POST | `/subscription/plan` | 플랜 변경(다음 회차부터) |
+| POST | `/subscription/retry` | PAST_DUE 재청구 |
+| DELETE | `/subscription` | 해지(기간 만료까지 유지) |
+| GET | `/payments` | 결제 이력(최신순) |
+| POST | `/cron/charge-due` | 도래 구독 일괄 청구 — `X-Cron-Secret` 검증 |
+
+- 토스 호출 인증: `Authorization: Basic base64(secretKey + ":")` (`services/toss.py`).
+- `customer_key`는 사무소별 결정값(`to_<tax_office_id>`) — 프론트/백엔드 동일값 사용, 추측 불가.
+
+#### 환경변수 (신규)
+- 백엔드: `TOSS_SECRET_KEY`(test_sk_/live_sk_), `TOSS_CLIENT_KEY`(참고), `TOSS_API_BASE`, `BILLING_CRON_SECRET`
+- 프론트: `NEXT_PUBLIC_TOSS_CLIENT_KEY`
+
+#### 프론트 (`/dashboard/billing`)
+- 플랜 카드 + 현재 구독 상태/카드정보 + 결제 이력 테이블
+- 토스 SDK(`https://js.tosspayments.com/v1/payment`) `next/script` 로드 → 카드 등록
+- `/dashboard/billing/success`·`/fail` 리다이렉트 처리(Suspense 경계)
+
+#### 미구현·후속 (정직)
+- 토스 웹훅(`/billing/webhook`) 서명검증·비동기 상태 동기화 — MVP는 동기 응답으로 충분, Phase 2 보강
+- 세금계산서/현금영수증 발행 연동 — Phase 2
+- 연 구독·프로모션·좌석 비례정산 — 미정(현 정책: 월 정액, 변경은 다음 회차 적용)
+- 결제 실패 N회 후 자동 서비스 정지 정책 — 운영 정책 확정 후 적용(현재 PAST_DUE 유지·재시도)
+
+---
+
 ## 4. 사업화·재무 계획
 
 ### 4.1 단계별 마일스톤
@@ -708,6 +801,8 @@ SmartA에서 `[급여] → [급여대장] → 엑셀 저장`으로 내보낸 파
 | 스타터 | 15만 원 | 30곳 이하 | Phase 1 |
 | 프로 | 25만 원 | 100곳 | Phase 1 + 2 |
 | 엔터프라이즈 | 50만 원~ | 무제한 | 전 단계 |
+
+> **결제수단**: 토스페이먼츠 **카드 빌링키 자동결제 단일**. 사무소가 카드를 1회 등록하면 매월 위 금액이 자동 청구됨(상세 3.9절). 가상계좌·계좌이체·간편결제 등 카드 외 수단은 사용하지 않음.
 
 ### 4.3 GTM 전략
 
@@ -786,6 +881,11 @@ SmartA에서 `[급여] → [급여대장] → 엑셀 저장`으로 내보낸 파
   - 특정 월 발송: `POST /clients/{id}/invite?filing_id=` 쿼리 지원
   - 발송 이력 보기: `CollectionEvent` 조회 API + 거래처 상세에서 채널별 성공 이력 표시
   - 재발송 확인: `invite_sent=true`인 거래처에는 모달로 "이미 발송됨, 재발송하시겠습니까?" 확인
+- [x] **결제·구독 (토스 카드 빌링키 정기결제)** — ✅ **완료됨** (설계 3.9절)
+  - Backend: `Subscription`/`Payment` 모델 + 마이그레이션, `services/toss.py`(빌링키 발급·정기결제), `services/billing.py`(공용 청구 로직), `api/billing.py`(`/api/v1/billing/*`)
+  - 정기결제: `python -m app.scripts.charge_due` + `POST /billing/cron/charge-due`(X-Cron-Secret), render.yaml `type: cron` 추가
+  - Frontend: `/dashboard/billing`(+`success`/`fail`) 토스 SDK 카드 등록·플랜 변경·해지·결제이력, 네비 메뉴 추가
+  - ⚠️ 후속: 토스 웹훅 서명검증·세금계산서 연동·실패 N회 정지정책 (3.9절 "미구현·후속")
 - [ ] NKS 클러스터 + GitHub Actions → Container Registry 배포 파이프라인 — ⚠️ **미완료** (현재 Render+Vercel 자동배포로 대체 운영 중)
 
 ### 디자인 구현 (와이어프레임 → 프론트엔드)
