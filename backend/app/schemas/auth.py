@@ -1,5 +1,16 @@
 from pydantic import BaseModel, EmailStr, field_validator
 
+_PASSWORD_SPECIALS = "!@#$%^&*()_+-=[]{}|;:',.<>?/~`"
+
+
+def validate_password_strength(v: str) -> str:
+    """비밀번호 강도 규칙 — 6자리 이상 + 특수문자 포함. (가입·변경 공통)"""
+    if len(v) < 6:
+        raise ValueError("비밀번호는 6자리 이상이어야 합니다")
+    if not any(c in _PASSWORD_SPECIALS for c in v):
+        raise ValueError("비밀번호에 특수문자를 포함해야 합니다")
+    return v
+
 
 class LoginRequest(BaseModel):
     email: str
@@ -18,11 +29,7 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def password_strength(cls, v: str) -> str:
-        if len(v) < 6:
-            raise ValueError("비밀번호는 6자리 이상이어야 합니다")
-        if not any(c in "!@#$%^&*()_+-=[]{}|;:',.<>?/~`" for c in v):
-            raise ValueError("비밀번호에 특수문자를 포함해야 합니다")
-        return v
+        return validate_password_strength(v)
 
     @field_validator("business_number")
     @classmethod
@@ -71,3 +78,13 @@ class ProfileUpdate(BaseModel):
     office_email: str | None = None
     office_address: str | None = None
     office_representative: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_strength(cls, v: str) -> str:
+        return validate_password_strength(v)

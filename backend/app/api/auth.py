@@ -18,6 +18,7 @@ from app.core.security import (
 )
 from app.models import TaxOffice, User
 from app.schemas.auth import (
+    ChangePasswordRequest,
     CurrentUser,
     LoginRequest,
     ProfileUpdate,
@@ -34,6 +35,22 @@ router = APIRouter()
 def _generate_short_code() -> str:
     """6자리 영숫자 인가코드 생성."""
     return secrets.token_hex(3).upper()
+
+
+def _current_user(user: User, office: TaxOffice | None) -> CurrentUser:
+    return CurrentUser(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        tax_office_id=user.tax_office_id,
+        is_admin=user.is_admin,
+        short_code=office.short_code if office else None,
+        office_name=office.name if office else None,
+        office_phone=office.phone if office else None,
+        office_email=str(office.email) if office and office.email else None,
+        office_address=office.address if office else None,
+        office_representative=office.representative if office else None,
+    )
 
 
 @router.post("/register", response_model=RegisterResponse)
@@ -151,19 +168,7 @@ async def me(
     db: AsyncSession = Depends(get_db),
 ) -> CurrentUser:
     office = await db.get(TaxOffice, user.tax_office_id)
-    return CurrentUser(
-        id=user.id,
-        email=user.email,
-        name=user.name,
-        tax_office_id=user.tax_office_id,
-        is_admin=user.is_admin,
-        short_code=office.short_code if office else None,
-        office_name=office.name if office else None,
-        office_phone=office.phone if office else None,
-        office_email=str(office.email) if office and office.email else None,
-        office_address=office.address if office else None,
-        office_representative=office.representative if office else None,
-    )
+    return _current_user(user, office)
 
 
 @router.patch("/me", response_model=CurrentUser)
@@ -185,16 +190,20 @@ async def update_me(
         if payload.office_representative is not None:
             office.representative = payload.office_representative
     await db.commit()
-    return CurrentUser(
-        id=user.id,
-        email=user.email,
-        name=user.name,
-        tax_office_id=user.tax_office_id,
-        is_admin=user.is_admin,
-        short_code=office.short_code if office else None,
-        office_name=office.name if office else None,
-        office_phone=office.phone if office else None,
-        office_email=str(office.email) if office and office.email else None,
-        office_address=office.address if office else None,
-        office_representative=office.representative if office else None,
-    )
+    return _current_user(user, office)
+
+
+@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """본인 비밀번호 변경 — 현재 비밀번호 검증 후 교체."""
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "현재 비밀번호가 올바르지 않습니다")
+    if verify_password(payload.new_password, user.password_hash):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "새 비밀번호가 기존 비밀번호와 동일합니다")
+    user.password_hash = hash_password(payload.new_password)
+    await db.commit()
+    logger.info("비밀번호 변경 완료: user=%s", user.id)

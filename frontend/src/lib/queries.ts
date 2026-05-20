@@ -30,6 +30,13 @@ export function useMe() {
   });
 }
 
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (vars: { current_password: string; new_password: string }) =>
+      api("/api/v1/auth/me/password", { method: "POST", json: vars }),
+  });
+}
+
 export function useFilings() {
   return useQuery({
     queryKey: ["filings"],
