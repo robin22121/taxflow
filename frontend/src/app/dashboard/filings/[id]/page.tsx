@@ -607,7 +607,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
       </div>
 
       {zoomKey && attachments && (
-        <AttachmentZoomModal filingId={filingId} sessionId={session.id} att={attachments.find((a) => a.storage_key === zoomKey)!} onClose={() => setZoomKey(null)} />
+        <AttachmentZoomModal key={zoomKey} filingId={filingId} sessionId={session.id} att={attachments.find((a) => a.storage_key === zoomKey)!} onClose={() => setZoomKey(null)} />
       )}
 
       {deleteTarget && (
@@ -1374,32 +1374,132 @@ function DeleteAttachmentModal({ filename, onClose, onConfirm }: {
   );
 }
 
+type SheetData = { name: string; rows: string[][]; truncated: boolean };
+const SHEET_ROW_LIMIT = 500;
+
+function SpreadsheetPreview({ sheets, active, onSelect }: {
+  sheets: SheetData[]; active: number; onSelect: (i: number) => void;
+}) {
+  const sheet = sheets[active] ?? sheets[0];
+  if (!sheet) return <p className="p-4 text-sm text-gray-600">빈 파일입니다.</p>;
+  return (
+    <div className="bg-white min-w-full">
+      {sheets.length > 1 && (
+        <div className="flex gap-1 px-2 pt-2 border-b border-gray-200 bg-gray-50 sticky top-0 z-10">
+          {sheets.map((s, i) => (
+            <button key={s.name + i} type="button" onClick={() => onSelect(i)}
+              className={`px-3 py-1.5 text-[12px] rounded-t whitespace-nowrap ${i === active ? "bg-white border border-b-white border-gray-200 font-medium text-gray-900" : "text-gray-500 hover:text-gray-800"}`}>
+              {s.name || `시트 ${i + 1}`}
+            </button>
+          ))}
+        </div>
+      )}
+      {sheet.rows.length === 0 ? (
+        <p className="p-4 text-sm text-gray-500">빈 시트입니다.</p>
+      ) : (
+        <table className="border-collapse text-[12px]">
+          <tbody>
+            {sheet.rows.map((row, ri) => (
+              <tr key={ri} className={ri === 0 ? "bg-gray-100 font-medium" : ri % 2 ? "bg-gray-50/60" : ""}>
+                {row.map((cell, ci) => (
+                  <td key={ci} className="border border-gray-200 px-2 py-1 align-top">
+                    <div className="max-w-[360px] truncate" title={cell}>{cell}</div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {sheet.truncated && (
+        <p className="p-3 text-[11px] text-amber-700 bg-amber-50 border-t border-amber-200">
+          행이 많아 처음 {SHEET_ROW_LIMIT.toLocaleString("ko-KR")}행만 표시했습니다. 전체는 다운로드해 확인하세요.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function AttachmentZoomModal({ filingId, sessionId, att, onClose }: {
   filingId: string; sessionId: string; att: SessionAttachment; onClose: () => void;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sheets, setSheets] = useState<SheetData[] | null>(null);
+  const [activeSheet, setActiveSheet] = useState(0);
+  const [textContent, setTextContent] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let url: string | null = null;
+    // 첨부가 바뀌면 호출부에서 key 로 마운트 단위 리셋됨 → effect 본문에서 추가 setState 리셋 불필요
     apiBlob(`/api/v1/filings/${filingId}/sessions/${sessionId}/attachments/raw?key=${encodeURIComponent(att.storage_key)}`)
-      .then((blob) => { if (cancelled) return; url = URL.createObjectURL(blob); setBlobUrl(url); })
+      .then(async (blob) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+        if (att.kind === "excel" || att.kind === "csv") {
+          const buf = await blob.arrayBuffer();
+          const mod = await import("xlsx");
+          const XLSX = (mod as typeof import("xlsx") & { default?: typeof import("xlsx") }).default ?? mod;
+          let wb;
+          if (att.kind === "csv") {
+            // 한글 CSV는 EUC-KR(CP949)인 경우가 많아 UTF-8 실패 시 폴백
+            let text = new TextDecoder("utf-8").decode(buf);
+            if (text.includes("�")) {
+              try { text = new TextDecoder("euc-kr").decode(buf); } catch { /* keep utf-8 */ }
+            }
+            wb = XLSX.read(text, { type: "string" });
+          } else {
+            wb = XLSX.read(buf, { type: "array" });
+          }
+          const parsed: SheetData[] = wb.SheetNames.map((name) => {
+            const all = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], {
+              header: 1, blankrows: false, defval: "", raw: false,
+            });
+            return {
+              name,
+              rows: all.slice(0, SHEET_ROW_LIMIT).map((r) => (r ?? []).map((c) => String(c ?? ""))),
+              truncated: all.length > SHEET_ROW_LIMIT,
+            };
+          });
+          if (!cancelled) setSheets(parsed);
+        } else if (att.kind === "text") {
+          const t = await blob.text();
+          if (!cancelled) setTextContent(t);
+        }
+      })
       .catch((e) => !cancelled && setError((e as Error).message));
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
-  }, [filingId, sessionId, att.storage_key]);
+  }, [filingId, sessionId, att.storage_key, att.kind]);
+
+  const isSheet = att.kind === "excel" || att.kind === "csv";
 
   return (
     <Modal open={true} onClose={onClose} title={att.filename}
       footer={blobUrl ? <a href={blobUrl} download={att.filename} className="text-sm text-blue-600 hover:underline">다운로드</a> : null}>
-      <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-gray-50 rounded">
+      <div className="max-h-[70vh] overflow-auto bg-gray-50 rounded">
         {error ? <p className="text-red-500 p-4">{error}</p>
-          : !blobUrl ? <p className="p-8 text-gray-400">로딩 중...</p>
+          : !blobUrl ? <p className="p-8 text-center text-gray-400">로딩 중...</p>
           : att.kind === "image" ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={blobUrl} alt={att.filename} className="max-w-full" />
+            <div className="flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={blobUrl} alt={att.filename} className="max-w-full" />
+            </div>
           ) : att.kind === "pdf" ? (
             <iframe src={blobUrl} className="w-full h-[70vh]" title={att.filename} />
+          ) : isSheet ? (
+            sheets
+              ? <SpreadsheetPreview sheets={sheets} active={activeSheet} onSelect={setActiveSheet} />
+              : <p className="p-8 text-center text-gray-400">표 변환 중...</p>
+          ) : att.kind === "audio" ? (
+            <div className="p-6">
+              <audio controls src={blobUrl} className="w-full">오디오 재생을 지원하지 않는 브라우저입니다.</audio>
+            </div>
+          ) : att.kind === "text" ? (
+            textContent != null
+              ? <pre className="p-4 text-[12px] leading-relaxed whitespace-pre-wrap break-words text-gray-800">{textContent}</pre>
+              : <p className="p-8 text-center text-gray-400">로딩 중...</p>
           ) : (
             <p className="p-4 text-sm text-gray-600">미리보기 미지원. 다운로드 후 확인하세요.</p>
           )}
