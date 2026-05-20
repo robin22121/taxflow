@@ -251,10 +251,9 @@ A열에 "합계" 텍스트, F~X열 각각 합산값 (천단위 콤마 포함)
 
 카카오톡 알림톡   ───┐
 카카오 챗봇      ───┤
-음성 통화 녹음   ───┼──→  FastAPI Webhook (NCP)  ──→   Claude Sonnet 4.5
-엑셀/이미지 업로드 ──┤      Cloud Functions로                + CLOVA Speech (STT)
-이메일           ───┤      이벤트 라우팅                    + Claude Vision (OCR)
-개별 보안 URL    ───┘                                            │
+엑셀/이미지 업로드 ──┼──→  FastAPI Webhook (NCP)  ──→   Gemini Flash 2.5
+이메일           ───┤      Cloud Functions로                + Claude Vision (OCR)
+개별 보안 URL    ───┘      이벤트 라우팅                          │
                                                                  ▼
                                            Cloud DB for PostgreSQL (Multi-AZ)
                                            + pgvector (전월 데이터 매칭)
@@ -303,8 +302,7 @@ Next.js 15 + TypeScript ──→  엑셀 다운로드 → 세무사가 SmartA �
 | 영역 | 1순위 | 2순위 | 이유 |
 |------|-------|-------|------|
 | LLM (파싱·매칭) | **Gemini Flash 2.5** | Claude Sonnet 4.5 | 비용 94% 절감, 한국어 파싱 동등 수준 |
-| 음성 인식 (STT) | **Naver CLOVA Speech** | Whisper Large-v3 | 한국어 통화 인식 정확도 압도적, NCP 통합 |
-| OCR (엑셀 사진) | **Claude Sonnet 4.5 비전** | CLOVA OCR | LLM 통합으로 파이프라인 단순화 |
+| OCR (엑셀 사진) | **Claude Sonnet 4.5 비전** | — | LLM 통합으로 파이프라인 단순화 |
 | 임베딩·검색 | **pgvector** | — | "저번달이랑 똑같아요" 매칭 |
 
 #### Claude API와 NCP의 호환성
@@ -317,7 +315,6 @@ Next.js 15 + TypeScript ──→  엑셀 다운로드 → 세무사가 SmartA �
 |------|------|------|
 | 카카오 알림톡 | **NHN Cloud Notification** 또는 카카오비즈니스 API | NHN Cloud는 통합 편의성 |
 | 카카오 챗봇 (양방향) | 카카오 i 오픈빌더 | 표준 |
-| 음성 통화 | 단기: 녹음 업로드 / 장기: 클라우드 콜센터 API | 단계적 도입 |
 | 이메일 | **NCP Cloud Outbound Mailer** | 한국 IP, 스팸 필터 우회 유리 |
 | SMS 백업 | Aligo 또는 NHN Cloud SMS | 알림톡 실패 시 fallback |
 
@@ -380,8 +377,7 @@ TaxFlow가 세무사 명의로 거래처에 알림톡 발송
 전용 이메일 ────┤
 URL 폼 ────────┼──→  _ingest_message()  ──→  AI 파싱 → 매칭 → 세액 계산 → DB
 포워딩 메일 ────┤
-파일 업로드 ────┤
-음성 STT ──────┘
+파일 업로드 ────┘
 ```
 
 ### 4.7 Frontend (세무사 대시보드)
@@ -501,13 +497,12 @@ Phase 4에서 AI 컬럼 매핑을 범용화하면 지원 가능.
 4. **2단계 구현**: Phase 1에서는 세무사가 엑셀 업로드 (반자동), Phase 2에서 데스크톱 에이전트로 진화
 5. **공동인증서 처리**: 클라우드 서버 X → **세무사 PC 로컬에서 처리**
 6. **클라우드 인프라**: **NCP (Naver Cloud Platform) 메인** (CSAP·국내 리전·한국어 지원)
-7. **STT**: **CLOVA Speech 1순위** (한국어 통화 정확도 + NCP 네이티브)
-8. **민감정보 처리**: Claude API에 주민번호 비전송 — 마스킹 후 LLM 호출, 주민번호는 NCP KMS로 NCP 내부에서만 복호화
-9. **기존 데이터 확보**: **SmartA 급여대장 엑셀 임포트 1순위** — 세무사가 SmartA에서 급여대장 엑셀을 내보내서 업로드. 하나의 파일에 직원 마스터 + 급여 이력 동시 확보. AI 컬럼 매핑으로 자유 양식도 지원.
-10. **회신 수집 채널**: **"거래처가 우리에게 보내게 만드는" 전략**. 카카오톡 1순위 → 전용 이메일 초대장 2순위 → 자동 전달 가이드 3순위 → URL 폼 4순위(폴백). 모든 채널이 단일 `_ingest_message()` 파이프라인으로 합류.
-11. **샘플 데이터 전략**: 리얼리스틱 샘플 데이터(거래처 7곳, 직원 45명, 4개월 이력)로 전체 파이프라인 검증. 8가지 시나리오 커버.
-12. **AI 프로바이더**: **Gemini Flash 2.5 메인** (비용 94% 절감, 한국어 파싱 동등 수준). Claude는 폴백/고난도용. `ai_parser.py`에서 `AI_PROVIDER=gemini|anthropic` 전환 가능.
-13. **제품 범위 확장 (4대 보험)**: 원천세 + **4대 보험 자동화**. 동일 직원·급여 데이터를 재활용해 자격취득/상실·보수월액 변경 신고서 엑셀을 생성 (Phase 1 구현, 기존 `PayrollEntry` 컬럼 + `calculate_social_insurance()` 재사용 → 스키마 변경 없음). 4insure/공단 EDI **자동 신고(RPA)는 Phase 3**. SmartA 급여대장 양식·회신 수집 채널 전략(#10)과 정합 — 별도 채널 신설 없음.
+7. **민감정보 처리**: Claude API에 주민번호 비전송 — 마스킹 후 LLM 호출, 주민번호는 NCP KMS로 NCP 내부에서만 복호화
+8. **기존 데이터 확보**: **SmartA 급여대장 엑셀 임포트 1순위** — 세무사가 SmartA에서 급여대장 엑셀을 내보내서 업로드. 하나의 파일에 직원 마스터 + 급여 이력 동시 확보. AI 컬럼 매핑으로 자유 양식도 지원.
+9. **회신 수집 채널**: **"거래처가 우리에게 보내게 만드는" 전략**. 카카오톡 1순위 → 전용 이메일 초대장 2순위 → 자동 전달 가이드 3순위 → URL 폼 4순위(폴백). 모든 채널이 단일 `_ingest_message()` 파이프라인으로 합류.
+10. **샘플 데이터 전략**: 리얼리스틱 샘플 데이터(거래처 7곳, 직원 45명, 4개월 이력)로 전체 파이프라인 검증. 8가지 시나리오 커버.
+11. **AI 프로바이더**: **Gemini Flash 2.5 메인** (비용 94% 절감, 한국어 파싱 동등 수준). Claude는 폴백/고난도용. `ai_parser.py`에서 `AI_PROVIDER=gemini|anthropic` 전환 가능.
+12. **제품 범위 확장 (4대 보험)**: 원천세 + **4대 보험 자동화**. 동일 직원·급여 데이터를 재활용해 자격취득/상실·보수월액 변경 신고서 엑셀을 생성 (Phase 1 구현, 기존 `PayrollEntry` 컬럼 + `calculate_social_insurance()` 재사용 → 스키마 변경 없음). 4insure/공단 EDI **자동 신고(RPA)는 Phase 3**. SmartA 급여대장 양식·회신 수집 채널 전략(#9)과 정합 — 별도 채널 신설 없음. (음성 STT/CLOVA Speech 폐기 — v3.2)
 
 ---
 

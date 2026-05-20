@@ -506,7 +506,6 @@ async def _download_and_process_kakao_media(
     import httpx
     from app.services.file_intake import intake_file
     from app.services.storage import get_storage
-    from app.services.stt import get_stt_provider
 
     file_text = ""
     images: list[tuple[bytes, str]] = []
@@ -549,7 +548,6 @@ async def _download_and_process_kakao_media(
             filename=filename,
             content=content,
             storage=get_storage(),
-            stt=get_stt_provider(),
         )
         if intake.text.strip():
             file_text = f"[첨부: {filename}]\n{intake.text}"
@@ -870,12 +868,10 @@ async def email_webhook(
             if filename and content:
                 from app.services.file_intake import intake_file
                 from app.services.storage import get_storage
-                from app.services.stt import get_stt_provider
                 intake = await intake_file(
                     filename=filename,
                     content=content,
                     storage=get_storage(),
-                    stt=get_stt_provider(),
                 )
                 if intake.text.strip():
                     attachment_texts.append(f"[첨부: {filename}]\n{intake.text}")
@@ -1109,12 +1105,10 @@ async def _handle_resend_event(
         if content:
             from app.services.file_intake import intake_file
             from app.services.storage import get_storage
-            from app.services.stt import get_stt_provider
             intake = await intake_file(
                 filename=filename,
                 content=content,
                 storage=get_storage(),
-                stt=get_stt_provider(),
             )
             if intake.text.strip():
                 attachment_texts.append(f"[첨부: {filename}]\n{intake.text}")

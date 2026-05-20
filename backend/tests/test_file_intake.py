@@ -1,4 +1,4 @@
-"""file_intake unit tests using LocalFileStorage + StubSTT."""
+"""file_intake unit tests using LocalFileStorage."""
 
 import io
 import tempfile
@@ -8,7 +8,6 @@ from openpyxl import Workbook
 
 from app.services.file_intake import intake_file
 from app.services.storage import LocalFileStorage
-from app.services.stt import StubSTT
 
 
 def _excel_bytes(rows: list[list]) -> bytes:
@@ -33,7 +32,6 @@ async def test_excel_intake_extracts_text():
             filename="payroll.xlsx",
             content=blob,
             storage=LocalFileStorage(base_dir=d),
-            stt=StubSTT(),
         )
     assert res.kind == "excel"
     assert "김연호" in res.text
@@ -49,28 +47,9 @@ async def test_csv_intake():
             filename="x.csv",
             content=blob,
             storage=LocalFileStorage(base_dir=d),
-            stt=StubSTT(),
         )
     assert res.kind == "csv"
     assert "김연호" in res.text
-    assert "박민수" in res.text
-
-
-@pytest.mark.asyncio
-async def test_audio_intake_uses_stt_and_redacts_pii():
-    stt = StubSTT()
-    stt.canned = "신규 직원 박민수 900101-1234567 150만원"
-    with tempfile.TemporaryDirectory() as d:
-        res = await intake_file(
-            filename="call.mp3",
-            content=b"fake-audio-bytes",
-            storage=LocalFileStorage(base_dir=d),
-            stt=stt,
-        )
-    assert res.kind == "audio"
-    assert res.storage_key is not None
-    assert res.storage_key.startswith("voice/")
-    assert "900101-1234567" not in res.text
     assert "박민수" in res.text
 
 
@@ -82,7 +61,6 @@ async def test_image_returns_binary_for_vision():
             filename="photo.png",
             content=content,
             storage=LocalFileStorage(base_dir=d),
-            stt=StubSTT(),
         )
     assert res.kind == "image"
     assert len(res.images) == 1
@@ -107,7 +85,6 @@ async def test_pdf_renders_pages_to_images():
             filename="invoice.pdf",
             content=buf.getvalue(),
             storage=LocalFileStorage(base_dir=d),
-            stt=StubSTT(),
         )
     assert res.kind == "pdf"
     assert len(res.images) == 2
@@ -124,7 +101,6 @@ async def test_unknown_extension():
             filename="x.bin",
             content=b"x",
             storage=LocalFileStorage(base_dir=d),
-            stt=StubSTT(),
         )
     assert res.kind == "unknown"
     assert res.text == ""

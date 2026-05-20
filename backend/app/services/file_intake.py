@@ -21,7 +21,6 @@ from openpyxl import load_workbook
 
 from app.services.pii import redact_pii
 from app.services.storage import ObjectStorage
-from app.services.stt import STTProvider
 
 logger = logging.getLogger(__name__)
 
@@ -116,20 +115,14 @@ async def intake_file(
     filename: str,
     content: bytes,
     storage: ObjectStorage,
-    stt: STTProvider,
 ) -> IntakeResult:
     """Turn an uploaded file into plain text suitable for the AI parser."""
     if _is_audio(filename):
-        ext = "." + filename.rsplit(".", 1)[-1].lower()
-        key = storage.make_key("voice", ext)
-        storage.put_object(key, content, content_type=_audio_mime(ext))
-        url = storage.presign_url(key, expires_in=3600)
-        result = await stt.transcribe(audio_url=url)
+        # 음성/통화 처리 미지원 (정책 폐기) — 파일 보관 없이 안내만 반환
         return IntakeResult(
-            text=redact_pii(result.text),
+            text="",
             kind="audio",
-            storage_key=key,
-            note=f"transcribed via {result.provider}",
+            note="음성 파일은 현재 처리하지 않습니다.",
         )
 
     if _is_excel(filename):
@@ -205,17 +198,6 @@ async def intake_file(
         )
 
     return IntakeResult(text="", kind="unknown", note=f"지원하지 않는 파일 형식: {filename}")
-
-
-def _audio_mime(ext: str) -> str:
-    return {
-        ".mp3": "audio/mpeg",
-        ".m4a": "audio/mp4",
-        ".wav": "audio/wav",
-        ".aac": "audio/aac",
-        ".ogg": "audio/ogg",
-        ".flac": "audio/flac",
-    }.get(ext, "application/octet-stream")
 
 
 def _image_mime(ext: str) -> str:

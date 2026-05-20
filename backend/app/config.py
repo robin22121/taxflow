@@ -77,11 +77,6 @@ class Settings(BaseSettings):
     kakao_webhook_secret: str = ""  # 카카오 오픈빌더 스킬 서버 시크릿 키
     sendgrid_webhook_secret: str = ""  # SendGrid Inbound Parse Basic Auth password
 
-    # ── STT ───────────────────────────────────────────────
-    stt_provider: str = "stub"  # stub | clova | whisper
-    clova_invoke_url: str = ""
-    clova_secret_key: str = ""
-
     # ── NCP Object Storage ────────────────────────────────
     ncp_object_storage_endpoint: str = "https://kr.object.ncloudstorage.com"
     ncp_object_storage_region: str = "kr-standard"

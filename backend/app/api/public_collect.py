@@ -29,7 +29,6 @@ from app.services.crypto import encrypt_rrn, mask_rrn
 from app.services.file_intake import intake_file
 from app.services.secure_tokens import consume_token, get_active_token
 from app.services.storage import get_storage
-from app.services.stt import get_stt_provider
 
 router = APIRouter()
 
@@ -129,7 +128,6 @@ async def public_upload_file(
         filename=file.filename or "upload",
         content=content,
         storage=get_storage(),
-        stt=get_stt_provider(),
     )
     # 이미지/PDF면 images에 binary가 있고 텍스트는 placeholder뿐일 수 있음 — Vision으로 분석.
     # 그 외(audio/excel/csv)는 텍스트가 비어있으면 거부.
