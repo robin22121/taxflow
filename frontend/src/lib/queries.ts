@@ -17,6 +17,7 @@ import type {
   FilingDashboard,
   ImportEmployeeResult,
   ImportPayrollResult,
+  InsuranceAdvisory,
   PayrollEntry,
   SessionAttachment,
   SessionTimelineEvent,
@@ -89,6 +90,17 @@ export function useFilingEntries(filingId: string) {
   return useQuery({
     queryKey: ["filings", filingId, "entries"],
     queryFn: () => api<PayrollEntry[]>(`/api/v1/filings/${filingId}/entries`),
+  });
+}
+
+export function useInsuranceAdvisory(filingId: string, clientId: string | null) {
+  return useQuery({
+    queryKey: ["filings", filingId, "insurance-advisory", clientId],
+    queryFn: () =>
+      api<InsuranceAdvisory>(
+        `/api/v1/filings/${filingId}/insurance-advisory?client_id=${clientId}`,
+      ),
+    enabled: !!clientId,
   });
 }
 

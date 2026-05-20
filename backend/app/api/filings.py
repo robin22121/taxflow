@@ -34,6 +34,7 @@ from app.services.invite import (
     get_or_create_session as _get_or_create_session,
     send_invite_to_client,
 )
+from app.services.insurance_advisory import build_advisory
 from app.services.insurance_excel import (
     generate_acquisition_report,
     generate_combined_insurance_report,
@@ -1004,6 +1005,50 @@ async def download_insurance_combined(
             ),
         },
     )
+
+
+@router.get("/{filing_id}/insurance-advisory")
+async def get_insurance_advisory(
+    filing_id: str,
+    client_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """산재·고용보험 부과·정산 선제 안내(노무사 수준).
+
+    근로복지공단 「2026 가입 및 부과업무 실무편람」 기반. client_id 시 해당 거래처만.
+    엑셀과 달리 전 소득구분(일용·사업소득 포함) 데이터로 신고기한·두루누리·트리거 산출.
+    """
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    filters = [PayrollEntry.monthly_filing_id == filing_id]
+    if client_id:
+        filters.append(PayrollEntry.client_id == client_id)
+    entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(*filters)
+                .options(selectinload(PayrollEntry.employee))
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    client_name = "전체 거래처"
+    if client_id:
+        client = await db.get(Client, client_id)
+        if client:
+            client_name = client.business_name
+    elif entries:
+        client = await db.get(Client, entries[0].client_id)
+        if client:
+            client_name = client.business_name
+
+    return build_advisory(entries, period=filing.period, client_name=client_name)
 
 
 @router.get("/{filing_id}/payslips")

@@ -9,6 +9,7 @@ import {
   useDeleteEntry,
   useFilingDashboard,
   useFilingEntries,
+  useInsuranceAdvisory,
   useRequestCollection,
   useSendInvite,
   useSessionAttachments,
@@ -18,7 +19,7 @@ import {
 } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
-import type { CollectionSession, PayrollEntry, SessionAttachment, SessionTimelineEvent, SourceEvent } from "@/lib/types";
+import type { CollectionSession, InsuranceAdvisory, InsuranceAlert, PayrollEntry, SessionAttachment, SessionTimelineEvent, SourceEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
 
@@ -837,6 +838,7 @@ function InsuranceTab({ filingId, session, entries }: {
   session: CollectionSession;
   entries: PayrollEntry[];
 }) {
+  const { data: advisory } = useInsuranceAdvisory(filingId, session.client_id);
   const acq = entries.filter((e) => e.match_status === "NEW_HIRE_SUSPECTED");
   const loss = entries.filter((e) => e.match_status === "RESIGNATION_SUSPECTED");
   const chg = entries.filter(
@@ -920,6 +922,7 @@ function InsuranceTab({ filingId, session, entries }: {
           4대보험 통합 다운로드 (3시트)
         </button>
       </div>
+      {advisory && <AdvisoryPanel adv={advisory} />}
       <Section title="자격취득" list={acq} kind="acquisition" label="자격취득" />
       <Section title="자격상실" list={loss} kind="loss" label="자격상실" />
       <Section title="보수월액 변경" list={chg} kind="change" label="보수월액변경" change />
@@ -927,6 +930,147 @@ function InsuranceTab({ filingId, session, entries }: {
         ※ 표기는 현재 거래처 데이터 기준 추정 분류입니다. 실제 신고 대상·코드(취득/상실부호,
         국민연금 20% 기준 등)는 다운로드 엑셀에서 확정됩니다. EDI 자동 제출은 Phase 2~3.
       </p>
+    </div>
+  );
+}
+
+/* ═══ 산재·고용보험 실무 가이드 (노무사 수준 선제 안내) ═══ */
+
+function dDayLabel(d: number): string {
+  if (d < 0) return `D+${-d} 지연`;
+  if (d === 0) return "D-DAY";
+  return `D-${d}`;
+}
+
+const SEV_STYLE: Record<InsuranceAlert["severity"], string> = {
+  danger: "border-red-200 bg-red-50",
+  warn: "border-amber-200 bg-amber-50",
+  info: "border-blue-100 bg-blue-50/60",
+};
+const SEV_BADGE: Record<InsuranceAlert["severity"], string> = {
+  danger: "bg-red-600 text-white",
+  warn: "bg-amber-500 text-white",
+  info: "bg-blue-600 text-white",
+};
+
+function AdvisoryPanel({ adv }: { adv: InsuranceAdvisory }) {
+  const [openRef, setOpenRef] = useState(false);
+  const r = adv.reference;
+  return (
+    <div className="border border-indigo-200 rounded-lg overflow-hidden bg-white">
+      <div className="px-3 py-2 bg-indigo-600 text-white flex items-center justify-between">
+        <span className="text-[12px] font-semibold">
+          산재·고용보험 실무 가이드 <span className="opacity-80">(노무사 수준 선제 안내)</span>
+        </span>
+        <span className="text-[10px] opacity-80">근로복지공단 2026 실무편람 기준</span>
+      </div>
+
+      {/* 신고기한·정산 D-day 알림 */}
+      <div className="p-3 space-y-2">
+        {adv.alerts.map((a, i) => (
+          <div key={i} className={`border rounded-md p-2.5 ${SEV_STYLE[a.severity]}`}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-[12px] font-semibold text-gray-800">{a.title}</span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${SEV_BADGE[a.severity]}`}>
+                {dDayLabel(a.d_day)} · ~{a.due}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-600 leading-relaxed">{a.detail}</p>
+            <p className="text-[10px] text-gray-400 mt-1">실무편람 {a.basis}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* 두루누리 후보 */}
+      {adv.durunuri.candidates.length > 0 && (
+        <div className="mx-3 mb-3 border border-emerald-200 bg-emerald-50 rounded-md p-2.5">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[12px] font-semibold text-emerald-800">
+              💡 두루누리 사회보험료 지원 후보 {adv.durunuri.candidates.length}명
+            </span>
+            <span className="text-[11px] font-bold text-emerald-700 tabular-nums">
+              월 최대 {adv.durunuri.est_monthly_total.toLocaleString()}원 절감
+            </span>
+          </div>
+          <ul className="text-[11px] text-emerald-900 divide-y divide-emerald-100">
+            {adv.durunuri.candidates.map((c, i) => (
+              <li key={i} className="flex items-center justify-between py-1">
+                <span>{c.name} · 월보수 {formatKrw(c.monthly_pay)}</span>
+                <span className="tabular-nums">지원 ~{c.est_support.toLocaleString()}원</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[10px] text-emerald-700 mt-1.5 leading-relaxed">{adv.durunuri.note}</p>
+        </div>
+      )}
+
+      {/* 거래처 선제 안내 트리거 */}
+      {adv.triggers.length > 0 && (
+        <div className="mx-3 mb-3">
+          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+            거래처에 안내할 항목
+          </div>
+          <ul className="space-y-1.5">
+            {adv.triggers.map((t, i) => (
+              <li key={i} className="text-[11px] text-gray-700 leading-relaxed flex gap-1.5">
+                <span className="text-indigo-500 font-bold shrink-0">▸</span>
+                <span>
+                  <span className="font-semibold text-gray-800">{t.trigger}</span> — {t.advice}{" "}
+                  <span className="text-gray-400">({t.basis})</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 접이식 실무 레퍼런스 */}
+      <button
+        onClick={() => setOpenRef((v) => !v)}
+        className="w-full px-3 py-2 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border-t border-indigo-100 hover:bg-indigo-100 text-left">
+        {openRef ? "▾" : "▸"} 산재·고용보험 실무 레퍼런스 (신고기한·2026 요율·두루누리·과태료)
+      </button>
+      {openRef && (
+        <div className="px-3 py-3 space-y-3 text-[11px] bg-white border-t border-gray-100">
+          <RefBlock title="신고기한" rows={r.deadlines.map((d) => [d.item, d.due, d.basis])} />
+          <RefBlock title="2026 보험료율·보수" rows={r.rates_2026.map((d) => [d.item, d.value, d.basis])} />
+          <div>
+            <div className="font-semibold text-gray-700 mb-1">{r.durunuri.title}</div>
+            <ul className="list-disc pl-4 text-gray-600 space-y-0.5">
+              {r.durunuri.rules.map((x, i) => <li key={i}>{x}</li>)}
+            </ul>
+            <p className="text-[10px] text-gray-400 mt-1">실무편람 {r.durunuri.basis}</p>
+          </div>
+          <RefBlock title="연체금·과태료·불이익" rows={r.penalties.map((d) => [d.item, d.value, d.basis])} />
+          <div>
+            <div className="font-semibold text-gray-700 mb-1">세무사 보험사무대행</div>
+            <p className="text-gray-600 leading-relaxed">{r.agency}</p>
+            <p className="text-[10px] text-gray-400 mt-1">실무편람 {r.agency_basis}</p>
+          </div>
+          <p className="text-[10px] text-gray-400 pt-1 border-t border-gray-100">
+            출처: {r.source} · 신고채널: {r.channel}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RefBlock({ title, rows }: { title: string; rows: string[][] }) {
+  return (
+    <div>
+      <div className="font-semibold text-gray-700 mb-1">{title}</div>
+      <table className="w-full border-collapse">
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-gray-50 align-top">
+              <td className="py-1 pr-2 text-gray-800 font-medium w-2/5">{row[0]}</td>
+              <td className="py-1 pr-2 text-gray-600">{row[1]}</td>
+              <td className="py-1 text-gray-400 whitespace-nowrap text-right">{row[2]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

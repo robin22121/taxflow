@@ -164,3 +164,46 @@ export type PayrollEntry = {
   approved: boolean;
   source_event: SourceEvent | null;
 };
+
+/* 산재·고용보험 부과·정산 선제 안내 (근로복지공단 2026 실무편람) */
+export type InsuranceAlert = {
+  title: string;
+  detail: string;
+  due: string;
+  d_day: number;
+  basis: string;
+  severity: "danger" | "warn" | "info";
+};
+
+export type InsuranceAdvisory = {
+  client_name: string;
+  period: string;
+  summary: {
+    acquisition: number;
+    loss: number;
+    change: number;
+    daily: number;
+    business: number;
+    wage_count: number;
+  };
+  alerts: InsuranceAlert[];
+  durunuri: {
+    eligible_size: boolean;
+    size: number;
+    candidates: { name: string; monthly_pay: number; est_support: number }[];
+    est_monthly_total: number;
+    note: string;
+    basis: string;
+  };
+  triggers: { trigger: string; advice: string; basis: string }[];
+  reference: {
+    source: string;
+    channel: string;
+    deadlines: { item: string; due: string; basis: string }[];
+    rates_2026: { item: string; value: string; basis: string }[];
+    durunuri: { title: string; rules: string[]; basis: string };
+    penalties: { item: string; value: string; basis: string }[];
+    agency: string;
+    agency_basis: string;
+  };
+};
