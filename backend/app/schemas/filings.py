@@ -113,3 +113,48 @@ class CollectMessageOut(BaseModel):
     ambiguous: int
     needs_followup: int
     unconfirmed: int = 0  # 전월 대비 미언급 직원 — 계속근무/퇴사 확인 필요
+
+
+# ---------------------------------------------------------------------------
+# 4대보험 요약 — 화면용 JSON (insurance_excel.InsuranceSummary 와 1:1 매핑)
+# ---------------------------------------------------------------------------
+
+
+class InsuranceTargetOut(BaseModel):
+    """4대보험 신고 대상자 — 자격취득/상실/보수월액변경 공용 (미사용 필드는 None)."""
+
+    kind: str  # "acquisition" | "loss" | "change"
+    client_id: str  # 사무소 횡단 화면에서 그룹핑용
+    employee_id: str
+    name: str
+    rrn_last4: str | None = None  # 마스킹 4자리만 (전체 RRN 미노출)
+    monthly_wage: int             # 보수월액 (비과세 제외)
+    total_amount: int             # 당월 총지급액
+    national_pension: int
+    health_insurance: int
+    longterm_care: int
+    employment_insurance: int
+    # 자격취득 전용
+    hired_at: date | None = None
+    acquisition_code: str | None = None
+    # 자격상실 전용
+    resigned_at: date | None = None
+    loss_code: str | None = None
+    # 보수월액 변경 전용
+    prev_amount: int | None = None
+    change_pct: float | None = None
+    reason_code: str | None = None
+    nps_eligible: bool | None = None
+    nps_within_limit: bool | None = None
+    nps_consent_required: bool | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class InsuranceSummaryOut(BaseModel):
+    period: str
+    acquisitions: list[InsuranceTargetOut]
+    losses: list[InsuranceTargetOut]
+    changes: list[InsuranceTargetOut]
+
+    model_config = {"from_attributes": True}

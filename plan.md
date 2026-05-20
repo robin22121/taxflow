@@ -640,7 +640,7 @@ SmartA에서 `[급여] → [급여대장] → 엑셀 저장`으로 내보낸 파
 - 3개월치 PayrollEntry 이력 생성 (전월 비교용)
 - 비정형 메시지 샘플 세트 (`test_messages/` 디렉터리)
 
-### 3.8 4대 보험 관리 — 월별신고 페이지 내 통합 UI (v3.2)
+### 3.8 4대 보험 관리 — 월별신고 페이지 내 통합 UI (v3.2 → v3.3)
 
 > **별도 카테고리 신설 없음.** 기존 *월별신고* 페이지 안에서 거래처 단위로 원천세/4대보험을 탭 전환.
 > 근거: 국민연금 EDI서비스 가이드북(2026) + 웹EDI 매뉴얼(25.8) 정독 결과 반영.
@@ -685,6 +685,42 @@ SmartA에서 `[급여] → [급여대장] → 엑셀 저장`으로 내보낸 파
 - 국민연금 EDI **파일사양서**(엑셀 대량신고 컬럼·자릿수) — 포털 다운로드 필요, 미확보
 - 취득부호/상실부호 **전체 코드표** — 가이드북엔 주요 부호만(취득 01~15 일부, 상실 3 등). 전체표는 공단 서식/포털 확인 필요
 - `edi_guide.pdf`는 **국민연금 EDI 전용** — 건강/고용/산재는 국민연금 입력값 자동 표출 구조이나, 기관별 고유 항목·사양서는 각 공단 확인 필요
+
+#### v3.3 갱신 (2026-05-20 — 상세화 스코프 확정·코드 실측 반영)
+
+> **v3.2 전제 변경** — "별도 카테고리 신설 없음"을 깨고 **4대보험을 별도 사이드바 메뉴로 승격**(제품 오너 결정). 동시에 기존 탭 UI는 "상세화" 4종을 함께 진행.
+
+##### 확정 스코프 (4종 모두 진행)
+1. **대상자별 상세 필드 확장**(행 펼침): (b)항 신고서 필드 노출 — 취득/상실부호·취득일/상실일·보수월액(비과세 제외)·4대보험 사용자부담분·변경전/후·사유.
+2. **보수월액변경 판정 정교화**: 국민연금 20%↑만 + 근로자 동의서 안내 + 한도 400K~6,370K, 건강/고용/산재는 변경 시마다. 보험별 분리.
+3. **EDI 제출 상태·가이드 섹션 신설**: "Phase 2~3" 자리표시를 (a)(b)(c) 기반 화면 안내로(업무대행 구조·파일 대량신고 경로·미확보 갭 정직 표기).
+4. **별도 사이드바 메뉴 승격**: `dashboard/layout.tsx` `NAV_ITEMS`에 "4대보험" 추가 + 신규 라우트.
+
+##### 코드 실측 제약 (정직 — 미확보 갭에 추가)
+- **Employee 모델 미보유 컬럼**: 취득부호·상실부호·특수직종·직역연금·생년월일·주소·외국인·대표자여부. 현재 모델은 `name·rrn_encrypted·rrn_last4·employee_code·business_type_code·hired_at·resigned_at·status`만. → **본 단계에서 DB 마이그레이션 비진행**. 모델 미보유 코드값은 화면 "기본값/—" + 엑셀/EDI 단계 확정으로 정직 표기.
+- **산재보험은 `tax_calc.calculate_social_insurance`에 없음** — 반환 `SocialInsurance`는 국민연금·건강보험·장기요양·고용보험 4종만. 보수월액변경 엑셀은 산재를 `cur` 그대로 사용. 화면 상세 패널도 4종만 정확 노출.
+- **판정 로직 프론트/백엔드 이중화**: 프론트 `InsuranceTab`엔 국민연금 20% 규칙 **없음**(`prev≠cur`만), 백엔드 `_change_payload`엔 있음 → 화면/엑셀 분류가 어긋남. 단일화 필요(아래 D1).
+- **`PayrollEntryOut`에 employee 필드 없음** (hired_at/resigned_at/rrn_last4 등) → 화면 상세 표기 데이터 부재.
+
+##### 설계 결정 (확정 — 2026-05-20)
+- **(D1) 데이터 공급: JSON 요약 엔드포인트 신설** ✅
+  - `/filings/{filing_id}/insurance-summary?client_id=` (GET) — 자격취득/상실/보수월액변경 분류 + 대상자별 상세 필드(취득/상실일·보수월액(비과세 제외)·4대보험 사용자부담분·변경전/후·사유·NPS 20% 판정·한도 체크) JSON 반환.
+  - 구현 방식: `insurance_excel.py`의 payload 빌더를 두 단계로 분리 — (1) 구조화된 `InsuranceTarget` dataclass 빌더(공유 분류·판정 단일 소스) → (2) 엑셀 어댑터가 이를 _SheetPayload로 변환. 엑셀 출력 컬럼·머신 포맷은 동일 유지(회귀 없음).
+- **(D2) 별도 메뉴 화면: 월 → 거래처별 목록** ✅
+  - 상단 `NAV_ITEMS`에 "4대보험" 추가 → `/dashboard/insurance` 라우트. 월(filing) 선택 → 거래처별 자격취득/상실/변경 건수 카드 + 통합 다운로드 버튼 + 기존 거래처 상세 탭 진입 링크. `useFilings/useClients` + 신규 요약 엔드포인트 재사용.
+
+##### 기술 메모
+- `frontend/package.json` next **16.2.4** + `frontend/AGENTS.md` "training data와 다른 버전" 경고 → 새 라우트 추가 시 `frontend/node_modules/next/dist/docs/01-app/` 우선 정독.
+
+##### 본 세션 정독 위치 (다음 세션 핸드오프)
+- `frontend/src/app/dashboard/filings/[id]/page.tsx:835-932` `InsuranceTab` (acq=NEW_HIRE_SUSPECTED only · loss=RESIGNATION_SUSPECTED only · chg=prev≠cur, 20% 규칙 누락)
+- `frontend/src/lib/types.ts:137-166` `PayrollEntry` (employee 객체 없음, employee_id만)
+- `frontend/src/app/dashboard/layout.tsx:12-15` `NAV_ITEMS`
+- `backend/app/services/insurance_excel.py` (payload 빌더 3종 + 통합 워크북; 보수월액 머신 포맷 16컬럼)
+- `backend/app/models/employee.py` Employee · `backend/app/models/payroll.py:22-89` PayrollEntry/MatchStatus
+- `backend/app/api/filings.py:603-635` GET entries · `:886-1006` 4대보험 4개 라우트 · `_wage_entries_for_filing` (WAGE+employee_id, selectinload(employee))
+- `backend/app/schemas/filings.py:47-77` `PayrollEntryOut` (employee 미포함)
+- `backend/app/services/tax_calc.py:251-273` `calculate_social_insurance` → `SocialInsurance(np/hi/ei/ltc)` (산재 없음)
 
 ---
 

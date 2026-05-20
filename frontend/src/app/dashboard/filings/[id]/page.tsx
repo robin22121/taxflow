@@ -9,6 +9,7 @@ import {
   useDeleteEntry,
   useFilingDashboard,
   useFilingEntries,
+  useInsuranceSummary,
   useRequestCollection,
   useSendInvite,
   useSessionAttachments,
@@ -18,7 +19,7 @@ import {
 } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
-import type { CollectionSession, PayrollEntry, SessionAttachment, SessionTimelineEvent, SourceEvent } from "@/lib/types";
+import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent, SourceEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
 
@@ -789,7 +790,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
 
       <div className="flex-1 overflow-auto">
         {tab === "insurance" ? (
-          <InsuranceTab filingId={filingId} session={session} entries={entries} />
+          <InsuranceTab filingId={filingId} session={session} />
         ) : entries.length > 0 ? (
           <table className="w-full text-[12px]">
             <thead className="sticky top-0 bg-white">
@@ -832,20 +833,20 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
 
 /* ═══ 4대보험 관리 탭 ═══ */
 
-function InsuranceTab({ filingId, session, entries }: {
+function InsuranceTab({ filingId, session }: {
   filingId: string;
   session: CollectionSession;
-  entries: PayrollEntry[];
 }) {
-  const acq = entries.filter((e) => e.match_status === "NEW_HIRE_SUSPECTED");
-  const loss = entries.filter((e) => e.match_status === "RESIGNATION_SUSPECTED");
-  const chg = entries.filter(
-    (e) =>
-      e.match_status !== "NEW_HIRE_SUSPECTED" &&
-      e.match_status !== "RESIGNATION_SUSPECTED" &&
-      e.prev_amount != null &&
-      e.prev_amount !== e.total_amount,
-  );
+  const { data: summary, isLoading } = useInsuranceSummary(filingId, session.client_id);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function dl(
     kind: "combined" | "acquisition" | "loss" | "change",
@@ -868,42 +869,10 @@ function InsuranceTab({ filingId, session, entries }: {
     }
   }
 
-  function Section({ title, list, kind, label, change }: {
-    title: string;
-    list: PayrollEntry[];
-    kind: "acquisition" | "loss" | "change";
-    label: string;
-    change?: boolean;
-  }) {
+  if (isLoading || !summary) {
     return (
-      <div className="border border-gray-200 rounded-lg overflow-hidden">
-        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
-          <span className="text-[12px] font-semibold text-gray-700">
-            {title} <span className="text-blue-600">{list.length}</span>명
-          </span>
-          <button
-            onClick={() => dl(kind, label)}
-            disabled={list.length === 0}
-            className="text-[11px] text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline">
-            엑셀 다운로드
-          </button>
-        </div>
-        {list.length === 0 ? (
-          <div className="px-3 py-3 text-[12px] text-gray-400 text-center">대상 없음</div>
-        ) : (
-          <ul className="divide-y divide-gray-50">
-            {list.map((e) => (
-              <li key={e.id} className="flex items-center justify-between px-3 py-2 text-[12px]">
-                <span className="font-medium text-gray-800">{e.raw_name}</span>
-                <span className="tabular-nums text-gray-600">
-                  {change && e.prev_amount != null
-                    ? `${formatKrw(e.prev_amount)} → ${formatKrw(e.total_amount)}`
-                    : formatKrw(e.total_amount)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <div className="p-3 text-[12px] text-gray-400 text-center">
+        {isLoading ? "4대보험 분류 중..." : "요약 데이터를 불러올 수 없습니다"}
       </div>
     );
   }
@@ -920,13 +889,237 @@ function InsuranceTab({ filingId, session, entries }: {
           4대보험 통합 다운로드 (3시트)
         </button>
       </div>
-      <Section title="자격취득" list={acq} kind="acquisition" label="자격취득" />
-      <Section title="자격상실" list={loss} kind="loss" label="자격상실" />
-      <Section title="보수월액 변경" list={chg} kind="change" label="보수월액변경" change />
-      <p className="text-[11px] text-gray-400 leading-relaxed">
-        ※ 표기는 현재 거래처 데이터 기준 추정 분류입니다. 실제 신고 대상·코드(취득/상실부호,
-        국민연금 20% 기준 등)는 다운로드 엑셀에서 확정됩니다. EDI 자동 제출은 Phase 2~3.
-      </p>
+      <InsuranceSection title="자격취득" list={summary.acquisitions} kind="acquisition" label="자격취득"
+        expanded={expanded} toggle={toggle} onDownload={dl} />
+      <InsuranceSection title="자격상실" list={summary.losses} kind="loss" label="자격상실"
+        expanded={expanded} toggle={toggle} onDownload={dl} />
+      <InsuranceSection title="보수월액 변경" list={summary.changes} kind="change" label="보수월액변경"
+        expanded={expanded} toggle={toggle} onDownload={dl} />
+      <EdiGuideSection />
+    </div>
+  );
+}
+
+function InsuranceSection({
+  title, list, kind, label, expanded, toggle, onDownload,
+}: {
+  title: string;
+  list: InsuranceTarget[];
+  kind: "acquisition" | "loss" | "change";
+  label: string;
+  expanded: Set<string>;
+  toggle: (id: string) => void;
+  onDownload: (k: "combined" | "acquisition" | "loss" | "change", lbl: string) => void;
+}) {
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+        <span className="text-[12px] font-semibold text-gray-700">
+          {title} <span className="text-blue-600">{list.length}</span>명
+        </span>
+        <button
+          onClick={() => onDownload(kind, label)}
+          disabled={list.length === 0}
+          className="text-[11px] text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline">
+          엑셀 다운로드
+        </button>
+      </div>
+      {list.length === 0 ? (
+        <div className="px-3 py-3 text-[12px] text-gray-400 text-center">대상 없음</div>
+      ) : (
+        <ul className="divide-y divide-gray-50">
+          {list.map((t) => {
+            const isOpen = expanded.has(t.employee_id);
+            return (
+              <li key={t.employee_id}>
+                <button
+                  onClick={() => toggle(t.employee_id)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[12px] hover:bg-gray-50 transition-colors">
+                  <span className="flex items-center gap-2">
+                    <span className={`text-gray-400 transition-transform ${isOpen ? "rotate-90" : ""}`}>▸</span>
+                    <span className="font-medium text-gray-800">{t.name}</span>
+                    {t.rrn_last4 && (
+                      <span className="text-[10.5px] text-gray-400 tabular-nums">***-{t.rrn_last4}</span>
+                    )}
+                  </span>
+                  <span className="tabular-nums text-gray-600">
+                    {t.kind === "change" && t.prev_amount != null
+                      ? `${formatKrw(t.prev_amount)} → ${formatKrw(t.total_amount)}`
+                      : formatKrw(t.total_amount)}
+                  </span>
+                </button>
+                {isOpen && <InsuranceTargetDetail t={t} />}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function InsuranceTargetDetail({ t }: { t: InsuranceTarget }) {
+  return (
+    <div className="px-4 py-2.5 bg-blue-50/40 border-t border-blue-100 text-[11.5px] space-y-2">
+      {t.kind === "acquisition" && <AcquisitionDetail t={t} />}
+      {t.kind === "loss" && <LossDetail t={t} />}
+      {t.kind === "change" && <ChangeDetail t={t} />}
+      <SocialInsuranceBreakdown t={t} />
+    </div>
+  );
+}
+
+function AcquisitionDetail({ t }: { t: InsuranceTarget }) {
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+      <DetailRow label="자격취득일" value={t.hired_at ?? "—"} />
+      <DetailRow label="취득부호" value={`${t.acquisition_code ?? "—"} (기본값, EDI 단계 확정)`} muted />
+      <DetailRow label="보수월액 (비과세 제외)" value={formatKrw(t.monthly_wage)} />
+      <DetailRow label="당월 총지급액" value={formatKrw(t.total_amount)} />
+    </div>
+  );
+}
+
+function LossDetail({ t }: { t: InsuranceTarget }) {
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+      <DetailRow label="자격상실일" value={t.resigned_at ?? "—"} />
+      <DetailRow label="상실부호" value={`${t.loss_code ?? "—"} (사용관계 종료, EDI 단계 확정)`} muted />
+      <DetailRow label="당월 보수총액" value={formatKrw(t.total_amount)} />
+      <DetailRow label="보수월액 (비과세 제외)" value={formatKrw(t.monthly_wage)} />
+    </div>
+  );
+}
+
+function ChangeDetail({ t }: { t: InsuranceTarget }) {
+  const pct = t.change_pct != null ? `${(t.change_pct * 100).toFixed(1)}%` : "—";
+  const reasonKo = t.reason_code === "1" ? "보수인상" : t.reason_code === "2" ? "보수인하" : "—";
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+        <DetailRow label="변경 전" value={t.prev_amount != null ? formatKrw(t.prev_amount) : "—"} />
+        <DetailRow label="변경 후" value={formatKrw(t.total_amount)} />
+        <DetailRow label="변동률" value={pct} />
+        <DetailRow label="사유" value={reasonKo} />
+      </div>
+      <div className="border-t border-blue-100 pt-2 mt-1 space-y-1">
+        <div className="text-[10.5px] font-semibold text-gray-500 uppercase tracking-wider">보험별 신청</div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          <InsuranceFlag label="국민연금"
+            ok={!!t.nps_eligible}
+            note={t.nps_eligible ? "20%↑ 적격" : "20% 미만 — 변경 불가"}
+          />
+          <InsuranceFlag label="건강·고용·산재" ok note="변경 시마다 신청 가능" />
+        </div>
+        {t.nps_eligible && (
+          <>
+            {t.nps_within_limit === false && (
+              <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                ⚠ NPS 기준소득월액 한도(40만원~637만원, 2025.7~2026.6) 초과/미만 — 한도 캡 적용 검토 필요
+              </div>
+            )}
+            {t.nps_consent_required && (
+              <div className="text-[11px] text-gray-600 bg-white border border-gray-200 rounded px-2 py-1">
+                ℹ NPS 변경신청은 <strong>근로자 동의서</strong> 필수 첨부 (별지 양식)
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function SocialInsuranceBreakdown({ t }: { t: InsuranceTarget }) {
+  return (
+    <div className="border-t border-blue-100 pt-2 mt-1">
+      <div className="text-[10.5px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+        4대보험 사용자부담분 (월)
+      </div>
+      <div className="grid grid-cols-4 gap-x-2 text-[11px]">
+        <SiCell label="국민연금" v={t.national_pension} />
+        <SiCell label="건강보험" v={t.health_insurance} />
+        <SiCell label="장기요양" v={t.longterm_care} />
+        <SiCell label="고용보험" v={t.employment_insurance} />
+      </div>
+      <div className="text-[10px] text-gray-400 mt-1">
+        ※ 산재보험은 업종별 요율로 별도 산정 (본 화면 미표기, 엑셀에선 월평균보수 기재)
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-[10.5px] text-gray-500 min-w-[88px]">{label}</span>
+      <span className={`tabular-nums ${muted ? "text-gray-400" : "text-gray-800"}`}>{value}</span>
+    </div>
+  );
+}
+
+function InsuranceFlag({ label, ok, note }: { label: string; ok: boolean; note: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[11px]">
+      <span className={`inline-block w-1.5 h-1.5 rounded-full ${ok ? "bg-green-500" : "bg-gray-300"}`} />
+      <span className="font-medium text-gray-700 min-w-[88px]">{label}</span>
+      <span className={ok ? "text-gray-600" : "text-gray-400"}>{note}</span>
+    </div>
+  );
+}
+
+function SiCell({ label, v }: { label: string; v: number }) {
+  return (
+    <div className="bg-white border border-gray-100 rounded px-2 py-1">
+      <div className="text-[10px] text-gray-500">{label}</div>
+      <div className="tabular-nums text-[11.5px] font-medium text-gray-800">{formatKrw(v)}</div>
+    </div>
+  );
+}
+
+/* ═══ EDI 제출 상태·가이드 (Phase 2~3 자동화 진입 전 화면 안내) ═══ */
+
+function EdiGuideSection() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100 hover:bg-gray-100 transition-colors">
+        <span className="text-[12px] font-semibold text-gray-700">
+          EDI 제출 가이드 <span className="text-[10.5px] font-normal text-gray-400">(국민연금 EDI 업무대행)</span>
+        </span>
+        <span className={`text-gray-400 text-[10px] transition-transform ${open ? "rotate-90" : ""}`}>▸</span>
+      </button>
+      {open && (
+        <div className="px-3 py-2.5 text-[11.5px] text-gray-600 space-y-2 leading-relaxed">
+          <p>
+            <strong>운영 모델 — 업무대행기관 지정.</strong> 세무사사무소가 업무대행기관(세무사·노무사·회계사 등)으로
+            1인 업무대행기관번호(사업자등록번호10+구분코드9, 11자리) 발급 → 거래처가 별지4호 신청서로 업무대행기관 지정 →
+            업무대행기관 공동인증서로 EDI 로그인 후 [사업장 전환]으로 거래처별 신고.
+          </p>
+          <p>
+            <strong>파일 대량신고 경로.</strong> 국민연금 EDI는 [파일신고업로드] = 엑셀 대량신고 + [파일사양서]를
+            공식 제공(자격취득/상실 등). 본 화면 [엑셀 다운로드]·[통합 다운로드]가 그 입력 파일에 해당.
+            보수월액변경은 웹EDI 일괄등록 16컬럼 머신 포맷.
+          </p>
+          <p>
+            <strong>처리결과 회수.</strong> EDI 신고 후 신고일·접수번호·서식명·처리상태(정상/오류)·확인여부 흐름 존재 —
+            Phase 2~3에서 RPA로 자동 회수 예정.
+          </p>
+          <div className="border border-amber-200 bg-amber-50/60 rounded px-2 py-1.5 text-[11px] text-amber-800">
+            <div className="font-semibold mb-0.5">⚠ 미확보 갭 (정직)</div>
+            <ul className="list-disc ml-4 space-y-0.5">
+              <li>국민연금 EDI 파일사양서(엑셀 대량신고 컬럼·자릿수) — 포털 별도 다운로드</li>
+              <li>취득부호·상실부호 전체 코드표 — 공단 서식/포털 확인 필요 (본 화면은 기본값 노출)</li>
+              <li>건강·고용·산재 공단별 고유 항목 — 국민연금 입력 자동표출 외 영역은 각 공단 확인</li>
+            </ul>
+          </div>
+          <p className="text-[10.5px] text-gray-400">
+            현재 단계는 신고서 엑셀·요약 화면까지. 자동 제출·결과 회수는 업무대행기관번호 발급 + 파일사양서 확보 + 공동인증서 로컬 처리 후 진입.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

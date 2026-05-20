@@ -134,6 +134,42 @@ export type SourceEvent = {
   created_at: string | null;
 };
 
+export type InsuranceKind = "acquisition" | "loss" | "change";
+
+export type InsuranceTarget = {
+  kind: InsuranceKind;
+  client_id: string;
+  employee_id: string;
+  name: string;
+  rrn_last4: string | null;
+  monthly_wage: number;
+  total_amount: number;
+  national_pension: number;
+  health_insurance: number;
+  longterm_care: number;
+  employment_insurance: number;
+  // 자격취득 전용
+  hired_at: string | null;
+  acquisition_code: string | null;
+  // 자격상실 전용
+  resigned_at: string | null;
+  loss_code: string | null;
+  // 보수월액 변경 전용
+  prev_amount: number | null;
+  change_pct: number | null;
+  reason_code: string | null;
+  nps_eligible: boolean | null;
+  nps_within_limit: boolean | null;
+  nps_consent_required: boolean | null;
+};
+
+export type InsuranceSummary = {
+  period: string;
+  acquisitions: InsuranceTarget[];
+  losses: InsuranceTarget[];
+  changes: InsuranceTarget[];
+};
+
 export type PayrollEntry = {
   id: string;
   client_id: string;

@@ -17,6 +17,7 @@ import type {
   FilingDashboard,
   ImportEmployeeResult,
   ImportPayrollResult,
+  InsuranceSummary,
   PayrollEntry,
   SessionAttachment,
   SessionTimelineEvent,
@@ -89,6 +90,19 @@ export function useFilingEntries(filingId: string) {
   return useQuery({
     queryKey: ["filings", filingId, "entries"],
     queryFn: () => api<PayrollEntry[]>(`/api/v1/filings/${filingId}/entries`),
+  });
+}
+
+export function useInsuranceSummary(filingId: string, clientId: string | null) {
+  return useQuery({
+    queryKey: ["filings", filingId, "insurance-summary", clientId],
+    queryFn: () => {
+      const qs = clientId ? `?client_id=${clientId}` : "";
+      return api<InsuranceSummary>(
+        `/api/v1/filings/${filingId}/insurance-summary${qs}`,
+      );
+    },
+    enabled: !!filingId,
   });
 }
 
