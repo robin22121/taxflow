@@ -11,6 +11,7 @@ import { Button, Input, Modal } from "@/components/ui";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "월별 신고" },
+  { href: "/dashboard/insurance", label: "4대보험" },
   { href: "/dashboard/clients", label: "거래처" },
 ] as const;
 

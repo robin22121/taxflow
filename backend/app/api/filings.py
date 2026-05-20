@@ -24,6 +24,7 @@ from app.models import (
 from app.schemas.filings import (
     CollectionSessionOut,
     FilingDashboard,
+    InsuranceSummaryOut,
     MonthlyFilingCreate,
     MonthlyFilingOut,
     PayrollEntryOut,
@@ -35,6 +36,7 @@ from app.services.invite import (
     send_invite_to_client,
 )
 from app.services.insurance_excel import (
+    build_insurance_summary,
     generate_acquisition_report,
     generate_combined_insurance_report,
     generate_loss_report,
@@ -1004,6 +1006,28 @@ async def download_insurance_combined(
             ),
         },
     )
+
+
+@router.get("/{filing_id}/insurance-summary", response_model=InsuranceSummaryOut)
+async def get_insurance_summary(
+    filing_id: str,
+    client_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> InsuranceSummaryOut:
+    """4대보험 신고 대상 3종 분류·상세 JSON.
+
+    엑셀(insurance-acquisition/loss/change/combined)과 동일한 분류·판정 로직
+    (insurance_excel._is_*_target / _change_judgment) 단일 소스에서 파생.
+    화면용이므로 RRN 은 마지막 4자리만 노출.
+    """
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    entries = await _wage_entries_for_filing(filing_id, db, client_id)
+    summary = build_insurance_summary(entries, period=filing.period)
+    return InsuranceSummaryOut.model_validate(summary)
 
 
 @router.get("/{filing_id}/payslips")
