@@ -474,6 +474,14 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
   const [deletedKeys, setDeletedKeys] = useState<Set<string>>(new Set());
   const [deleteEventTarget, setDeleteEventTarget] = useState<SourceEvent | null>(null);
   const [deletedEventIds, setDeletedEventIds] = useState<Set<string>>(new Set());
+  const [expandedTimelineIds, setExpandedTimelineIds] = useState<Set<string>>(new Set());
+  const toggleTimelineExpanded = useCallback((id: string) => {
+    setExpandedTimelineIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
 
   const sourceTexts = useMemo(() => {
     const seen = new Set<string>();
@@ -513,31 +521,46 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
         {timeline && timeline.length > 0 && (
           <div className="space-y-1">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-0.5">소통 타임라인</div>
-            {timeline.map((t: SessionTimelineEvent) => (
-              <div key={t.id} className="flex items-start gap-2 px-2 py-1.5 rounded-md bg-gray-50 border border-gray-100">
-                <span className={`mt-px shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                  t.direction === "out" ? "bg-blue-50 text-blue-600"
-                    : t.direction === "in" ? "bg-green-50 text-green-600"
-                    : "bg-gray-100 text-gray-500"
-                }`}>
-                  {t.direction === "out" ? "프로덕트→고객" : t.direction === "in" ? "고객사→서버" : "시스템"}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 text-[11.5px] text-gray-700">
-                    <span className="tabular-nums text-gray-400">
-                      {t.at ? new Date(t.at).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : ""}
-                    </span>
-                    <span className="font-medium">{t.label}</span>
-                    {t.channel && <span className="text-gray-400">· {t.channel}</span>}
-                  </div>
-                  {(t.sender_name || t.detail) && (
-                    <div className="text-[11px] text-gray-500 truncate">
-                      {t.sender_name ? `${t.sender_name} · ` : ""}{t.detail}
+            {timeline.map((t: SessionTimelineEvent) => {
+              const isExpanded = expandedTimelineIds.has(t.id);
+              const hasBody = !!(t.sender_name || t.detail);
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => hasBody && toggleTimelineExpanded(t.id)}
+                  className={`flex items-start gap-2 px-2 py-1.5 rounded-md bg-gray-50 border border-gray-100 transition-colors ${
+                    hasBody ? "cursor-pointer hover:bg-gray-100" : ""
+                  }`}
+                >
+                  <span className={`mt-px shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                    t.direction === "out" ? "bg-blue-50 text-blue-600"
+                      : t.direction === "in" ? "bg-green-50 text-green-600"
+                      : "bg-gray-100 text-gray-500"
+                  }`}>
+                    {t.direction === "out" ? "프로덕트→고객" : t.direction === "in" ? "고객사→서버" : "시스템"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-[11.5px] text-gray-700">
+                      <span className="tabular-nums text-gray-400">
+                        {t.at ? new Date(t.at).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : ""}
+                      </span>
+                      <span className="font-medium">{t.label}</span>
+                      {t.channel && <span className="text-gray-400">· {t.channel}</span>}
                     </div>
+                    {hasBody && (
+                      <div className={`text-[11px] text-gray-500 mt-0.5 ${
+                        isExpanded ? "whitespace-pre-wrap break-words" : "truncate"
+                      }`}>
+                        {t.sender_name ? `${t.sender_name} · ` : ""}{t.detail}
+                      </div>
+                    )}
+                  </div>
+                  {hasBody && (
+                    <span className={`mt-0.5 shrink-0 text-[9px] text-gray-300 transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         {visibleAttachments.length > 0 && (
@@ -1149,21 +1172,6 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
   const fieldChanges = (e.anomaly_notes?.field_changes ?? null) as Record<string, { prev: number; curr: number }> | null;
   const diff = computeDiff(e);
 
-  function numInput(field: keyof PayrollEntry, label: string, anomaly?: boolean) {
-    const v = (draft[field] as number) ?? 0;
-    return (
-      <div>
-        <label className={`block text-[11px] mb-1 ${anomaly ? "text-red-600 font-semibold" : "text-gray-500"}`}>{label}</label>
-        <input
-          type="text"
-          inputMode="numeric"
-          className={`w-full px-2 py-1.5 border rounded-md text-[13px] text-right tabular-nums focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none ${anomaly ? "border-red-300 bg-red-50" : "border-gray-300"}`}
-          value={v.toLocaleString("ko-KR")}
-          onChange={(ev) => setDraft({ ...draft, [field]: Number(ev.target.value.replace(/[^\d]/g, "")) || 0 })} />
-      </div>
-    );
-  }
-
   return (
     <>
       <tr
@@ -1223,69 +1231,267 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
           </div>
         </td>
       </tr>
-      {/* ── 상세 필드 (pending=항상, approved=수정시) ── */}
+      {/* ── 상세 필드 — v3 스프레드시트 (5컬럼) ── */}
       {expanded && (
-        <tr className={mode === "pending" ? "bg-gray-50/50" : "bg-blue-50/40"}>
-          <td colSpan={6} className="px-4 py-2.5" onClick={(ev) => ev.stopPropagation()}>
-            <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
-              {/* 기본 정보 */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                {mode === "pending" && (<>
-                  <div>
-                    <label className="block text-[11px] text-gray-500 mb-1">이름</label>
-                    <input className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-[13px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={draft.raw_name ?? ""} onChange={(ev) => setDraft({ ...draft, raw_name: ev.target.value })} />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-gray-500 mb-1">소득구분</label>
-                    <select className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-[13px] bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" value={draft.income_type ?? "WAGE"} onChange={(ev) => setDraft({ ...draft, income_type: ev.target.value })}>
-                      <option value="WAGE">근로</option><option value="BUSINESS">사업</option><option value="OTHER">기타</option><option value="DAILY">일용</option><option value="RETIREMENT">퇴직</option>
-                    </select>
-                  </div>
-                </>)}
-                {numInput("total_amount", "총지급액")}
-              </div>
-
-              <div className="border-t border-gray-100 pt-3">
-                <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-2">지급 항목</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                  {numInput("bonus_amount", "상여")}
-                  {numInput("meal_amount", "식대", !!fieldChanges?.meal_amount)}
-                  {numInput("car_amount", "자가운전보조금", !!fieldChanges?.car_amount)}
-                  {numInput("childcare_amount", "육아수당", !!fieldChanges?.childcare_amount)}
-                </div>
-              </div>
-
-              <div className="border-t border-gray-100 pt-3">
-                <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-2">4대보험 공제</div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {numInput("national_pension", "국민연금", !!fieldChanges?.national_pension)}
-                  {numInput("health_insurance", "건강보험", !!fieldChanges?.health_insurance)}
-                  {numInput("employment_insurance", "고용보험", !!fieldChanges?.employment_insurance)}
-                  {numInput("longterm_care", "장기요양", !!fieldChanges?.longterm_care)}
-                </div>
-              </div>
-
-              <div className="border-t border-gray-100 pt-3">
-                <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-2">세금</div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {numInput("income_tax", "소득세", !!fieldChanges?.income_tax)}
-                  {numInput("local_tax", "지방소득세", !!fieldChanges?.local_tax)}
-                </div>
-              </div>
-
-              <div className="flex gap-1.5 pt-1 border-t border-gray-100">
-                {mode === "approved" ? (<>
-                  <button onClick={onSave} className="px-3 py-1.5 mt-3 text-[12px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700" disabled={update.isPending}>{update.isPending ? "저장중..." : "저장"}</button>
-                  <button onClick={onToggleExpand} className="px-3 py-1.5 mt-3 text-[12px] border border-gray-300 rounded-full hover:bg-gray-50">접기</button>
-                </>) : (
-                  <button onClick={onToggleExpand} className="px-3 py-1.5 mt-3 text-[12px] border border-gray-300 rounded-full hover:bg-gray-50">접기</button>
-                )}
-              </div>
-            </div>
+        <tr className="bg-stone-50/50">
+          <td colSpan={6} className="px-0 py-0" onClick={(ev) => ev.stopPropagation()}>
+            <V3Spreadsheet
+              draft={draft}
+              setDraft={setDraft}
+              fieldChanges={fieldChanges}
+              mode={mode}
+              onSave={onSave}
+              onCancel={onToggleExpand}
+              saving={update.isPending}
+            />
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+/* ═══ v3 스프레드시트 (지급명세서 세부) ═══ */
+
+const V3_GRID = "grid grid-cols-[1.4fr_1fr_1.4fr_1fr_1fr]";
+
+function V3Spreadsheet({
+  draft,
+  setDraft,
+  fieldChanges,
+  mode,
+  onSave,
+  onCancel,
+  saving,
+}: {
+  draft: Partial<PayrollEntry>;
+  setDraft: (d: Partial<PayrollEntry>) => void;
+  fieldChanges: Record<string, { prev: number; curr: number }> | null;
+  mode: "pending" | "approved";
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  // v3 의도: 펼친 상태 = 편집 모드. pending/approved 모두 인라인 편집 가능.
+  const editing = true;
+  const v = (k: keyof PayrollEntry): number => Number(draft[k] ?? 0) || 0;
+  const set = (k: keyof PayrollEntry, val: number) => setDraft({ ...draft, [k]: val });
+
+  const basic = v("total_amount");
+  const bonus = v("bonus_amount");
+  const meal = v("meal_amount");
+  const car = v("car_amount");
+  const childcare = v("childcare_amount");
+  const np = v("national_pension");
+  const hi = v("health_insurance");
+  const ei = v("employment_insurance");
+  const ltc = v("longterm_care");
+  const it = v("income_tax");
+  const lt = v("local_tax");
+
+  const paySum = bonus + meal + car + childcare;
+  const insSum = np + hi + ei + ltc;
+  const taxSum = it + lt;
+  const gross = basic + paySum;
+  const deduct = insSum + taxSum;
+  const net = gross - deduct;
+
+  function v3Num(field: keyof PayrollEntry, value: number, anomaly?: boolean) {
+    if (editing) {
+      return (
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => set(field, Number(e.target.value) || 0)}
+          className={`w-full font-mono tabular-nums text-right text-[13.5px] font-semibold py-0.5 px-1 rounded outline-none ${
+            anomaly
+              ? "bg-red-50 border border-red-300 text-red-700"
+              : "bg-amber-50 border border-amber-200 focus:bg-white focus:border-amber-400"
+          }`}
+        />
+      );
+    }
+    return (
+      <span
+        className={`font-mono tabular-nums text-[13.5px] font-semibold ${
+          anomaly ? "text-red-700" : value === 0 ? "text-gray-400 font-normal" : "text-gray-900"
+        }`}
+      >
+        {value.toLocaleString("ko-KR")}
+      </span>
+    );
+  }
+
+  return (
+    <div className="bg-white border-t border-gray-200">
+      {editing && (
+        <div className="flex items-center gap-2 px-5 py-2 text-[12px] text-amber-800 bg-amber-50 border-b border-amber-100">
+          <span className="font-semibold">편집 모드</span>
+          <span>— 노란색 칸을 클릭해 값을 수정한 뒤 저장 버튼을 누르세요.</span>
+        </div>
+      )}
+
+      {/* 헤더 바 */}
+      <div className={`${V3_GRID} bg-gray-50 border-b border-gray-200 text-[10.5px] font-bold uppercase tracking-wider text-gray-500`}>
+        <div className="px-3.5 py-2 border-r border-gray-200 text-blue-700 bg-blue-50/40">총지급</div>
+        <div className="px-3.5 py-2 border-r border-gray-200 text-blue-700 bg-blue-50/40">비과세 수당</div>
+        <div className="px-3.5 py-2 border-r border-gray-200 text-red-700 bg-red-50/40">4대보험</div>
+        <div className="px-3.5 py-2 border-r border-gray-200 text-red-700 bg-red-50/40">세금</div>
+        <div className="px-3.5 py-2">메모</div>
+      </div>
+
+      {/* 본문 라인 */}
+      <div className={`${V3_GRID} border-b border-gray-200`}>
+        {/* 1: 총지급액 */}
+        <div className="px-3.5 py-2.5 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
+          <span className="text-[11px] text-gray-500">총지급액 · 근로</span>
+          <span className="font-mono tabular-nums text-[13.5px] font-semibold text-gray-900">
+            ₩ {editing ? v3Num("total_amount", basic) : basic.toLocaleString("ko-KR")}
+          </span>
+        </div>
+
+        {/* 2: 지급항목 multi */}
+        <V3MultiCell
+          title="지급항목"
+          sum={`${paySum >= 0 ? "+ " : "− "}${Math.abs(paySum).toLocaleString("ko-KR")}`}
+          rows={[
+            ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount)],
+            ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount)],
+            ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount)],
+            ["육아수당", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount)],
+          ]}
+        />
+
+        {/* 3: 4대보험 */}
+        <V3MultiCell
+          title="공제"
+          sum={insSum.toLocaleString("ko-KR")}
+          rows={[
+            ["국민연금", v3Num("national_pension", np, !!fieldChanges?.national_pension)],
+            ["건강보험", v3Num("health_insurance", hi, !!fieldChanges?.health_insurance)],
+            ["고용보험", v3Num("employment_insurance", ei, !!fieldChanges?.employment_insurance)],
+            ["장기요양", v3Num("longterm_care", ltc, !!fieldChanges?.longterm_care)],
+          ]}
+        />
+
+        {/* 4: 세금 */}
+        <V3MultiCell
+          title="세금"
+          sum={taxSum.toLocaleString("ko-KR")}
+          rows={[
+            ["소득세", v3Num("income_tax", it, !!fieldChanges?.income_tax)],
+            ["지방소득세", v3Num("local_tax", lt, !!fieldChanges?.local_tax)],
+          ]}
+        />
+
+        {/* 5: 메모 */}
+        <div className="px-3.5 py-2.5 flex flex-col gap-1 min-h-[56px]">
+          <span className="text-[11px] text-gray-500">메모</span>
+          {editing ? (
+            <textarea
+              value={(draft.anomaly_notes?.memo as string) ?? ""}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  anomaly_notes: { ...(draft.anomaly_notes ?? {}), memo: e.target.value },
+                })
+              }
+              className="text-[12px] text-gray-700 bg-amber-50 border border-amber-200 focus:bg-white focus:border-amber-400 rounded px-1.5 py-1 outline-none resize-none"
+              rows={2}
+            />
+          ) : (
+            <span className="text-[12px] text-gray-500">
+              {(draft.anomaly_notes?.memo as string) || "—"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 푸터: 지급 / 공제 / 실지급액 */}
+      <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-b from-gray-50 to-stone-100 border-t border-gray-300">
+        <div className="flex gap-7 text-[12px]">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-gray-500">지급</span>
+            <span className="font-mono tabular-nums font-semibold text-[13.5px] text-gray-900">
+              ₩ {gross.toLocaleString("ko-KR")}
+            </span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-gray-500">공제</span>
+            <span className="font-mono tabular-nums font-semibold text-[13.5px] text-red-600">
+              − ₩ {deduct.toLocaleString("ko-KR")}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-baseline gap-2.5">
+          <span className="text-[11px] uppercase tracking-widest font-bold text-gray-500">실지급액</span>
+          <span className="font-mono tabular-nums font-bold text-[19px] text-blue-700">
+            ₩ {net.toLocaleString("ko-KR")}
+          </span>
+        </div>
+      </div>
+
+      {/* 하단 보조 액션 (v3 ghost actions) + approved일 때 저장/취소 */}
+      <div className="flex items-center gap-1.5 px-5 py-2 bg-white border-t border-gray-200">
+        {mode === "approved" && (
+          <>
+            <button
+              onClick={onSave}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saving ? "저장 중..." : "저장"}
+            </button>
+            <button
+              onClick={onCancel}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              취소
+            </button>
+            <span className="w-px h-4 bg-gray-200 mx-1" />
+          </>
+        )}
+        <button className="text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded">
+          명세서 PDF
+        </button>
+        <button className="text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded">
+          변경 이력
+        </button>
+        <span className="flex-1" />
+        {mode === "approved" && (
+          <button
+            onClick={onCancel}
+            className="text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded"
+          >
+            접기
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function V3MultiCell({
+  title,
+  sum,
+  rows,
+}: {
+  title: string;
+  sum: string;
+  rows: [string, React.ReactNode][];
+}) {
+  return (
+    <div className="px-3.5 py-2 border-r border-gray-200 flex flex-col gap-0 min-h-[56px]">
+      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+        {title} <span className="font-mono font-semibold text-gray-700 ml-1.5 normal-case">{sum}</span>
+      </div>
+      {rows.map(([k, node]) => (
+        <div key={k} className="flex justify-between items-baseline gap-2 py-0.5 text-[12px]">
+          <span className="text-gray-500 shrink-0">{k}</span>
+          <span className="text-right min-w-0 flex-1">{node}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 

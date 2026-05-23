@@ -8,7 +8,10 @@ import {
   useClientEmployees,
   useImportEmployees,
   useImportPayroll,
+  usePayrollDefault,
+  useResetPayrollDefault,
   useUpdateClient,
+  useUpdatePayrollDefault,
 } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
@@ -16,6 +19,8 @@ import type {
   Client,
   ImportEmployeeResult,
   ImportPayrollResult,
+  PayrollDefault,
+  PayrollDefaultPatch,
 } from "@/lib/types";
 
 export default function ClientDetailPage({
@@ -226,6 +231,9 @@ export default function ClientDetailPage({
         )}
       </Card>
 
+      {/* Payroll Defaults — 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) */}
+      <PayrollDefaultSection clientId={id} />
+
       {/* Employee List */}
       <Card>
         <div className="flex items-baseline justify-between mb-3">
@@ -287,6 +295,264 @@ function StatusBadge({ status }: { status: string }) {
   if (status === "ACTIVE") return <Badge tone="success">재직</Badge>;
   if (status === "RESIGNED") return <Badge tone="danger">퇴사</Badge>;
   return <Badge tone="warning">대기</Badge>;
+}
+
+/* ─── 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) ─── */
+
+function PayrollDefaultSection({ clientId }: { clientId: string }) {
+  const { data, isLoading } = usePayrollDefault(clientId);
+  const update = useUpdatePayrollDefault(clientId);
+  const reset = useResetPayrollDefault(clientId);
+
+  if (isLoading || !data) {
+    return (
+      <Card>
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">기본 세팅</h2>
+        <p className="text-sm text-gray-500">로딩 중...</p>
+      </Card>
+    );
+  }
+  // 서버 데이터가 갱신되면 key 변경으로 editor를 remount하여 폼 상태 재초기화.
+  // setState-in-effect 안티패턴 회피.
+  const dataKey = [
+    data.meal_default, data.car_default, data.childcare_default,
+    data.apply_national_pension, data.apply_health_insurance,
+    data.apply_employment_insurance, data.apply_longterm_care,
+    data.nps_rate_percent, data.hi_rate_percent, data.ltc_rate_percent, data.ei_rate_percent,
+    data.note ?? "",
+  ].join("|");
+
+  return (
+    <PayrollDefaultEditor
+      key={dataKey}
+      data={data}
+      onSave={(patch) => update.mutateAsync(patch)}
+      onReset={() => {
+        if (window.confirm("시스템 기본값(비과세 한도 + 현행 요율)으로 리셋하시겠습니까?")) {
+          reset.mutate();
+        }
+      }}
+      saving={update.isPending}
+      resetting={reset.isPending}
+    />
+  );
+}
+
+function PayrollDefaultEditor({
+  data,
+  onSave,
+  onReset,
+  saving,
+  resetting,
+}: {
+  data: PayrollDefault;
+  onSave: (patch: PayrollDefaultPatch) => Promise<unknown>;
+  onReset: () => void;
+  saving: boolean;
+  resetting: boolean;
+}) {
+  // key-remount 패턴: data가 바뀌면 이 컴포넌트가 새로 마운트되어 초기값으로 form이 셋업됨.
+  const [form, setForm] = useState<PayrollDefault>(data);
+
+  function patchField<K extends keyof PayrollDefault>(key: K, value: PayrollDefault[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function diff(): PayrollDefaultPatch {
+    const patch: PayrollDefaultPatch = {};
+    (Object.keys(form) as (keyof PayrollDefault)[]).forEach((k) => {
+      if (k.startsWith("system_")) return;
+      if (form[k] !== data[k]) {
+        (patch as Record<string, unknown>)[k] = form[k];
+      }
+    });
+    return patch;
+  }
+
+  async function handleSave() {
+    const patch = diff();
+    if (Object.keys(patch).length === 0) return;
+    await onSave(patch);
+  }
+
+  const dirty = Object.keys(diff()).length > 0;
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">기본 세팅</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            거래처의 지급항목·4대보험 기본값. 매월 원시파일에 값이 명시되지 않으면 이 값이 적용됩니다.
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="ghost" onClick={onReset} disabled={resetting || saving}>
+            {resetting ? "리셋 중..." : "시스템 기본값으로 리셋"}
+          </Button>
+          <Button variant="primary" onClick={handleSave} disabled={!dirty || saving}>
+            {saving ? "저장 중..." : "저장"}
+          </Button>
+        </div>
+      </div>
+
+      {/* 비과세 지급항목 */}
+      <div className="mt-4">
+        <h3 className="text-sm font-medium text-gray-900 mb-2">비과세 지급항목 기본금액</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <AmountField
+            label="식대"
+            value={form.meal_default}
+            onChange={(v) => patchField("meal_default", v)}
+            hint="세법상 비과세 한도 200,000원"
+          />
+          <AmountField
+            label="자가운전보조금"
+            value={form.car_default}
+            onChange={(v) => patchField("car_default", v)}
+            hint="세법상 비과세 한도 200,000원"
+          />
+          <AmountField
+            label="육아수당"
+            value={form.childcare_default}
+            onChange={(v) => patchField("childcare_default", v)}
+            hint="세법상 비과세 한도 200,000원"
+          />
+        </div>
+      </div>
+
+      {/* 4대보험 */}
+      <div className="mt-5">
+        <h3 className="text-sm font-medium text-gray-900 mb-2">4대보험 적용</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <InsuranceRow
+            label="국민연금"
+            applied={form.apply_national_pension}
+            onToggle={(v) => patchField("apply_national_pension", v)}
+            rate={form.nps_rate_percent}
+            onRateChange={(v) => patchField("nps_rate_percent", v)}
+            systemRate={data.system_nps_rate_percent}
+          />
+          <InsuranceRow
+            label="건강보험"
+            applied={form.apply_health_insurance}
+            onToggle={(v) => patchField("apply_health_insurance", v)}
+            rate={form.hi_rate_percent}
+            onRateChange={(v) => patchField("hi_rate_percent", v)}
+            systemRate={data.system_hi_rate_percent}
+          />
+          <InsuranceRow
+            label="장기요양"
+            applied={form.apply_longterm_care}
+            onToggle={(v) => patchField("apply_longterm_care", v)}
+            rate={form.ltc_rate_percent}
+            onRateChange={(v) => patchField("ltc_rate_percent", v)}
+            systemRate={data.system_ltc_rate_percent}
+            rateSuffix="% (건강보험료 대비)"
+          />
+          <InsuranceRow
+            label="고용보험"
+            applied={form.apply_employment_insurance}
+            onToggle={(v) => patchField("apply_employment_insurance", v)}
+            rate={form.ei_rate_percent}
+            onRateChange={(v) => patchField("ei_rate_percent", v)}
+            systemRate={data.system_ei_rate_percent}
+          />
+        </div>
+      </div>
+
+      {/* 비고 */}
+      <div className="mt-5">
+        <label className="block text-sm font-medium text-gray-900 mb-1.5">비고</label>
+        <textarea
+          className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2 text-sm text-gray-900 min-h-[60px]"
+          placeholder="두루누리 사회보험료 지원 등 메모 자유 입력"
+          value={form.note ?? ""}
+          onChange={(e) => patchField("note", e.target.value || null)}
+          maxLength={500}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function AmountField({
+  label,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  hint?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <div className="relative">
+        <input
+          type="number"
+          min={0}
+          step={10000}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value) || 0)}
+          className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-1.5 pr-8 text-right tabular-nums text-sm text-gray-900"
+        />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">원</span>
+      </div>
+      {hint && <p className="text-[11px] text-gray-500 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function InsuranceRow({
+  label,
+  applied,
+  onToggle,
+  rate,
+  onRateChange,
+  systemRate,
+  rateSuffix = "%",
+}: {
+  label: string;
+  applied: boolean;
+  onToggle: (v: boolean) => void;
+  rate: number;
+  onRateChange: (v: number) => void;
+  systemRate: number;
+  rateSuffix?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-200">
+      <label className="flex items-center gap-2 min-w-[110px] shrink-0">
+        <input
+          type="checkbox"
+          checked={applied}
+          onChange={(e) => onToggle(e.target.checked)}
+          className="h-4 w-4 accent-blue-600"
+        />
+        <span className="text-sm font-medium text-gray-900">{label}</span>
+      </label>
+      <div className="flex-1 flex items-center gap-2 justify-end">
+        <input
+          type="number"
+          step={0.01}
+          min={0}
+          value={rate}
+          disabled={!applied}
+          onChange={(e) => onRateChange(Number(e.target.value) || 0)}
+          className={`w-24 rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-right tabular-nums text-sm text-gray-900 ${
+            applied ? "" : "opacity-50"
+          }`}
+        />
+        <span className="text-xs text-gray-500 whitespace-nowrap">{rateSuffix}</span>
+      </div>
+      <span className="text-[10.5px] text-gray-400 whitespace-nowrap min-w-[80px] text-right">
+        기본 {systemRate.toFixed(rateSuffix === "%" ? 3 : 2)}%
+      </span>
+    </div>
+  );
 }
 
 

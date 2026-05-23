@@ -18,6 +18,8 @@ import type {
   ImportEmployeeResult,
   ImportPayrollResult,
   InsuranceSummary,
+  PayrollDefault,
+  PayrollDefaultPatch,
   PayrollEntry,
   SessionAttachment,
   SessionTimelineEvent,
@@ -189,6 +191,40 @@ export function useImportEmployees(clientId: string) {
       ),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["clients", clientId, "employees"] }),
+  });
+}
+
+export function usePayrollDefault(clientId: string) {
+  return useQuery({
+    queryKey: ["clients", clientId, "payroll-default"],
+    queryFn: () =>
+      api<PayrollDefault>(`/api/v1/clients/${clientId}/payroll-default`),
+  });
+}
+
+export function useUpdatePayrollDefault(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: PayrollDefaultPatch) =>
+      api<PayrollDefault>(`/api/v1/clients/${clientId}/payroll-default`, {
+        method: "PUT",
+        json: patch,
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "payroll-default"] }),
+  });
+}
+
+export function useResetPayrollDefault(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<PayrollDefault>(`/api/v1/clients/${clientId}/payroll-default/reset`, {
+        method: "POST",
+        json: {},
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "payroll-default"] }),
   });
 }
 

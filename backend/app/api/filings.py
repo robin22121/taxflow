@@ -685,8 +685,10 @@ async def update_entry(
             "national_pension", "health_insurance", "employment_insurance", "longterm_care"
         ))
         if not manual_si:
-            from app.services.tax_calc import calculate_social_insurance
-            si = calculate_social_insurance(entry.taxable, entry.income_type)
+            # 거래처 세팅(요율 오버라이드 + apply 플래그) 반영 (plan.md 3.8).
+            from app.services.payroll_defaults import load_payroll_defaults
+            defaults = await load_payroll_defaults(db, entry.client_id)
+            si = defaults.social_insurance(entry.taxable, entry.income_type)
             entry.national_pension = si.national_pension
             entry.health_insurance = si.health_insurance
             entry.employment_insurance = si.employment_insurance

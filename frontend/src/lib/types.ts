@@ -38,6 +38,36 @@ export type Client = {
   invite_sent: boolean;
 };
 
+export type PayrollDefault = {
+  meal_default: number;
+  car_default: number;
+  childcare_default: number;
+
+  apply_national_pension: boolean;
+  apply_health_insurance: boolean;
+  apply_employment_insurance: boolean;
+  apply_longterm_care: boolean;
+
+  nps_rate_percent: number;
+  hi_rate_percent: number;
+  ltc_rate_percent: number;
+  ei_rate_percent: number;
+
+  note: string | null;
+
+  system_nps_rate_percent: number;
+  system_hi_rate_percent: number;
+  system_ltc_rate_percent: number;
+  system_ei_rate_percent: number;
+};
+
+export type PayrollDefaultPatch = Partial<Omit<PayrollDefault,
+  | "system_nps_rate_percent"
+  | "system_hi_rate_percent"
+  | "system_ltc_rate_percent"
+  | "system_ei_rate_percent"
+>>;
+
 export type ChannelAttempt = {
   channel: string;
   accepted: boolean;
