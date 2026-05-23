@@ -1337,10 +1337,10 @@ function V3Spreadsheet({
 
       {/* 헤더 바 */}
       <div className={`${V3_GRID} bg-gray-50 border-b border-gray-200 text-[10.5px] font-bold uppercase tracking-wider text-gray-500`}>
-        <div className="px-3.5 py-2 border-r border-gray-200 text-blue-700 bg-blue-50/40">총지급</div>
-        <div className="px-3.5 py-2 border-r border-gray-200 text-blue-700 bg-blue-50/40">비과세 수당</div>
-        <div className="px-3.5 py-2 border-r border-gray-200 text-red-700 bg-red-50/40">4대보험</div>
-        <div className="px-3.5 py-2 border-r border-gray-200 text-red-700 bg-red-50/40">세금</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">(+) 총지급</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">(+) 비과세 수당</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">(−) 4대보험</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">(−) 세금</div>
         <div className="px-3.5 py-2">메모</div>
       </div>
 
