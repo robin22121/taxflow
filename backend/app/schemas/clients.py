@@ -81,7 +81,7 @@ class PayrollDefaultOut(BaseModel):
 
     meal_default: int = 200_000
     car_default: int = 200_000
-    childcare_default: int = 200_000
+    childcare_default: int = 0
 
     apply_national_pension: bool = True
     apply_health_insurance: bool = True

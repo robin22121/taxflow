@@ -1300,9 +1300,13 @@ function V3Spreadsheet({
     if (editing) {
       return (
         <input
-          type="number"
-          value={value}
-          onChange={(e) => set(field, Number(e.target.value) || 0)}
+          type="text"
+          inputMode="numeric"
+          value={value.toLocaleString("ko-KR")}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/[^\d-]/g, "");
+            set(field, Number(digits) || 0);
+          }}
           className={`w-full font-mono tabular-nums text-right text-[13.5px] font-semibold py-0.5 px-1 rounded outline-none ${
             anomaly
               ? "bg-red-50 border border-red-300 text-red-700"

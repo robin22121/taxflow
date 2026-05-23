@@ -416,7 +416,7 @@ function PayrollDefaultEditor({
             label="육아수당"
             value={form.childcare_default}
             onChange={(v) => patchField("childcare_default", v)}
-            hint="세법상 비과세 한도 200,000원"
+            hint="기본 0원 (비과세 한도 200,000원)"
           />
         </div>
       </div>

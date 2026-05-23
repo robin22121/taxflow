@@ -35,7 +35,7 @@ def upgrade() -> None:
         ),
         sa.Column("meal_default", sa.Integer(), nullable=False, server_default="200000"),
         sa.Column("car_default", sa.Integer(), nullable=False, server_default="200000"),
-        sa.Column("childcare_default", sa.Integer(), nullable=False, server_default="200000"),
+        sa.Column("childcare_default", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("apply_national_pension", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("apply_health_insurance", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("apply_employment_insurance", sa.Boolean(), nullable=False, server_default=sa.true()),

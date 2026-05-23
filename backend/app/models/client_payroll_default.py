@@ -21,10 +21,11 @@ class ClientPayrollDefault(Base, IdMixin, TimestampMixin):
         unique=True,
     )
 
-    # 비과세 지급항목 기본금액 (원) — 세법 한도 200,000을 시드로 사용
+    # 비과세 지급항목 기본금액 (원). 식대·자가운전은 비과세 한도(200,000) 시드,
+    # 육아수당은 거래처마다 정책 편차가 커 0원 시드 (세무사가 명시 입력).
     meal_default: Mapped[int] = mapped_column(Integer, default=200_000)
     car_default: Mapped[int] = mapped_column(Integer, default=200_000)
-    childcare_default: Mapped[int] = mapped_column(Integer, default=200_000)
+    childcare_default: Mapped[int] = mapped_column(Integer, default=0)
 
     # 4대보험 적용 여부 (False면 0원 처리)
     apply_national_pension: Mapped[bool] = mapped_column(Boolean, default=True)
