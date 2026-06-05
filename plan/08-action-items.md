@@ -24,9 +24,10 @@
   - Claude API 송신 데이터 마스킹 정책 검토
 - [ ] **SmartA 자동화 정책 확인** — ⚠️ **미완료** (외부 확인)
   - 약관에서 자동화 관련 조항 점검
-- [ ] **NCP 계정 셋업 + KR-1/KR-2 리전 확보** — ⚠️ **미완료** (현재 Render+Vercel 운영)
-  - Cloud DB for PostgreSQL · Redis · Object Storage · KMS 활성화
-  - NHN Cloud / 카카오비즈니스 알림톡 계정·템플릿 등록 시작 (심사 기간 고려)
+- [ ] **NHN Cloud 계정 셋업 + KR1/KR2 리전 확보** — ⚠️ **미완료** (현재 Render+Vercel 운영, 2026-06-05 NHN Cloud 채택 결정. 결정 맥락은 [`10-privacy-security.md` §3](10-privacy-security.md))
+  - NHN Cloud Instance + Docker Compose · RDB for PostgreSQL · Object Storage · Secure Key Manager 활성화
+  - NHN Cloud Notification(자체 알림톡) 또는 기존 Aligo 유지 — 카카오비즈니스 채널/발신프로필 인증은 클라우드와 무관, 그대로 진행
+  - 카카오비즈니스 알림톡 채널·템플릿 등록 시작 (심사 기간 고려)
 
 ---
 

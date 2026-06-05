@@ -54,8 +54,8 @@
 2. **데이터 서식**: SmartA 24컬럼 양식이 데이터 저장·화면·엑셀 다운로드의 단일 기준
 3. **차별화 포인트**: 1단계(고객 소통·자료 수집) AI 자동화 — 블랙피그/혜움이 못 푼 영역
 4. **공동인증서**: 세무사 PC 로컬에서 처리 (클라우드 사용 불가)
-5. **인프라**: NCP 메인 (현재는 Render+Vercel 임시 운영)
-6. **민감정보**: LLM에 주민번호 비전송 — 마스킹·NCP KMS 내부 복호화
+5. **인프라**: NHN Cloud 메인 (한국 리전, 2026-06-05 결정 — 현재 Render+Vercel에서 이전 예정). 결정 근거·이전 절차는 [`plan/10-privacy-security.md` §3](plan/10-privacy-security.md) 참고
+6. **민감정보**: LLM에 주민번호 비전송 — 마스킹·NHN Cloud Secure Key Manager 내부 복호화
 7. **회신 수집**: "거래처 → 세무사 직원 → 이지원천" 카톡 1순위 → 이메일 → URL 폼, 단일 `_ingest_message()` 합류
 8. **AI 프로바이더**: Gemini Flash 2.5 메인 / Claude Sonnet 폴백
 9. **4대보험**: Phase 1에서 엑셀 3종(자격취득/상실/보수월액변경) + 별도 사이드바 메뉴, EDI 자동신고는 Phase 2~3

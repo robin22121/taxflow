@@ -70,23 +70,23 @@ uv run pytest
 - STT 어댑터 (`test_stt.py`) — stub + CLOVA shape
 - API 통합 스모크 (`test_api_smoke.py`) — 로그인, 대시보드, 엑셀 다운로드, 공개 토큰
 
-## 인프라 (NCP 기반)
+## 인프라 (NHN Cloud 기반)
 
-운영은 **Naver Cloud Platform**를 메인으로 가정해서 모듈을 구성:
+운영은 **NHN Cloud (한국 리전)** 를 메인으로 가정해서 모듈을 구성 (2026-06-05 결정 — 주민번호 국내보관 의무. 결정 맥락·이전 절차는 [`plan/10-privacy-security.md` §3](plan/10-privacy-security.md) 참고):
 
-| 영역 | 운영 (NCP) | 개발/대체 |
-|------|-----------|---------|
-| 컴퓨트 | NKS | 로컬 uvicorn |
-| DB | Cloud DB for PostgreSQL (Multi-AZ) | SQLite (aiosqlite) |
-| 캐시·큐 | Cloud DB for Redis | docker-compose redis |
-| 객체 저장 | NCP Object Storage (S3 호환) | LocalFileStorage (`backend/data/uploads/`) |
-| 알림톡 | NHN Cloud Notification | stub / Aligo |
-| 이메일 | NCP Cloud Outbound Mailer | SendGrid / stub |
-| STT | CLOVA Speech | StubSTT (테스트용 canned 응답) |
-| 시크릿 | NCP Secret Manager | `.env` |
-| 인증 | NCP IAM + JWT | JWT 단독 |
+| 영역 | 운영 (NHN Cloud) | 개발/대체 |
+|------|------------------|---------|
+| 컴퓨트 | NHN Cloud Instance + Docker Compose (1인 운영 가성비) — 향후 NHN Kubernetes Service 확장 가능 | 로컬 uvicorn |
+| DB | NHN Cloud RDB for PostgreSQL (매니지드 백업) | SQLite (aiosqlite) |
+| 캐시·큐 | NHN Cloud Memcached / Redis | docker-compose redis |
+| 객체 저장 | NHN Cloud Object Storage (S3 호환) | LocalFileStorage (`backend/data/uploads/`) |
+| 알림톡 | NHN Cloud Notification (자체) 또는 Aligo (외부 SaaS) | stub |
+| 이메일 | NHN Cloud Email 또는 Resend (외부 SaaS) | SendGrid / stub |
+| STT | CLOVA Speech (외부 호출) 또는 NHN Cloud Speech-to-Text | StubSTT (테스트용 canned 응답) |
+| 시크릿 | NHN Cloud Secure Key Manager | `.env` |
+| 인증 | NHN Cloud IAM + JWT | JWT 단독 |
 
-각 어댑터는 환경변수만 채우면 자동 활성화 (코드 수정 불필요). 자세한 결정 근거는 `research.md` §4 참고.
+각 어댑터는 환경변수만 채우면 자동 활성화 (코드 수정 불필요). 자세한 인프라 비교·결정 근거는 `research.md` §4 + [`plan/10-privacy-security.md` §3](plan/10-privacy-security.md) 참고.
 
 ## 핵심 흐름
 
