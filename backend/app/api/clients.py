@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user, get_db
 from app.models import (
     Client,
+    ClientPayrollDefault,
     Employee,
     EmploymentStatus,
     MonthlyFiling,
@@ -25,9 +26,17 @@ from app.schemas.clients import (
     ClientUpdate,
     EmployeeCreate,
     EmployeeOut,
+    PayrollDefaultOut,
+    PayrollDefaultUpdate,
 )
 from app.services.crypto import encrypt_rrn, mask_rrn
 from app.services.invite import get_or_create_session, send_invite_to_client
+from app.services.tax_calc import (
+    DEFAULT_EI_RATE,
+    DEFAULT_HI_RATE,
+    DEFAULT_LTC_RATE_OF_HI,
+    DEFAULT_NPS_RATE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -304,6 +313,127 @@ async def list_employees(
         await db.execute(select(Employee).where(Employee.client_id == client_id).order_by(Employee.name))
     ).scalars().all()
     return list(rows)
+
+
+# ─── 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) ───
+
+
+_PERCENT_TO_RATE = 100.0  # UI는 백분율(4.5), DB는 실수(0.045)
+
+
+def _system_defaults_response() -> PayrollDefaultOut:
+    """레코드가 없을 때 시스템 기본값으로 채운 응답."""
+    return PayrollDefaultOut(
+        nps_rate_percent=DEFAULT_NPS_RATE * _PERCENT_TO_RATE,
+        hi_rate_percent=DEFAULT_HI_RATE * _PERCENT_TO_RATE,
+        ltc_rate_percent=DEFAULT_LTC_RATE_OF_HI * _PERCENT_TO_RATE,
+        ei_rate_percent=DEFAULT_EI_RATE * _PERCENT_TO_RATE,
+        system_nps_rate_percent=DEFAULT_NPS_RATE * _PERCENT_TO_RATE,
+        system_hi_rate_percent=DEFAULT_HI_RATE * _PERCENT_TO_RATE,
+        system_ltc_rate_percent=DEFAULT_LTC_RATE_OF_HI * _PERCENT_TO_RATE,
+        system_ei_rate_percent=DEFAULT_EI_RATE * _PERCENT_TO_RATE,
+    )
+
+
+def _to_response(row: ClientPayrollDefault) -> PayrollDefaultOut:
+    """DB row → API. null 요율은 시스템 기본 요율로 채워서 반환."""
+
+    def pct(val, default_rate: float) -> float:
+        return float(val) * _PERCENT_TO_RATE if val is not None else default_rate * _PERCENT_TO_RATE
+
+    return PayrollDefaultOut(
+        meal_default=row.meal_default,
+        car_default=row.car_default,
+        childcare_default=row.childcare_default,
+        apply_national_pension=row.apply_national_pension,
+        apply_health_insurance=row.apply_health_insurance,
+        apply_employment_insurance=row.apply_employment_insurance,
+        apply_longterm_care=row.apply_longterm_care,
+        nps_rate_percent=pct(row.nps_rate_override, DEFAULT_NPS_RATE),
+        hi_rate_percent=pct(row.hi_rate_override, DEFAULT_HI_RATE),
+        ltc_rate_percent=pct(row.ltc_rate_override, DEFAULT_LTC_RATE_OF_HI),
+        ei_rate_percent=pct(row.ei_rate_override, DEFAULT_EI_RATE),
+        note=row.note,
+        system_nps_rate_percent=DEFAULT_NPS_RATE * _PERCENT_TO_RATE,
+        system_hi_rate_percent=DEFAULT_HI_RATE * _PERCENT_TO_RATE,
+        system_ltc_rate_percent=DEFAULT_LTC_RATE_OF_HI * _PERCENT_TO_RATE,
+        system_ei_rate_percent=DEFAULT_EI_RATE * _PERCENT_TO_RATE,
+    )
+
+
+async def _get_or_none(db: AsyncSession, client_id: str) -> ClientPayrollDefault | None:
+    return (
+        await db.execute(
+            select(ClientPayrollDefault).where(ClientPayrollDefault.client_id == client_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def _authorize_client(db: AsyncSession, client_id: str, user: User) -> Client:
+    client = await db.get(Client, client_id)
+    if not client or client.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
+    return client
+
+
+@router.get("/{client_id}/payroll-default", response_model=PayrollDefaultOut)
+async def get_payroll_default(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PayrollDefaultOut:
+    """거래처 세팅값 조회. 없으면 시스템 기본값으로 채워 반환 (lazy creation 안 함)."""
+    await _authorize_client(db, client_id, user)
+    row = await _get_or_none(db, client_id)
+    return _to_response(row) if row else _system_defaults_response()
+
+
+@router.put("/{client_id}/payroll-default", response_model=PayrollDefaultOut)
+async def upsert_payroll_default(
+    client_id: str,
+    payload: PayrollDefaultUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PayrollDefaultOut:
+    """세팅값 upsert. 백분율 입력은 /100 변환 후 저장."""
+    await _authorize_client(db, client_id, user)
+    row = await _get_or_none(db, client_id)
+    if row is None:
+        row = ClientPayrollDefault(client_id=client_id)
+        db.add(row)
+
+    patch = payload.model_dump(exclude_unset=True)
+    rate_fields = {
+        "nps_rate_percent": "nps_rate_override",
+        "hi_rate_percent": "hi_rate_override",
+        "ltc_rate_percent": "ltc_rate_override",
+        "ei_rate_percent": "ei_rate_override",
+    }
+    for in_field, db_field in rate_fields.items():
+        if in_field in patch:
+            val = patch.pop(in_field)
+            setattr(row, db_field, val / _PERCENT_TO_RATE if val is not None else None)
+    for k, v in patch.items():
+        setattr(row, k, v)
+
+    await db.commit()
+    await db.refresh(row)
+    return _to_response(row)
+
+
+@router.post("/{client_id}/payroll-default/reset", response_model=PayrollDefaultOut)
+async def reset_payroll_default(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PayrollDefaultOut:
+    """시스템 기본값(비과세 한도 + 현행 요율)으로 리셋. 기존 행은 삭제."""
+    await _authorize_client(db, client_id, user)
+    row = await _get_or_none(db, client_id)
+    if row is not None:
+        await db.delete(row)
+        await db.commit()
+    return _system_defaults_response()
 
 
 @router.post("/{client_id}/employees", response_model=EmployeeOut, status_code=status.HTTP_201_CREATED)

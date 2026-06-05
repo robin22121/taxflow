@@ -271,3 +271,50 @@ def calculate_social_insurance(
         employment_insurance=ei,
         longterm_care=ltc,
     )
+
+
+# Default rates exposed so callers (e.g. API "system defaults" endpoint) can echo them back.
+DEFAULT_NPS_RATE = _NPS_RATE
+DEFAULT_HI_RATE = _HI_RATE
+DEFAULT_LTC_RATE_OF_HI = _LTC_RATE_OF_HI
+DEFAULT_EI_RATE = _EI_RATE
+
+
+def calculate_social_insurance_with_overrides(
+    monthly_wage: int,
+    income_type: IncomeType = IncomeType.WAGE,
+    *,
+    apply_national_pension: bool = True,
+    apply_health_insurance: bool = True,
+    apply_employment_insurance: bool = True,
+    apply_longterm_care: bool = True,
+    nps_rate: float | None = None,
+    hi_rate: float | None = None,
+    ltc_rate_of_hi: float | None = None,
+    ei_rate: float | None = None,
+) -> SocialInsurance:
+    """4대보험 — 거래처 세팅(apply 플래그 + 요율 오버라이드) 반영 버전.
+
+    plan.md 3.8절. ClientPayrollDefault 적용 진입점. Rate 인자는 백분율이 아닌 실수
+    (예: 0.045). None이면 시스템 기본 요율 사용. apply_* 가 False면 해당 보험은 0원.
+    """
+    if income_type != IncomeType.WAGE or monthly_wage <= 0:
+        return SocialInsurance(0, 0, 0, 0)
+
+    nps_r = nps_rate if nps_rate is not None else _NPS_RATE
+    hi_r = hi_rate if hi_rate is not None else _HI_RATE
+    ltc_r = ltc_rate_of_hi if ltc_rate_of_hi is not None else _LTC_RATE_OF_HI
+    ei_r = ei_rate if ei_rate is not None else _EI_RATE
+
+    nps_base = max(_NPS_MIN_BASE, min(_NPS_MAX_BASE, monthly_wage))
+    nps = _round_down_10(nps_base * nps_r) if apply_national_pension else 0
+    hi = _round_down_10(monthly_wage * hi_r) if apply_health_insurance else 0
+    # 장기요양은 건강보험료 기준 — 건보 미적용 시 자동 0
+    ltc = _round_down_10(hi * ltc_r) if (apply_longterm_care and hi > 0) else 0
+    ei = _round_down_10(monthly_wage * ei_r) if apply_employment_insurance else 0
+    return SocialInsurance(
+        national_pension=nps,
+        health_insurance=hi,
+        employment_insurance=ei,
+        longterm_care=ltc,
+    )

@@ -1,5 +1,6 @@
 from app.models.business_type import BUSINESS_TYPE_CODES, BusinessTypeCode
 from app.models.client import Client
+from app.models.client_payroll_default import ClientPayrollDefault
 from app.models.collection import (
     CollectionEvent,
     CollectionSession,
@@ -18,6 +19,7 @@ __all__ = [
     "BUSINESS_TYPE_CODES",
     "BusinessTypeCode",
     "Client",
+    "ClientPayrollDefault",
     "CollectionEvent",
     "CollectionSession",
     "CollectionSessionStatus",

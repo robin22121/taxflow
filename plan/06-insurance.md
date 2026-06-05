@@ -109,3 +109,138 @@
 - `backend/app/api/filings.py:603-635` GET entries · `:886-1006` 4대보험 4개 라우트 · `_wage_entries_for_filing` (WAGE+employee_id, selectinload(employee))
 - `backend/app/schemas/filings.py:47-77` `PayrollEntryOut` (employee 미포함)
 - `backend/app/services/tax_calc.py:251-273` `calculate_social_insurance` → `SocialInsurance(np/hi/ei/ltc)` (산재 없음)
+
+---
+
+### 3.9 거래처별 지급항목·4대보험 기본 세팅 (Per-Client Payroll Defaults)
+
+> 거래처관리 메뉴에서 **업체별 지급항목 기본금액 + 4대보험 적용 정책**을 설정.
+> 고객이 매월 보내는 원시파일이 항목별로 값을 명시하지 않아도, 거래처 세팅값으로 자동 채워서 급여명세서를 생성한다.
+
+#### 배경 — 왜 거래처별로 다른가
+
+- **식대·자가운전·육아수당은 회사 정책에 따라 고정값이 다름**:
+  거래처 A는 식대 매월 100,000원, 거래처 B는 식대 200,000원(비과세 한도)
+- **4대보험도 사업장별로 적용/감면 정책이 상이**:
+  두루누리 사회보험료 지원(10인 미만), 산재보험 업종별 요율, 일부 가입 면제 사업장
+- **현재 구현 한계**: `backend/app/api/collect.py`의 비과세 처리 로직(L270~309)이
+  "전월 데이터를 복사" 또는 "AI 추출값" 두 가지만 사용 →
+  최초 신고이거나 원시파일에 항목이 누락된 경우 0원으로 처리되어 비과세 손실.
+
+#### 세팅값 적용 우선순위 (Iron Rule)
+
+```
+[1순위] 고객이 제출한 이번달 원시파일에 해당 항목 값이 있음
+        → 원시파일 값을 그대로 사용 (AI 파서가 추출한 cand.meal_amount 등)
+
+[2순위] 원시파일에 값이 없음 (None 또는 누락)
+        → 거래처 세팅값(ClientPayrollDefault)을 적용
+
+[기본값] 거래처 세팅값을 처음 만들 때 자동으로 채워주는 추천값
+        - 지급항목: 세법상 비과세 한도 최대치 (식대 200,000 / 자가운전 200,000 / 육아수당 200,000)
+        - 4대보험: tax_calc.py의 현행 요율로 계산된 금액 (월 급여 기준)
+        - 세무사가 거래처 정책에 맞춰 수정 가능
+```
+
+> **기존 "전월 데이터 복사" 로직 폐기**: 거래처 세팅값이 명시적 기본값을 제공하므로,
+> 전월 PayrollEntry에서 비과세 항목을 복사해오던 fallback은 제거 또는 후순위로 강등.
+
+#### 데이터 모델
+
+```
+Client (기존)
+  └─ ClientPayrollDefault (1:1, 신규)
+        │  [지급항목 기본금액 — 직원 전원 공통 적용]
+        ├─ meal_default          (default: 200,000  — 비과세 한도)
+        ├─ car_default           (default: 200,000)
+        ├─ childcare_default     (default: 200,000)
+        │
+        │  [4대보험 적용 정책]
+        ├─ apply_national_pension (default: True)
+        ├─ apply_health_insurance (default: True)
+        ├─ apply_employment_insurance (default: True)
+        ├─ apply_longterm_care   (default: True)
+        │
+        │  [요율 오버라이드 — null이면 tax_calc.py 시스템 요율 사용]
+        ├─ nps_rate_override     (default: null  → 0.045)
+        ├─ hi_rate_override      (default: null  → 0.03545)
+        ├─ ltc_rate_override     (default: null  → 0.1295 of HI)
+        ├─ ei_rate_override      (default: null  → 0.009)
+        │
+        │  [두루누리 등 정부 지원]
+        └─ govt_support_note     (자유 텍스트, 메모용)
+```
+
+> 직원별로 다른 식대/4대보험 금액이 필요한 경우는 우선순위 [1순위]로 처리
+> (원시파일에 직원별 명시값이 있으면 그대로 사용) — 거래처 세팅은 어디까지나 "기본값".
+
+#### 적용 지점 (collect.py / imports.py)
+
+`backend/app/api/collect.py` L284~309 의 분기를 다음으로 교체:
+
+```python
+defaults = client.payroll_default  # ClientPayrollDefault, 없으면 시스템 기본값 객체
+
+# 지급항목: 원시파일 값 우선, 없으면 거래처 세팅
+meal = cand.meal_amount if cand.meal_amount is not None else defaults.meal_default
+car = cand.car_amount if cand.car_amount is not None else defaults.car_default
+childcare = cand.childcare_amount if cand.childcare_amount is not None else defaults.childcare_default
+
+# 4대보험: 원시파일 값 우선, 없으면 거래처 세팅 요율로 계산
+si = calculate_social_insurance_with_overrides(
+    monthly_wage=taxable,
+    income_type=cand.income_type,
+    overrides=defaults,  # rate overrides + apply flags
+)
+si_np = cand.np_amount if cand.np_amount is not None else (si.national_pension if defaults.apply_national_pension else 0)
+# ... 동일 패턴으로 hi/ei/ltc
+```
+
+> AI 파서 스키마(`cand`)에 `np_amount`, `hi_amount`, `ei_amount`, `ltc_amount` 필드 추가 필요 —
+> 현재 파서는 4대보험 금액을 추출하지 않음.
+
+#### API 설계
+
+| 메서드 | 경로 | 용도 |
+|--------|------|------|
+| `GET` | `/clients/{id}/payroll-default` | 현재 세팅값 조회 (없으면 시스템 기본값으로 채워서 반환) |
+| `PUT` | `/clients/{id}/payroll-default` | 세팅값 저장/갱신 (upsert) |
+| `POST` | `/clients/{id}/payroll-default/reset` | 시스템 기본값(비과세 한도 + 현행 요율)으로 리셋 |
+
+#### UI — 거래처관리 메뉴
+
+`/dashboard/clients/[id]` 상세 페이지에 **"기본 세팅"** 탭 추가 (또는 모달):
+
+```
+[기본 세팅 탭]
+
+▣ 비과세 지급항목 기본금액
+  식대            [  200,000 ] 원   (세법상 비과세 한도: 200,000)
+  자가운전보조금  [  200,000 ] 원   (세법상 비과세 한도: 200,000)
+  육아수당        [  200,000 ] 원   (세법상 비과세 한도: 200,000)
+
+▣ 4대보험 적용
+  ☑ 국민연금       요율: [ 4.5    ]%  (시스템 기본 4.5%)
+  ☑ 건강보험       요율: [ 3.545  ]%  (시스템 기본 3.545%)
+  ☑ 장기요양       요율: [12.95   ]%  (건강보험료 대비, 기본 12.95%)
+  ☑ 고용보험       요율: [ 0.9    ]%  (시스템 기본 0.9%)
+
+▣ 비고
+  [정부지원 등 메모 자유 입력...]
+
+  [ 시스템 기본값으로 리셋 ]    [ 저장 ]
+```
+
+#### 산출물 영향
+
+- **급여(임금)명세서**: 비과세 항목·4대보험 금액이 거래처 정책대로 일관되게 표시됨
+- **SmartA 급여대장 엑셀**: 식대/자가운전/육아수당 컬럼이 0원으로 비지 않음
+- **간이지급명세서 (근로소득)**: 비과세 합계가 정확해져 과세소득 계산 신뢰성 향상
+
+#### 마이그레이션
+
+- 새 테이블 `client_payroll_defaults` 추가 (Alembic 마이그레이션 1건)
+- 기존 거래처는 첫 조회 시 시스템 기본값으로 자동 시드 (lazy creation)
+- 직원 마스터 임포트(`POST /clients/{id}/import-payroll`) 직후 세팅값 자동 생성 옵션
+
+---
