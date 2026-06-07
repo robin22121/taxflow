@@ -12,6 +12,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect as sa_inspect
 
 
 revision: str = "d4e5f6a7b8c9"
@@ -21,6 +22,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    insp = sa_inspect(bind)
+    if "client_payroll_defaults" in insp.get_table_names():
+        return
     op.create_table(
         "client_payroll_defaults",
         sa.Column("id", sa.String(32), primary_key=True),

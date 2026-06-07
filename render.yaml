@@ -17,7 +17,7 @@ services:
     # NOTE: seed (`python -m app.scripts.seed`)는 prod DB를 wipe하므로 buildCommand에 포함하지 않음.
     # 초기 세팅 또는 데모 데이터 리셋이 필요할 때만 Render Shell에서 수동 실행:
     #   python -m app.scripts.seed
-    buildCommand: pip install -r requirements.txt && alembic stamp --purge b3c4d5e6f7a8 && alembic upgrade head
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     disk:
       name: taxflow-uploads
