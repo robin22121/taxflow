@@ -75,6 +75,7 @@ export async function api<T = unknown>(
     } catch {
       body = await res.text();
     }
+    if (res.status === 401) clearTokens();
     throw new ApiError(res.status, body, formatErrorBody(body, res.status, res.statusText));
   }
 
