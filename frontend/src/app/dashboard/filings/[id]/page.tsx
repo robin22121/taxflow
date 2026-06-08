@@ -593,12 +593,12 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
                       : t.direction === "in" ? "bg-green-50 text-green-600"
                       : "bg-gray-100 text-gray-500"
                   }`}>
-                    {t.direction === "out" ? "프로덕트→고객" : t.direction === "in" ? "고객사→서버" : "시스템"}
+                    {t.direction === "out" ? "발신" : t.direction === "in" ? "수신" : "시스템"}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 text-[11.5px] text-gray-700 flex-wrap">
                       <span className="tabular-nums text-gray-400">
-                        {t.at ? new Date(t.at).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : ""}
+                        {formatTimelineAt(t.at)}
                       </span>
                       <span className="font-medium">{t.label}</span>
                       {t.channel && (() => {
@@ -2119,19 +2119,63 @@ function channelLabel(ch: string | null): string {
   return { kakao: "카톡", email: "이메일", sms: "문자", voice: "전화", manual: "직접입력", public_url: "URL폼" }[ch] ?? ch;
 }
 
+const CHANNEL_KO_MAP: Record<string, string> = {
+  // 백엔드에서 이미 한글 변환된 값들
+  "카카오톡": "카톡",
+  "이메일": "이메일",
+  "문자": "문자",
+  "전화": "전화",
+  "직접": "직접",
+  "웹폼": "URL폼",
+  // 영문 raw 값들 (combined 분해 시에도 사용)
+  "kakao": "카톡",
+  "alimtalk": "알림톡",
+  "alimtalk_stub": "알림톡",
+  "alimtalk_skipped": "알림톡",
+  "email": "이메일",
+  "sms": "문자",
+  "voice": "전화",
+  "manual": "직접",
+  "url": "URL폼",
+  "public_url": "URL폼",
+};
+
+const CHANNEL_COLOR_MAP: Record<string, string> = {
+  "카톡": "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200",
+  "알림톡": "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200",
+  "이메일": "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+  "문자": "bg-green-50 text-green-700 ring-1 ring-green-200",
+  "전화": "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
+  "URL폼": "bg-gray-100 text-gray-600 ring-1 ring-gray-200",
+  "직접": "bg-gray-100 text-gray-600 ring-1 ring-gray-200",
+};
+
+const CHANNEL_DEFAULT_CLS = "bg-gray-100 text-gray-600 ring-1 ring-gray-200";
+
 function channelBadge(ch: string): { label: string; cls: string } {
-  const map: Record<string, { label: string; cls: string }> = {
-    "카카오톡": { label: "카톡", cls: "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200" },
-    "이메일":   { label: "이메일", cls: "bg-blue-50 text-blue-700 ring-1 ring-blue-200" },
-    "문자":     { label: "문자", cls: "bg-green-50 text-green-700 ring-1 ring-green-200" },
-    "전화":     { label: "전화", cls: "bg-purple-50 text-purple-700 ring-1 ring-purple-200" },
-    "직접":     { label: "직접", cls: "bg-gray-100 text-gray-600 ring-1 ring-gray-200" },
-    "웹폼":     { label: "URL폼", cls: "bg-gray-100 text-gray-600 ring-1 ring-gray-200" },
-    "kakao":    { label: "카톡", cls: "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200" },
-    "email":    { label: "이메일", cls: "bg-blue-50 text-blue-700 ring-1 ring-blue-200" },
-    "sms":      { label: "문자", cls: "bg-green-50 text-green-700 ring-1 ring-green-200" },
-  };
-  return map[ch] ?? { label: ch, cls: "bg-gray-100 text-gray-600 ring-1 ring-gray-200" };
+  if (!ch) return { label: "", cls: CHANNEL_DEFAULT_CLS };
+  // 결합 채널 (e.g. "alimtalk+sms+email") → 각 부분 한글 변환 + 콤팩트하게 결합
+  if (ch.includes("+")) {
+    const parts = ch.split("+").map((p) => CHANNEL_KO_MAP[p.trim()] ?? p.trim());
+    const unique: string[] = [];
+    for (const p of parts) if (!unique.includes(p)) unique.push(p);
+    const firstCls = CHANNEL_COLOR_MAP[unique[0]] ?? CHANNEL_DEFAULT_CLS;
+    return { label: unique.join("·"), cls: firstCls };
+  }
+  const ko = CHANNEL_KO_MAP[ch] ?? ch;
+  const cls = CHANNEL_COLOR_MAP[ko] ?? CHANNEL_DEFAULT_CLS;
+  return { label: ko, cls };
+}
+
+function formatTimelineAt(at: string | null | undefined): string {
+  if (!at) return "";
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${m}월 ${day}일 ${hh}:${mm}`;
 }
 
 const FIELD_LABELS: Record<string, string> = {
