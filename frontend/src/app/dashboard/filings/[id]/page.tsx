@@ -410,7 +410,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                   <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
                     <RightPane key={`${selectedSession.id}-received-main`} filingId={filingId} session={selectedSession} entries={selectedEntries}
                       highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                      forcedTab="wht" />
+                      forcedTab="wht" summaryMode="received" />
                   </div>
                   {/* Right: 고객소통내역 panel (received tab only) */}
                   <div className="hidden lg:flex w-[300px] border-l border-gray-200 bg-gray-50/40 flex-col shrink-0">
@@ -423,7 +423,8 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
                   <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
                     highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                    forcedTab={mainTab === "wht" ? "wht" : "insurance"} />
+                    forcedTab={mainTab === "wht" ? "wht" : "insurance"}
+                    summaryMode={mainTab === "wht" ? "wht" : undefined} />
                 </div>
               )}
             </div>
@@ -740,13 +741,14 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
 
 /* ═══ Right Pane (AI Table) ═══ */
 
-function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab }: {
+function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab, summaryMode }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
   highlightEventId: string | null;
   onHighlight: (id: string | null) => void;
   forcedTab?: "wht" | "insurance";
+  summaryMode?: "received" | "wht";
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
@@ -887,43 +889,154 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       <div className="flex-1 overflow-auto">
         {tab === "insurance" ? (
           <InsuranceTab filingId={filingId} session={session} />
-        ) : entries.length > 0 ? (
-          <table className="w-full text-[12px]">
-            <thead className="sticky top-0 bg-white">
-              <tr className="border-b border-gray-200">
-                <th className="w-8 py-2.5 pl-4">
-                  <input type="checkbox" checked={entries.length > 0 && selected.size === entries.length}
-                    onChange={toggleSelectAll} title="전체 선택" className="h-3.5 w-3.5 accent-blue-600" />
-                </th>
-                <th className="text-left py-2.5 pl-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">직원 · 구분</th>
-                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">전월</th>
-                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">이번달</th>
-                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">변동</th>
-                <th className="text-right py-2.5 pr-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">액션</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* ── 검토 대상 섹션 ── */}
-              {pendingEntries.length > 0 && (
-                <tr><td colSpan={6} className="px-4 py-1.5 bg-amber-50/70 text-[10.5px] font-semibold text-amber-700 uppercase tracking-wider border-b border-amber-100">
-                  검토 대상 ({pendingEntries.length}명)
-                </td></tr>
-              )}
-              {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
-              {/* ── 승인 완료 섹션 ── */}
-              {approvedEntries.length > 0 && (
-                <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
-                  승인 완료 ({approvedEntries.length}명)
-                </td></tr>
-              )}
-              {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
-            </tbody>
-          </table>
         ) : (
-          <div className="flex items-center justify-center h-full text-sm text-gray-400">아직 파싱된 항목이 없습니다</div>
+          <>
+            {summaryMode && <SummaryCards mode={summaryMode} entries={entries} />}
+            {summaryMode === "received" && <ReceivedActionRow />}
+            {entries.length > 0 ? (
+              <table className="w-full text-[12px]">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-gray-200">
+                    <th className="w-8 py-2.5 pl-4">
+                      <input type="checkbox" checked={entries.length > 0 && selected.size === entries.length}
+                        onChange={toggleSelectAll} title="전체 선택" className="h-3.5 w-3.5 accent-blue-600" />
+                    </th>
+                    <th className="text-left py-2.5 pl-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">직원 · 구분</th>
+                    <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">전월</th>
+                    <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">이번달</th>
+                    <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">변동</th>
+                    <th className="text-right py-2.5 pr-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">액션</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* ── 검토 대상 섹션 ── */}
+                  {pendingEntries.length > 0 && (
+                    <tr><td colSpan={6} className="px-4 py-1.5 bg-amber-50/70 text-[10.5px] font-semibold text-amber-700 uppercase tracking-wider border-b border-amber-100">
+                      검토 대상 ({pendingEntries.length}명)
+                    </td></tr>
+                  )}
+                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {/* ── 승인 완료 섹션 ── */}
+                  {approvedEntries.length > 0 && (
+                    <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
+                      승인 완료 ({approvedEntries.length}명)
+                    </td></tr>
+                  )}
+                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                </tbody>
+              </table>
+            ) : (
+              <div className="flex items-center justify-center py-12 text-sm text-gray-400">아직 파싱된 항목이 없습니다</div>
+            )}
+            {summaryMode && entries.length > 0 && <EntriesFooter mode={summaryMode} entries={entries} />}
+          </>
         )}
       </div>
     </>
+  );
+}
+
+/* ═══ Summary Cards (받은 자료 / 원천세관리 누계) ═══ */
+
+function SummaryCards({ mode, entries }: { mode: "received" | "wht"; entries: PayrollEntry[] }) {
+  const grossTotal = entries.reduce((acc, e) => acc + (e.total_amount ?? 0), 0);
+  const approvedCount = entries.filter((e) => e.approved).length;
+  const pendingCount = entries.length - approvedCount;
+  const reviewCount = entries.filter((e) => {
+    if (e.approved) return false;
+    if (e.match_status === "UNCONFIRMED" || e.match_status === "AMBIGUOUS") return true;
+    return !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0);
+  }).length;
+  const incomeTaxTotal = entries.reduce((acc, e) => acc + (e.income_tax ?? 0), 0);
+  const localTaxTotal = entries.reduce((acc, e) => acc + (e.local_tax ?? 0), 0);
+
+  if (mode === "received") {
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-3 md:px-4 pt-3 pb-1">
+        <SumCard label="총 직원" value={`${entries.length}`} unit="명" />
+        <SumCard label="검토 대상" value={`${reviewCount}`} unit="건" tone={reviewCount > 0 ? "warning" : "neutral"} />
+        <SumCard label="승인 완료" value={`${approvedCount}`} unit={`/ ${entries.length}`} tone={approvedCount === entries.length && entries.length > 0 ? "success" : "neutral"} />
+        <SumCard label="총지급액 합계" value={formatKrw(grossTotal)} tone="accent" />
+      </div>
+    );
+  }
+
+  // mode === "wht"
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-3 md:px-4 pt-3 pb-1">
+      <SumCard label="근로소득 원천세" value={formatKrw(incomeTaxTotal)} sub="소득세 합계" />
+      <SumCard label="지방소득세" value={formatKrw(localTaxTotal)} sub="소득세의 10%" />
+      <SumCard label="납부 대상" value={formatKrw(incomeTaxTotal + localTaxTotal)} sub="합계 납부세액" tone="accent" />
+      <SumCard label="신고 인원" value={`${entries.length}`} unit="명" sub={`승인 ${approvedCount} · 검토 ${pendingCount}`} />
+    </div>
+  );
+}
+
+function SumCard({ label, value, unit, sub, tone = "neutral" }: {
+  label: string; value: string; unit?: string; sub?: string;
+  tone?: "neutral" | "accent" | "warning" | "success";
+}) {
+  const valueColor =
+    tone === "accent" ? "text-blue-700"
+    : tone === "warning" ? "text-amber-700"
+    : tone === "success" ? "text-green-700"
+    : "text-gray-900";
+  return (
+    <div className="border border-gray-200 rounded-lg px-3 py-2 bg-white">
+      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-gray-500">{label}</div>
+      <div className="flex items-baseline gap-1 mt-1">
+        <span className={`font-mono tabular-nums text-[17px] font-bold tracking-tight ${valueColor}`}>{value}</span>
+        {unit && <span className="text-[11.5px] text-gray-500">{unit}</span>}
+      </div>
+      {sub && <div className="text-[10.5px] text-gray-400 mt-0.5 truncate">{sub}</div>}
+    </div>
+  );
+}
+
+/* ═══ 받은 자료 Action Row (백엔드 미지원 — 준비중) ═══ */
+
+function ReceivedActionRow() {
+  const tip = "준비중 — 다음 업데이트에서 활성화";
+  return (
+    <div className="flex items-center gap-1.5 px-3 md:px-4 pt-2.5 pb-1.5 flex-wrap">
+      <DisabledActionButton title={tip}>전월자료 불러오기</DisabledActionButton>
+      <DisabledActionButton title={tip}>직원 추가</DisabledActionButton>
+      <DisabledActionButton title={tip}>신규지정</DisabledActionButton>
+      <DisabledActionButton title={tip} danger>퇴사처리</DisabledActionButton>
+      <span className="text-[10.5px] text-gray-400 ml-1">· 준비중</span>
+    </div>
+  );
+}
+
+function DisabledActionButton({ children, danger, title }: { children: React.ReactNode; danger?: boolean; title: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      title={title}
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] font-medium border bg-white cursor-not-allowed opacity-50 ${
+        danger ? "border-red-200 text-red-500" : "border-gray-200 text-gray-500"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ═══ Entries Footer (직원수 · 총지급액 합계) ═══ */
+
+function EntriesFooter({ mode, entries }: { mode: "received" | "wht"; entries: PayrollEntry[] }) {
+  const grossTotal = entries.reduce((acc, e) => acc + (e.total_amount ?? 0), 0);
+  const incomeTaxTotal = entries.reduce((acc, e) => acc + (e.income_tax ?? 0), 0);
+  const localTaxTotal = entries.reduce((acc, e) => acc + (e.local_tax ?? 0), 0);
+  return (
+    <div className="flex items-center justify-end gap-5 px-4 py-3 border-t-2 border-gray-300 bg-gray-50/60 text-[12px] sticky bottom-0">
+      <span className="text-gray-500">직원 <strong className="ml-1 text-gray-900 tabular-nums">{entries.length}명</strong></span>
+      <span className="text-gray-500">총지급액 합계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(grossTotal)}</strong></span>
+      {mode === "wht" && (
+        <span className="text-gray-500">납부세액 합계 <strong className="ml-1 text-blue-700 font-mono tabular-nums">{formatKrw(incomeTaxTotal + localTaxTotal)}</strong></span>
+      )}
+    </div>
   );
 }
 
