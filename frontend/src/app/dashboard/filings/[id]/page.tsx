@@ -3,6 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import {
   useClients,
@@ -29,6 +30,8 @@ export default function FilingDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
+  const preferredClientId = searchParams.get("client_id");
   const { data, isLoading } = useFilingDashboard(id);
   const { data: entries } = useFilingEntries(id);
   const sendInvite = useSendInvite(id);
@@ -46,9 +49,12 @@ export default function FilingDetailPage({
   useEffect(() => {
     if (sessions.length === 0) return;
     if (!activeSession || !sessions.find((s) => s.id === activeSession)) {
-      setActiveSession(sessions[0].id);
+      const preferred = preferredClientId
+        ? sessions.find((s) => s.client_id === preferredClientId)
+        : null;
+      setActiveSession((preferred ?? sessions[0]).id);
     }
-  }, [activeSession, sessions]);
+  }, [activeSession, sessions, preferredClientId]);
 
   if (isLoading || !data) {
     return (
@@ -165,62 +171,63 @@ export default function FilingDetailPage({
 
   return (
     <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Compact header — aligned with 3-pane columns on desktop, stacks on mobile */}
-      <div className="flex flex-col md:flex-row md:h-10 border-b border-gray-200 bg-white shrink-0">
-        {/* Left col — matches session list width */}
-        <div className="hidden md:flex w-[240px] shrink-0 items-center gap-2 px-4 border-r border-gray-200">
-          <span className={`text-[11px] font-semibold shrink-0 ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
-            마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`} · {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()}
+      {/* Toolbar — deadline + 자료요청/다운로드 actions */}
+      <div className="flex flex-col md:flex-row md:items-center md:h-[60px] gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 border-b border-gray-200 bg-white shrink-0">
+        {/* Mobile menu + title row */}
+        <div className="flex md:hidden items-center gap-2 min-w-0">
+          <button onClick={() => setShowSidebar((v) => !v)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" aria-label="거래처 목록">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+          </button>
+          <Link href="/dashboard" className="text-[13.5px] font-bold tracking-tight truncate hover:text-blue-600 transition-colors">
+            {Number(filing.period.split("-")[1])}월 원천세 신고
+          </Link>
+          <span className={`shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-bold tabular-nums ${daysLeft <= 5 ? "bg-red-50 text-red-600 border border-red-100" : "bg-gray-50 text-gray-500 border border-gray-200"}`}>
+            D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
           </span>
-          <h1 className="text-[13px] font-bold tracking-tight truncate">
-            <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
-              {Number(filing.period.split("-")[1])}월 원천세 신고
-            </Link>
-          </h1>
         </div>
-        {/* Mobile-only top row */}
-        <div className="flex md:hidden items-center justify-between px-3 py-2 gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <button onClick={() => setShowSidebar((v) => !v)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" aria-label="거래처 목록">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
-            </button>
-            <h1 className="text-[13px] font-bold tracking-tight truncate">
-              <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
+
+        {/* Desktop deadline group */}
+        <div className="hidden md:flex items-center gap-2.5 pr-4 border-r border-gray-200 shrink-0">
+          <Link href="/dashboard" className="block hover:text-blue-600 transition-colors">
+            <div className="flex items-center gap-2">
+              <h1 className="text-[15px] font-bold tracking-tight text-gray-900">
                 {Number(filing.period.split("-")[1])}월 원천세 신고
-              </Link>
-            </h1>
-            <span className={`text-[11px] font-semibold shrink-0 ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
-              D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
-            </span>
-          </div>
-        </div>
-        {/* Center col — matches AI table */}
-        <div className="flex-1 min-w-0 flex items-center justify-between px-3 md:px-4 py-1.5 md:py-0">
-          <div className="flex items-center gap-2 md:gap-3 min-w-0">
-            {!reviewOnly && selectedSession && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
-                {selectedSession.client_name}
+              </h1>
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-bold tabular-nums ${daysLeft <= 5 ? "bg-red-50 text-red-600 border border-red-100" : "bg-gray-50 text-gray-500 border border-gray-200"}`}>
+                마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
               </span>
-            )}
-            {reviewOnly && (
-              <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer">
-                확인필요만 보기 ✕
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-            <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1 hidden sm:inline-flex">
-              {sendInvite.isPending ? "발송중..." : "전체 업체 자료요청"}
-            </Button>
-            <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1 hidden sm:inline-flex">
-              {requestCollection.isPending ? "발송중..." : "선택업체 자료요청"}
-            </Button>
-            <Button variant="secondary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
-            <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
-          </div>
+            </div>
+            <div className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
+              신고기한 {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()} ({["일","월","화","수","목","금","토"][deadlineDate.getDay()]})
+            </div>
+          </Link>
         </div>
-        {/* Right col — matches original docs width (desktop only) */}
-        <div className="hidden md:block w-[280px] shrink-0 border-l border-gray-200" />
+
+        {/* 자료요청 group */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
+            {sendInvite.isPending ? "발송중..." : "자료요청 (전체)"}
+          </Button>
+          <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1">
+            {requestCollection.isPending ? "발송중..." : "자료요청 (선택)"}
+          </Button>
+        </div>
+
+        {/* Review mode indicator (when active) */}
+        {reviewOnly && (
+          <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
+            확인필요만 보기 ✕
+          </button>
+        )}
+
+        {/* Spacer */}
+        <div className="hidden md:block flex-1" />
+
+        {/* Download group */}
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+          <Button variant="primary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
+          <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
+        </div>
       </div>
 
       {/* Body */}
@@ -289,6 +296,8 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
 
 /* ═══ Default 3-Pane Mode ═══ */
 
+type MainTab = "received" | "wht" | "insurance";
+
 function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar }: {
   filingId: string;
   sessions: CollectionSession[];
@@ -306,6 +315,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
   const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
+  const [mainTab, setMainTab] = useState<MainTab>("received");
 
   const isReview = (s: CollectionSession) => {
     const se = entries.filter((e) => e.client_id === s.client_id);
@@ -369,26 +379,63 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
       </div>
 
-      {/* CENTER — AI table */}
-      <div className="flex-1 min-w-0 bg-white flex flex-col">
+      {/* CENTER — 3 tabs + content */}
+      <div className="flex-1 min-w-0 bg-white flex flex-col min-h-0">
         {selectedSession ? (
-          <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
-            highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">AI 추출 결과</div>
-        )}
-      </div>
+          <>
+            {/* Tab bar */}
+            <div className="flex items-end gap-1 px-3 md:px-5 border-b border-gray-200 bg-white shrink-0">
+              <MainTabButton active={mainTab === "received"} onClick={() => setMainTab("received")}>
+                받은 자료
+              </MainTabButton>
+              <MainTabButton active={mainTab === "wht"} onClick={() => setMainTab("wht")}>
+                원천세관리
+              </MainTabButton>
+              <MainTabButton active={mainTab === "insurance"} onClick={() => setMainTab("insurance")}>
+                4대보험관리
+              </MainTabButton>
+              <div className="flex-1" />
+              <div className="pb-2 text-[11px] text-gray-500 hidden sm:flex items-center gap-1.5">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 border border-blue-100">
+                  {selectedSession.client_name}
+                </span>
+              </div>
+            </div>
 
-      {/* RIGHT — Original docs (hidden on mobile) */}
-      <div className="hidden md:flex w-[280px] border-l border-gray-200 bg-white flex-col shrink-0">
-        {selectedSession ? (
-          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
-            highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
+            {/* Tab content */}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {mainTab === "received" && (
+                <CenterPane key={`${selectedSession.id}-received`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                  highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
+              )}
+              {(mainTab === "wht" || mainTab === "insurance") && (
+                <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                  highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                  forcedTab={mainTab === "wht" ? "wht" : "insurance"} />
+              )}
+            </div>
+          </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">고객 소통 내역</div>
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
         )}
       </div>
     </div>
+  );
+}
+
+function MainTabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`relative px-3 md:px-4 pt-2.5 pb-2.5 text-[13.5px] font-semibold transition-colors whitespace-nowrap ${
+        active ? "text-blue-600" : "text-gray-500 hover:text-gray-800"
+      }`}
+    >
+      {children}
+      {active && (
+        <span className="absolute left-1 right-1 bottom-[-1px] h-[2.5px] bg-blue-600 rounded-t" />
+      )}
+    </button>
   );
 }
 
@@ -680,12 +727,13 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
 
 /* ═══ Right Pane (AI Table) ═══ */
 
-function RightPane({ filingId, session, entries, highlightEventId, onHighlight }: {
+function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
   highlightEventId: string | null;
   onHighlight: (id: string | null) => void;
+  forcedTab?: "wht" | "insurance";
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
@@ -693,7 +741,10 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [tab, setTab] = useState<"wht" | "insurance">("wht");
+  const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
+  const tab = forcedTab ?? internalTab;
+  const setTab = forcedTab ? () => {} : setInternalTab;
+  const showInternalTabBar = forcedTab === undefined;
   const clientDetail = clients?.find((c) => c.id === session.client_id);
 
   // Initialize drafts for pending entries
@@ -806,16 +857,18 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
             {clientDetail.is_corporation !== undefined && <><span className="text-gray-300">|</span><span>{clientDetail.is_corporation ? "법인" : "개인"}</span></>}
           </div>
         )}
-        <div className="flex gap-1 mt-2.5">
-          <button onClick={() => setTab("wht")}
-            className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            원천세 관리
-          </button>
-          <button onClick={() => setTab("insurance")}
-            className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            4대보험 관리
-          </button>
-        </div>
+        {showInternalTabBar && (
+          <div className="flex gap-1 mt-2.5">
+            <button onClick={() => setTab("wht")}
+              className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+              원천세 관리
+            </button>
+            <button onClick={() => setTab("insurance")}
+              className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+              4대보험 관리
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto">
