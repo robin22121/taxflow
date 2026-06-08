@@ -413,7 +413,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                       forcedTab="wht" summaryMode="received" />
                   </div>
                   {/* Right: 고객소통내역 panel (received tab only) */}
-                  <div className="hidden lg:flex w-[300px] border-l border-gray-200 bg-gray-50/40 flex-col shrink-0">
+                  <div className="hidden lg:flex w-[380px] xl:w-[440px] border-l border-gray-200 bg-gray-50/40 flex-col shrink-0">
                     <CenterPane key={`${selectedSession.id}-received-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
                       highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
                   </div>
@@ -608,16 +608,20 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
                       <span className="font-medium">{t.label}</span>
                       {t.channel && <span className="text-gray-400">· {t.channel}</span>}
                     </div>
-                    {hasBody && (
-                      <div className={`text-[11px] text-gray-500 mt-0.5 ${
-                        isExpanded ? "whitespace-pre-wrap break-words" : "truncate"
-                      }`}>
-                        {t.sender_name ? `${t.sender_name} · ` : ""}{t.detail}
+                    {hasBody && isExpanded && (
+                      <div className="text-[11.5px] text-gray-600 mt-1.5 whitespace-pre-wrap break-words leading-relaxed bg-white border border-gray-100 rounded px-2 py-1.5">
+                        {t.sender_name && (
+                          <div className="text-[10.5px] text-gray-400 mb-1">{t.sender_name}</div>
+                        )}
+                        {t.detail}
                       </div>
                     )}
                   </div>
                   {hasBody && (
-                    <span className={`mt-0.5 shrink-0 text-[9px] text-gray-300 transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
+                    <span
+                      className={`mt-0.5 shrink-0 text-[10px] text-gray-400 transition-transform ${isExpanded ? "rotate-90 text-blue-500" : ""}`}
+                      title={isExpanded ? "접기" : "전체 내역 보기"}
+                    >▶</span>
                   )}
                 </div>
               );
