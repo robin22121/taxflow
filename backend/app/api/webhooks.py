@@ -31,7 +31,6 @@ from app.models import (
     KakaoUserBinding,
     KakaoPendingMessage,
     MonthlyFiling,
-    MonthlyFilingStatus,
     PayrollEntry,
     TaxOffice,
 )
@@ -79,35 +78,26 @@ def _verify_sendgrid_basic_auth(request: Request, expected_password: str) -> boo
 async def _find_active_session(
     db: AsyncSession, client: Client
 ) -> CollectionSession | None:
-    """Find the most recent SENT/NEEDS_REVIEW session for a client."""
-    filing = (
-        await db.execute(
-            select(MonthlyFiling)
-            .where(
-                MonthlyFiling.tax_office_id == client.tax_office_id,
-                MonthlyFiling.status.in_([
-                    MonthlyFilingStatus.COLLECTING,
-                    MonthlyFilingStatus.REVIEWING,
-                ]),
-            )
-            .order_by(MonthlyFiling.period.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if not filing:
-        return None
+    """그 client의 가장 최근 CollectionSession을 반환.
 
+    MonthlyFiling.status 가드는 두지 않는다 — 신규 사무실의 첫 신고는 아직
+    COLLECTING/REVIEWING으로 전환되지 않은 상태에서도 거래처가 답신할 수
+    있으므로. (filing.tax_office_id × client_id) 조합으로 매칭 강도는 충분.
+    """
     session = (
         await db.execute(
             select(CollectionSession)
+            .join(MonthlyFiling, CollectionSession.monthly_filing_id == MonthlyFiling.id)
             .where(
-                CollectionSession.monthly_filing_id == filing.id,
                 CollectionSession.client_id == client.id,
+                MonthlyFiling.tax_office_id == client.tax_office_id,
             )
+            .order_by(MonthlyFiling.period.desc())
             .options(
                 selectinload(CollectionSession.client),
                 selectinload(CollectionSession.monthly_filing),
             )
+            .limit(1)
         )
     ).scalar_one_or_none()
     return session
