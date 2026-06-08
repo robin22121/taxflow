@@ -922,11 +922,18 @@ async def email_webhook(
         # 이메일 주소에서 <> 제거 (SendGrid가 "Name <email>" 형식으로 보낼 수 있음)
         clean_from = re.search(r"[\w.-]+@[\w.-]+", from_addr)
         sender_email = clean_from.group(0) if clean_from else from_addr
-        client = (
+        # 동일 contact_email을 가진 거래처가 여러 개일 수 있으므로 first()로 안전 매칭
+        matches = (
             await db.execute(
                 select(Client).where(Client.contact_email == sender_email)
             )
-        ).scalar_one_or_none()
+        ).scalars().all()
+        if len(matches) > 1:
+            logger.warning(
+                "이메일 웹훅: 동일 이메일 다중 매칭 (sender=%s, count=%d) — 첫 거래처 사용",
+                sender_email, len(matches),
+            )
+        client = matches[0] if matches else None
         if client:
             session = await _find_active_session(db, client)
 
@@ -1155,11 +1162,18 @@ async def _handle_resend_event(
     if not session:
         clean_from = re.search(r"[\w.-]+@[\w.-]+", from_addr)
         sender_email = clean_from.group(0) if clean_from else from_addr
-        client = (
+        # 동일 contact_email을 가진 거래처가 여러 개일 수 있으므로 first()로 안전 매칭
+        matches = (
             await db.execute(
                 select(Client).where(Client.contact_email == sender_email)
             )
-        ).scalar_one_or_none()
+        ).scalars().all()
+        if len(matches) > 1:
+            logger.warning(
+                "Resend 웹훅: 동일 이메일 다중 매칭 (sender=%s, count=%d) — 첫 거래처 사용",
+                sender_email, len(matches),
+            )
+        client = matches[0] if matches else None
         if client:
             session = await _find_active_session(db, client)
 
