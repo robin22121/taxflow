@@ -403,15 +403,28 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="flex-1 min-h-0 flex overflow-hidden">
               {mainTab === "received" && (
-                <CenterPane key={`${selectedSession.id}-received`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                  highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
+                <>
+                  {/* Main: entries table */}
+                  <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                    <RightPane key={`${selectedSession.id}-received-main`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                      highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                      forcedTab="wht" />
+                  </div>
+                  {/* Right: 고객소통내역 panel (received tab only) */}
+                  <div className="hidden lg:flex w-[300px] border-l border-gray-200 bg-gray-50/40 flex-col shrink-0">
+                    <CenterPane key={`${selectedSession.id}-received-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                      highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
+                  </div>
+                </>
               )}
               {(mainTab === "wht" || mainTab === "insurance") && (
-                <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                  highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                  forcedTab={mainTab === "wht" ? "wht" : "insurance"} />
+                <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                  <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                    highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                    forcedTab={mainTab === "wht" ? "wht" : "insurance"} />
+                </div>
               )}
             </div>
           </>
