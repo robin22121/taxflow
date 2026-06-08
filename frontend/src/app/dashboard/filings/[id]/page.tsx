@@ -545,7 +545,14 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
                         {t.at ? new Date(t.at).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : ""}
                       </span>
                       <span className="font-medium">{t.label}</span>
-                      {t.channel && <span className="text-gray-400">· {t.channel}</span>}
+                      {t.channel && (() => {
+                        const { label, cls } = channelBadge(t.channel);
+                        return (
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}`}>
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     {hasBody && (
                       <div className={`text-[11px] text-gray-500 mt-0.5 ${
@@ -1921,6 +1928,21 @@ function formatKrw(n: number | null | undefined): string {
 function channelLabel(ch: string | null): string {
   if (!ch) return "—";
   return { kakao: "카톡", email: "이메일", sms: "문자", voice: "전화", manual: "직접입력", public_url: "URL폼" }[ch] ?? ch;
+}
+
+function channelBadge(ch: string): { label: string; cls: string } {
+  const map: Record<string, { label: string; cls: string }> = {
+    "카카오톡": { label: "카톡", cls: "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200" },
+    "이메일":   { label: "이메일", cls: "bg-blue-50 text-blue-700 ring-1 ring-blue-200" },
+    "문자":     { label: "문자", cls: "bg-green-50 text-green-700 ring-1 ring-green-200" },
+    "전화":     { label: "전화", cls: "bg-purple-50 text-purple-700 ring-1 ring-purple-200" },
+    "직접":     { label: "직접", cls: "bg-gray-100 text-gray-600 ring-1 ring-gray-200" },
+    "웹폼":     { label: "URL폼", cls: "bg-gray-100 text-gray-600 ring-1 ring-gray-200" },
+    "kakao":    { label: "카톡", cls: "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200" },
+    "email":    { label: "이메일", cls: "bg-blue-50 text-blue-700 ring-1 ring-blue-200" },
+    "sms":      { label: "문자", cls: "bg-green-50 text-green-700 ring-1 ring-green-200" },
+  };
+  return map[ch] ?? { label: ch, cls: "bg-gray-100 text-gray-600 ring-1 ring-gray-200" };
 }
 
 const FIELD_LABELS: Record<string, string> = {
