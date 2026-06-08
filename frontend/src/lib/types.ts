@@ -108,6 +108,7 @@ export type SessionTimelineEvent = {
   label: string;
   sender_name: string | null;
   detail: string;
+  raw_text?: string | null;
 };
 
 export type CollectionSession = {

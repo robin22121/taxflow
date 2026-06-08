@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -20,7 +20,7 @@ import {
 } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
-import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent, SourceEvent } from "@/lib/types";
+import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
 
@@ -523,6 +523,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
   const qc = useQueryClient();
   const { data: attachments } = useSessionAttachments(filingId, session.id);
   const { data: timeline } = useSessionTimeline(filingId, session.id);
+  const { data: clients } = useClients();
   const submit = useSubmitMessage(filingId);
   const requestCollection = useRequestCollection(filingId);
   const [showInput, setShowInput] = useState(false);
@@ -533,7 +534,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
   const [zoomKey, setZoomKey] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SessionAttachment | null>(null);
   const [deletedKeys, setDeletedKeys] = useState<Set<string>>(new Set());
-  const [deleteEventTarget, setDeleteEventTarget] = useState<SourceEvent | null>(null);
+  const [deleteTimelineTarget, setDeleteTimelineTarget] = useState<SessionTimelineEvent | null>(null);
   const [deletedEventIds, setDeletedEventIds] = useState<Set<string>>(new Set());
   const [expandedTimelineIds, setExpandedTimelineIds] = useState<Set<string>>(new Set());
   const toggleTimelineExpanded = useCallback((id: string) => {
@@ -544,20 +545,9 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
     });
   }, []);
 
-  const sourceTexts = useMemo(() => {
-    const seen = new Set<string>();
-    return entries
-      .filter((e) => e.source_event?.raw_text)
-      .map((e) => e.source_event!)
-      .filter((se) => {
-        if (seen.has(se.id)) return false;
-        seen.add(se.id);
-        return true;
-      })
-      .filter((se) => !deletedEventIds.has(se.id));
-  }, [entries, deletedEventIds]);
-
+  const clientDetail = clients?.find((c) => c.id === session.client_id);
   const visibleAttachments = (attachments ?? []).filter((a) => !deletedKeys.has(a.storage_key));
+  const visibleTimeline = (timeline ?? []).filter((t) => !deletedEventIds.has(t.id));
   const publicUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`;
 
   return (
@@ -579,19 +569,24 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
       </div>
 
       <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
-        {timeline && timeline.length > 0 && (
+        {visibleTimeline.length > 0 && (
           <div className="space-y-1">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-0.5">소통 타임라인</div>
-            {timeline.map((t: SessionTimelineEvent) => {
+            {visibleTimeline.map((t: SessionTimelineEvent) => {
               const isExpanded = expandedTimelineIds.has(t.id);
-              const hasBody = !!(t.sender_name || t.detail);
+              const fullText = t.raw_text ?? t.detail;
+              const hasBody = !!(t.sender_name || fullText);
+              const isHighlighted = highlightEventId === t.id;
               return (
                 <div
                   key={t.id}
-                  onClick={() => hasBody && toggleTimelineExpanded(t.id)}
-                  className={`flex items-start gap-2 px-2 py-1.5 rounded-md bg-gray-50 border border-gray-100 transition-colors ${
-                    hasBody ? "cursor-pointer hover:bg-gray-100" : ""
-                  }`}
+                  onClick={() => {
+                    if (hasBody) toggleTimelineExpanded(t.id);
+                    if (t.raw_text) onHighlight(isHighlighted ? null : t.id);
+                  }}
+                  className={`flex items-start gap-2 px-2 py-1.5 rounded-md border transition-colors ${
+                    isHighlighted ? "bg-blue-50 border-blue-300" : "bg-gray-50 border-gray-100"
+                  } ${hasBody ? "cursor-pointer hover:bg-gray-100" : ""}`}
                 >
                   <span className={`mt-px shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
                     t.direction === "out" ? "bg-blue-50 text-blue-600"
@@ -601,7 +596,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
                     {t.direction === "out" ? "프로덕트→고객" : t.direction === "in" ? "고객사→서버" : "시스템"}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 text-[11.5px] text-gray-700">
+                    <div className="flex items-center gap-1.5 text-[11.5px] text-gray-700 flex-wrap">
                       <span className="tabular-nums text-gray-400">
                         {t.at ? new Date(t.at).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : ""}
                       </span>
@@ -616,11 +611,37 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
                       })()}
                     </div>
                     {hasBody && isExpanded && (
-                      <div className="text-[11.5px] text-gray-600 mt-1.5 whitespace-pre-wrap break-words leading-relaxed bg-white border border-gray-100 rounded px-2 py-1.5">
-                        {t.sender_name && (
-                          <div className="text-[10.5px] text-gray-400 mb-1">{t.sender_name}</div>
+                      <div className="mt-1.5 space-y-1.5">
+                        {/* 프로덕트→고객 수신자 정보 */}
+                        {t.direction === "out" && clientDetail && (clientDetail.contact_email || clientDetail.collect_email || clientDetail.contact_phone) && (
+                          <div className="text-[10.5px] text-gray-500 bg-blue-50/50 border border-blue-100 rounded px-2 py-1.5 space-y-0.5">
+                            <div className="text-[9.5px] font-semibold uppercase tracking-widest text-blue-600">수신자</div>
+                            {(clientDetail.contact_email || clientDetail.collect_email) && (
+                              <div>📧 {clientDetail.contact_email || clientDetail.collect_email}</div>
+                            )}
+                            {clientDetail.contact_phone && (
+                              <div>📞 {clientDetail.contact_phone}</div>
+                            )}
+                          </div>
                         )}
-                        {t.detail}
+                        {/* 본문 */}
+                        {fullText && (
+                          <div className="text-[11.5px] text-gray-700 whitespace-pre-wrap break-words leading-relaxed bg-white border border-gray-100 rounded px-2 py-1.5">
+                            {t.sender_name && (
+                              <div className="text-[10.5px] text-gray-400 mb-1">{t.sender_name}</div>
+                            )}
+                            {fullText}
+                          </div>
+                        )}
+                        {/* 삭제 액션 — 텍스트 본문이 있는 경우만 */}
+                        {t.raw_text && (
+                          <div className="flex justify-end">
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); setDeleteTimelineTarget(t); }}
+                              className="text-[10.5px] text-red-500 hover:text-red-700 hover:underline"
+                            >이 메시지 삭제</button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -649,24 +670,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
           </div>
         )}
 
-        {sourceTexts.map((se) => (
-          <div key={se.id}
-            onClick={() => onHighlight(highlightEventId === se.id ? null : se.id)}
-            className={`group relative p-2 rounded-lg border cursor-pointer transition-all ${
-              highlightEventId === se.id
-                ? "bg-blue-50 border-blue-400 ring-1 ring-blue-400"
-                : "bg-gray-50 border-gray-200 hover:border-gray-300"
-            }`}>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">텍스트</span>
-              <button onClick={(ev) => { ev.stopPropagation(); setDeleteEventTarget(se); }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-red-500 hover:text-red-700">삭제</button>
-            </div>
-            <div className="text-[12px] leading-relaxed text-gray-700 whitespace-pre-wrap mt-1 max-h-32 overflow-y-auto">{se.raw_text}</div>
-          </div>
-        ))}
-
-        {visibleAttachments.length === 0 && sourceTexts.length === 0 && (
+        {visibleAttachments.length === 0 && visibleTimeline.length === 0 && (
           <div className="text-center py-6 text-xs text-gray-400">수신된 자료 없음</div>
         )}
 
@@ -723,15 +727,17 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
         />
       )}
 
-      {deleteEventTarget && (
+      {deleteTimelineTarget && (
         <DeleteAttachmentModal
-          filename={`텍스트 메시지 (${(deleteEventTarget.raw_text ?? "").slice(0, 20)}...)`}
-          onClose={() => setDeleteEventTarget(null)}
+          filename={`텍스트 메시지 (${(deleteTimelineTarget.raw_text ?? deleteTimelineTarget.detail ?? "").slice(0, 20)}...)`}
+          onClose={() => setDeleteTimelineTarget(null)}
           onConfirm={(deletedBy) => {
-            setDeletedEventIds((prev) => new Set([...prev, deleteEventTarget.id]));
-            setDeleteEventTarget(null);
-            api(`/api/v1/filings/${filingId}/sessions/${session.id}/events/${deleteEventTarget.id}?deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" })
+            const tid = deleteTimelineTarget.id;
+            setDeletedEventIds((prev) => new Set([...prev, tid]));
+            setDeleteTimelineTarget(null);
+            api(`/api/v1/filings/${filingId}/sessions/${session.id}/events/${tid}?deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" })
               .then(() => {
+                qc.invalidateQueries({ queryKey: ["filings", filingId, "sessions", session.id, "timeline"] });
                 qc.invalidateQueries({ queryKey: ["filings", filingId, "entries"] });
                 qc.invalidateQueries({ queryKey: ["filings", filingId, "dashboard"] });
               })
