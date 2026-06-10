@@ -767,14 +767,16 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
+  const [whtSubTab, setWhtSubTab] = useState<WhtSubTab>("WAGE");
   const tab = forcedTab ?? internalTab;
   const setTab = forcedTab ? () => {} : setInternalTab;
   const showInternalTabBar = forcedTab === undefined;
   const clientDetail = clients?.find((c) => c.id === session.client_id);
 
-  // Initialize drafts for pending entries
-  const pendingEntries = entries.filter((e) => !e.approved);
-  const approvedEntries = entries.filter((e) => e.approved);
+  // 원천세관리 탭에서는 income_type별 서브탭으로 entries 필터링 (더존 메뉴 분리 미러링)
+  const displayEntries = summaryMode === "wht" ? entries.filter((e) => matchesWhtSubTab(e, whtSubTab)) : entries;
+  const pendingEntries = displayEntries.filter((e) => !e.approved);
+  const approvedEntries = displayEntries.filter((e) => e.approved);
 
   const getDraft = useCallback((e: PayrollEntry): Partial<PayrollEntry> => {
     return drafts[e.id] ?? {
@@ -797,8 +799,8 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
     });
   }
   function toggleSelectAll() {
-    if (selected.size === entries.length) setSelected(new Set());
-    else setSelected(new Set(entries.map((e) => e.id)));
+    if (selected.size === displayEntries.length) setSelected(new Set());
+    else setSelected(new Set(displayEntries.map((e) => e.id)));
   }
   function bulkDelete() {
     if (selected.size === 0) return;
@@ -844,10 +846,10 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
           <div>
             <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 결과</span>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[15px] font-semibold">{session.client_name} · {entries.length}명</span>
-              {entries.length > 0 && (
+              <span className="text-[15px] font-semibold">{session.client_name} · {displayEntries.length}명</span>
+              {displayEntries.length > 0 && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
-                  {entries.filter((e) => e.approved).length}/{entries.length} 승인
+                  {displayEntries.filter((e) => e.approved).length}/{displayEntries.length} 승인
                 </span>
               )}
             </div>
@@ -901,14 +903,17 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
           <InsuranceTab filingId={filingId} session={session} />
         ) : (
           <>
-            {summaryMode && <SummaryCards mode={summaryMode} entries={entries} />}
+            {summaryMode === "wht" && (
+              <WhtSubTabBar value={whtSubTab} onChange={setWhtSubTab} entries={entries} />
+            )}
+            {summaryMode && <SummaryCards mode={summaryMode} entries={displayEntries} />}
             {summaryMode === "received" && <ReceivedActionRow />}
-            {entries.length > 0 ? (
+            {displayEntries.length > 0 ? (
               <table className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-white">
                   <tr className="border-b border-gray-200">
                     <th className="w-8 py-2.5 pl-4">
-                      <input type="checkbox" checked={entries.length > 0 && selected.size === entries.length}
+                      <input type="checkbox" checked={displayEntries.length > 0 && selected.size === displayEntries.length}
                         onChange={toggleSelectAll} title="전체 선택" className="h-3.5 w-3.5 accent-blue-600" />
                     </th>
                     <th className="text-left py-2.5 pl-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">직원 · 구분</th>
@@ -936,9 +941,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                 </tbody>
               </table>
             ) : (
-              <div className="flex items-center justify-center py-12 text-sm text-gray-400">아직 파싱된 항목이 없습니다</div>
+              <div className="flex items-center justify-center py-12 text-sm text-gray-400">
+                {summaryMode === "wht"
+                  ? `${WHT_SUBTAB_LABEL[whtSubTab]}로 분류된 항목이 없습니다`
+                  : "아직 파싱된 항목이 없습니다"}
+              </div>
             )}
-            {summaryMode && entries.length > 0 && <EntriesFooter mode={summaryMode} entries={entries} />}
+            {summaryMode && displayEntries.length > 0 && <EntriesFooter mode={summaryMode} entries={displayEntries} />}
+            {summaryMode === "wht" && entries.length > 0 && <WhtFormPreview entries={entries} />}
           </>
         )}
       </div>
@@ -1030,6 +1040,133 @@ function DisabledActionButton({ children, danger, title }: { children: React.Rea
     >
       {children}
     </button>
+  );
+}
+
+/* ═══ 원천세관리 서브탭 (더존 [급여자료입력] / [일용근로소득자료입력] / [사업·기타소득] 미러링) ═══ */
+
+type WhtSubTab = "WAGE" | "DAILY" | "BIZ_OTHER";
+
+const WHT_SUBTAB_LABEL: Record<WhtSubTab, string> = {
+  WAGE: "상용직",
+  DAILY: "일용직",
+  BIZ_OTHER: "사업·기타소득",
+};
+
+function matchesWhtSubTab(e: PayrollEntry, sub: WhtSubTab): boolean {
+  if (sub === "WAGE") return e.income_type === "WAGE";
+  if (sub === "DAILY") return e.income_type === "DAILY";
+  return e.income_type === "BUSINESS" || e.income_type === "OTHER" || e.income_type === "RETIREMENT";
+}
+
+function WhtSubTabBar({ value, onChange, entries }: {
+  value: WhtSubTab; onChange: (v: WhtSubTab) => void; entries: PayrollEntry[];
+}) {
+  const counts: Record<WhtSubTab, number> = {
+    WAGE: entries.filter((e) => matchesWhtSubTab(e, "WAGE")).length,
+    DAILY: entries.filter((e) => matchesWhtSubTab(e, "DAILY")).length,
+    BIZ_OTHER: entries.filter((e) => matchesWhtSubTab(e, "BIZ_OTHER")).length,
+  };
+  const subs: WhtSubTab[] = ["WAGE", "DAILY", "BIZ_OTHER"];
+  return (
+    <div className="flex items-center gap-1 px-3 md:px-4 pt-3 pb-1 border-b border-gray-100">
+      {subs.map((s) => {
+        const active = value === s;
+        return (
+          <button
+            key={s}
+            onClick={() => onChange(s)}
+            className={`px-3 py-1.5 rounded-md text-[12px] font-semibold transition-colors ${
+              active ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            {WHT_SUBTAB_LABEL[s]}
+            <span className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1 rounded-full text-[10.5px] tabular-nums ${
+              active ? "bg-blue-500/40 text-white" : "bg-white text-gray-500 border border-gray-200"
+            }`}>
+              {counts[s]}
+            </span>
+          </button>
+        );
+      })}
+      <span className="ml-2 text-[10.5px] text-gray-400">더존 [급여자료입력] · [일용근로소득자료입력] · [사업·기타소득] 분리 미러링</span>
+    </div>
+  );
+}
+
+/* ═══ 원천징수이행상황신고서 합계 미리보기 (더존 [불러오기] 결과) ═══ */
+
+function WhtFormPreview({ entries }: { entries: PayrollEntry[] }) {
+  // A코드별로 합산 (더존 이행상황신고서 코드 기준)
+  // A01 상용근로(간이세액) / A03 일용근로 / A25 사업소득 / A42 기타소득
+  const groups = {
+    A01: entries.filter((e) => e.income_type === "WAGE"),
+    A03: entries.filter((e) => e.income_type === "DAILY"),
+    A25: entries.filter((e) => e.income_type === "BUSINESS"),
+    A42: entries.filter((e) => e.income_type === "OTHER" || e.income_type === "RETIREMENT"),
+  };
+  const rows: { code: string; label: string; list: PayrollEntry[] }[] = [
+    { code: "A01", label: "상용근로 (간이세액)", list: groups.A01 },
+    { code: "A03", label: "일용근로", list: groups.A03 },
+    { code: "A25", label: "사업소득", list: groups.A25 },
+    { code: "A42", label: "기타소득", list: groups.A42 },
+  ];
+  const totalCount = entries.length;
+  const totalGross = entries.reduce((a, e) => a + (e.total_amount ?? 0), 0);
+  const totalIncomeTax = entries.reduce((a, e) => a + (e.income_tax ?? 0), 0);
+  const totalLocalTax = entries.reduce((a, e) => a + (e.local_tax ?? 0), 0);
+  const totalTax = totalIncomeTax + totalLocalTax;
+
+  return (
+    <div className="mt-4 mx-3 md:mx-4 mb-4 border border-blue-200 rounded-lg overflow-hidden bg-white">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-200">
+        <div>
+          <span className="text-[12px] font-bold text-blue-800">원천징수이행상황신고서 합계 미리보기</span>
+          <span className="ml-2 text-[10.5px] text-blue-600/70">더존 [불러오기] 결과 미러링 — 전체 소득종류 합산</span>
+        </div>
+        <button
+          type="button"
+          disabled
+          title="준비중 — 다음 업데이트에서 활성화 (현재는 툴바의 통합다운로드로 신고서 생성)"
+          className="px-3 py-1.5 rounded-md text-[12px] font-semibold bg-white border border-blue-300 text-blue-500 opacity-60 cursor-not-allowed"
+        >
+          마감 (준비중)
+        </button>
+      </div>
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50/50">
+            <th className="text-left py-2 pl-4 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">A코드</th>
+            <th className="text-left py-2 pl-2 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">소득구분</th>
+            <th className="text-right py-2 pr-3 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">인원</th>
+            <th className="text-right py-2 pr-3 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">총지급액</th>
+            <th className="text-right py-2 pr-4 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">징수세액</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const sum = r.list.reduce((a, e) => a + (e.total_amount ?? 0), 0);
+            const tax = r.list.reduce((a, e) => a + (e.income_tax ?? 0) + (e.local_tax ?? 0), 0);
+            const empty = r.list.length === 0;
+            return (
+              <tr key={r.code} className={`border-b border-gray-50 ${empty ? "text-gray-400" : "text-gray-800"}`}>
+                <td className="py-2 pl-4 font-mono text-[11px]">{r.code}</td>
+                <td className="py-2 pl-2">{r.label}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{r.list.length}명</td>
+                <td className="py-2 pr-3 text-right font-mono tabular-nums">{formatKrw(sum)}</td>
+                <td className="py-2 pr-4 text-right font-mono tabular-nums">{formatKrw(tax)}</td>
+              </tr>
+            );
+          })}
+          <tr className="border-t-2 border-gray-300 bg-blue-50/40">
+            <td className="py-2.5 pl-4 font-bold text-blue-800" colSpan={2}>총계</td>
+            <td className="py-2.5 pr-3 text-right tabular-nums font-bold text-gray-900">{totalCount}명</td>
+            <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-bold text-gray-900">{formatKrw(totalGross)}</td>
+            <td className="py-2.5 pr-4 text-right font-mono tabular-nums font-bold text-blue-700">{formatKrw(totalTax)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
