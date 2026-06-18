@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { AuthRedirect } from "@/components/auth-redirect";
+import { BetaSignupForm, WaitlistCounter } from "@/components/beta-signup";
 
 export const metadata: Metadata = {
   title: "이지원천 — 원천세 업무, AI로 끝내는 세무사무소",
@@ -36,6 +37,23 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   );
 }
 
+// 카카오 채널 친구 추가 — 앱 키 없이 동작하는 친구추가 딥링크 (채널 ID: _lxazsX)
+const KAKAO_CHANNEL_ADD_URL = "http://pf.kakao.com/_lxazsX/friend";
+
+function KakaoChannelButton({ className = "" }: { className?: string }) {
+  return (
+    <a
+      href={KAKAO_CHANNEL_ADD_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`inline-flex items-center justify-center gap-2 rounded-full bg-[#FEE500] px-5 py-2.5 text-[13.5px] font-semibold text-[#191600] transition-all hover:brightness-95 ${className}`}
+    >
+      <span className="text-[15px]">💬</span>
+      카카오 채널 추가
+    </a>
+  );
+}
+
 export default function LandingPage() {
   return (
     <div className="bg-white text-gray-900">
@@ -61,6 +79,9 @@ export default function LandingPage() {
             </a>
             <a href="#trust" className="transition-colors hover:text-gray-900">
               보안
+            </a>
+            <a href="#beta" className="font-semibold text-blue-600 transition-colors hover:text-blue-700">
+              베타 신청
             </a>
           </div>
           <div className="flex items-center gap-2">
@@ -103,7 +124,10 @@ export default function LandingPage() {
             검증부터 급여대장 엑셀 생성·급여명세서 교부까지. 매월 반복되는
             원천세 업무 시간을 최대 80%까지 줄입니다.
           </p>
-          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <div className="mt-7 flex justify-center">
+            <WaitlistCounter />
+          </div>
+          <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/register"
               className="inline-flex w-full items-center justify-center rounded-full border border-blue-600 bg-blue-600 px-6 py-3 text-[14px] font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.2)_inset,0_10px_28px_-10px_rgba(19,112,206,0.55)] transition-all hover:brightness-110 sm:w-auto"
@@ -192,6 +216,66 @@ export default function LandingPage() {
               <p className="mt-2 text-[13.5px] leading-relaxed text-gray-500">
                 {p.d}
               </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ───────────────── Value ladder (3단 가치 사다리) ───────────────── */}
+      <section className="mx-auto max-w-6xl px-5 pb-24">
+        <div className="mx-auto max-w-2xl text-center">
+          <Eyebrow>이지원천이 주는 가치</Eyebrow>
+          <h2 className="mt-4 text-[28px] font-bold tracking-tight text-gray-900 sm:text-[34px]">
+            시간을 되찾고, 실수를 없애고,
+            <br />
+            거래처를 늘립니다
+          </h2>
+          <p className="mt-4 text-[15px] leading-relaxed text-gray-500">
+            단순한 시간 절약을 넘어, 사무소의 수익 구조까지 바꾸는 세 단계의 가치.
+          </p>
+        </div>
+        <div className="mt-14 grid gap-5 md:grid-cols-3">
+          {[
+            {
+              step: "STEP 1",
+              t: "시간을 되찾다",
+              d: "거래처가 보낸 카톡·엑셀·사진을 AI가 자동 정형화. 손으로 옮기고 다시 묻던 자료 수집 시간을 매월 수십 시간 절감합니다.",
+              metric: "원천세 업무 시간 80%↓",
+            },
+            {
+              step: "STEP 2",
+              t: "실수를 없애다",
+              d: "신규·퇴사·전월 대비 급증을 자동 감지하고, 간이세액·4대보험을 정확히 계산. 신고 정정으로 이어지는 휴먼 에러를 차단합니다.",
+              metric: "수기 계산 오류 0",
+            },
+            {
+              step: "STEP 3",
+              t: "거래처를 늘리다",
+              d: "급여명세서 교부·4대보험 신고까지 묶어 수임처에 새 가치를 제안. 같은 인력으로 더 많은 거래처를 감당할 수 있습니다.",
+              metric: "신규 수임 제안 무기",
+            },
+          ].map((v, i) => (
+            <div
+              key={v.t}
+              className="relative rounded-[18px] border border-gray-200 bg-white p-7 shadow-[0_1px_0_rgba(28,25,23,0.04),0_8px_24px_-16px_rgba(28,25,23,0.08)]"
+            >
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-blue-600 text-[14px] font-extrabold text-white">
+                  {i + 1}
+                </span>
+                <span className="t-num text-[11px] font-bold uppercase tracking-widest text-blue-600">
+                  {v.step}
+                </span>
+              </div>
+              <h3 className="mt-4 text-[18px] font-bold tracking-tight text-gray-900">
+                {v.t}
+              </h3>
+              <p className="mt-2 text-[13.5px] leading-relaxed text-gray-500">
+                {v.d}
+              </p>
+              <div className="mt-5 inline-flex items-center rounded-full bg-blue-600/8 px-3 py-1 text-[12px] font-semibold text-blue-700">
+                {v.metric}
+              </div>
             </div>
           ))}
         </div>
@@ -308,6 +392,33 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ───────────────── Demo video (시연 영상 슬롯) ───────────────── */}
+      <section id="demo" className="border-t border-gray-200 bg-gray-50/50">
+        <div className="mx-auto max-w-4xl px-5 py-24">
+          <div className="mx-auto max-w-2xl text-center">
+            <Eyebrow>제품 시연</Eyebrow>
+            <h2 className="mt-4 text-[28px] font-bold tracking-tight text-gray-900 sm:text-[34px]">
+              카톡 한 장이 엑셀이 되는 과정,
+              <br />
+              영상으로 확인하세요
+            </h2>
+          </div>
+          {/* Supademo 인터랙티브 데모 */}
+          <div className="mx-auto mt-12 w-full overflow-hidden rounded-[20px] border border-gray-300 bg-gray-900 shadow-[0_30px_60px_-30px_rgba(28,25,23,0.4)]">
+            <div className="relative w-full aspect-[1.26]">
+              <iframe
+                src="https://app.supademo.com/embed/cmqiv9gtv0awiqmx1ockfizeq?embed_v=2&utm_source=embed"
+                loading="lazy"
+                title="Process Employee Requests and Approve Salary Items in Easy One Chon"
+                allow="clipboard-write"
+                allowFullScreen
+                className="absolute left-0 top-0 h-full w-full border-0"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ───────────────── Payslip highlight ───────────────── */}
       <section id="payslip" className="border-y border-gray-200 bg-gray-900 text-white">
         <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-24 md:grid-cols-2">
@@ -347,57 +458,47 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ───────────────── Pricing ───────────────── */}
+      {/* ───────────────── Pricing (2단) + 18개월 락인 표 ───────────────── */}
       <section id="pricing" className="mx-auto max-w-6xl px-5 py-24">
         <div className="mx-auto max-w-2xl text-center">
           <Eyebrow>요금제</Eyebrow>
           <h2 className="mt-4 text-[28px] font-bold tracking-tight text-gray-900 sm:text-[34px]">
-            사무소 규모에 맞게
+            거래처 수에 따라, 단 두 가지
           </h2>
           <p className="mt-4 text-[15px] text-gray-500">
-            직원 한 명의 하루치 인건비로, 매월 반복되는 원천세 업무를 덜어내세요.
+            복잡한 단계 없이 사무소 규모에 맞는 정액 요금. 직원 한 명의 하루치 인건비로
+            매월 반복되는 원천세 업무를 덜어내세요.
           </p>
         </div>
-        <div className="mt-14 grid gap-5 md:grid-cols-3">
+
+        {/* 정가 2단 */}
+        <div className="mx-auto mt-14 grid max-w-3xl gap-5 md:grid-cols-2">
           {[
             {
-              name: "스타터",
-              price: "15만",
-              sub: "거래처 30곳 이하",
+              name: "기본",
+              price: "20만",
+              sub: "수임 거래처 100곳 미만",
               feats: [
                 "AI 자료 수집 · 정형화",
                 "직원 매칭 · 이상치 감지",
                 "SmartA 급여대장 엑셀 생성",
                 "급여명세서 자동 교부",
-              ],
-              cta: "스타터로 시작",
-              highlight: false,
-            },
-            {
-              name: "프로",
-              price: "25만",
-              sub: "거래처 100곳",
-              feats: [
-                "스타터의 모든 기능",
                 "4대보험 신고서 엑셀",
-                "홈택스 신고 보조",
-                "우선 지원",
               ],
-              cta: "프로로 시작",
-              highlight: true,
+              highlight: false,
             },
             {
-              name: "엔터프라이즈",
-              price: "50만~",
-              sub: "거래처 무제한",
+              name: "대형",
+              price: "25만",
+              sub: "수임 거래처 100곳 이상",
               feats: [
-                "프로의 모든 기능",
+                "기본의 모든 기능",
+                "거래처 수 제한 없음",
                 "세무법인 부서 단위 운영",
-                "전 단계 자동화",
-                "전담 온보딩",
+                "홈택스 신고 보조",
+                "우선 지원 · 전담 온보딩",
               ],
-              cta: "상담 요청",
-              highlight: false,
+              highlight: true,
             },
           ].map((p) => (
             <div
@@ -410,12 +511,10 @@ export default function LandingPage() {
             >
               {p.highlight && (
                 <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white shadow-[0_8px_20px_-8px_rgba(19,112,206,0.6)]">
-                  가장 인기
+                  거래처 100곳 이상
                 </span>
               )}
-              <h3 className="text-[15px] font-semibold text-gray-900">
-                {p.name}
-              </h3>
+              <h3 className="text-[15px] font-semibold text-gray-900">{p.name}</h3>
               <p className="mt-1 text-[12.5px] text-gray-500">{p.sub}</p>
               <div className="mt-5 flex items-baseline gap-1">
                 <span className="t-num text-[36px] font-extrabold tracking-tight text-gray-900">
@@ -436,22 +535,131 @@ export default function LandingPage() {
                   </li>
                 ))}
               </ul>
-              <Link
-                href="/register"
+              <a
+                href="#beta"
                 className={
                   p.highlight
                     ? "mt-7 inline-flex w-full items-center justify-center rounded-full border border-blue-600 bg-blue-600 px-4 py-2.5 text-[13px] font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.2)_inset,0_8px_20px_-8px_rgba(19,112,206,0.45)] transition-all hover:brightness-110"
                     : "mt-7 inline-flex w-full items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2.5 text-[13px] font-semibold text-gray-900 transition-colors hover:border-gray-400"
                 }
               >
-                {p.cta}
-              </Link>
+                베타 신청하고 혜택 받기
+              </a>
             </div>
           ))}
         </div>
-        <p className="mt-6 text-center text-[12px] text-gray-400">
-          표시 금액은 부가세 별도입니다. 정확한 견적은 상담 시 안내드립니다.
-        </p>
+
+        {/* 18개월 락인 표 — 베타/얼리버드 가입 혜택 */}
+        <div className="mx-auto mt-16 max-w-4xl">
+          <div className="mb-6 text-center">
+            <Eyebrow>지금 가입하면</Eyebrow>
+            <h3 className="mt-3 text-[22px] font-bold tracking-tight text-gray-900 sm:text-[26px]">
+              먼저 합류할수록 더 오래 무료, 더 오래 반값
+            </h3>
+            <p className="mt-2 text-[13.5px] text-gray-500">
+              가입 시점의 혜택이 그대로 고정됩니다. 베타는 최대 18개월간 혜택이 유지됩니다.
+            </p>
+          </div>
+          <div className="overflow-hidden rounded-[18px] border border-gray-200 bg-white shadow-[0_1px_0_rgba(28,25,23,0.04),0_8px_24px_-16px_rgba(28,25,23,0.08)]">
+            <div className="grid grid-cols-[1.1fr_1fr_1fr_1.1fr] bg-gray-50 px-5 py-3 text-[12px] font-semibold uppercase tracking-wider text-gray-500">
+              <span>구분</span>
+              <span className="text-center">가입 기한</span>
+              <span className="text-center">무료 기간</span>
+              <span className="text-center">이후 할인</span>
+            </div>
+            {[
+              {
+                name: "베타",
+                badge: "최대 18개월 혜택",
+                deadline: "2026년 8월까지",
+                free: "6개월 무료",
+                discount: "이후 12개월 50% 할인",
+                highlight: true,
+              },
+              {
+                name: "얼리버드",
+                badge: "12개월 혜택",
+                deadline: "2026년 12월까지",
+                free: "6개월 무료",
+                discount: "이후 6개월 50% 할인",
+                highlight: false,
+              },
+              {
+                name: "정가",
+                badge: null,
+                deadline: "상시",
+                free: "—",
+                discount: "기본 20만 / 100곳 이상 25만",
+                highlight: false,
+              },
+            ].map((row) => (
+              <div
+                key={row.name}
+                className={
+                  (row.highlight ? "bg-blue-600/[0.03] " : "") +
+                  "grid grid-cols-[1.1fr_1fr_1fr_1.1fr] items-center border-t border-gray-100 px-5 py-4 text-[13.5px]"
+                }
+              >
+                <span className="flex flex-col gap-1">
+                  <span className="font-bold text-gray-900">{row.name}</span>
+                  {row.badge && (
+                    <span className="inline-flex w-fit rounded-full bg-blue-600/10 px-2 py-0.5 text-[10.5px] font-semibold text-blue-700">
+                      {row.badge}
+                    </span>
+                  )}
+                </span>
+                <span className="text-center text-gray-600">{row.deadline}</span>
+                <span className="text-center font-semibold text-gray-900">{row.free}</span>
+                <span className="text-center text-gray-600">{row.discount}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 text-center text-[12px] text-gray-400">
+            표시 금액은 부가세 별도입니다. 무료·할인 혜택은 가입 시점 기준으로 자동 적용됩니다.
+          </p>
+        </div>
+      </section>
+
+      {/* ───────────────── Beta signup (베타 신청 + 카운터) ───────────────── */}
+      <section id="beta" className="border-t border-gray-200 bg-gray-50/50">
+        <div className="mx-auto grid max-w-6xl items-start gap-12 px-5 py-24 md:grid-cols-2">
+          <div className="md:sticky md:top-24">
+            <Eyebrow>베타 신청</Eyebrow>
+            <h2 className="mt-4 text-[28px] font-bold leading-snug tracking-tight text-gray-900 sm:text-[34px]">
+              지금 합류하고
+              <br />
+              최대 18개월 혜택을 받으세요
+            </h2>
+            <p className="mt-5 text-[15px] leading-relaxed text-gray-500">
+              사무소 정보를 남겨 주시면 오픈 일정과 온보딩을 가장 먼저 안내드립니다.
+              현재 사용 중인 세무 SW에 맞춰 마이그레이션을 도와드립니다.
+            </p>
+            <div className="mt-7">
+              <WaitlistCounter />
+            </div>
+            <ul className="mt-7 space-y-3 text-[14px] text-gray-700">
+              {[
+                "8월까지 가입 시 6개월 무료 + 이후 12개월 50% 할인",
+                "12월까지 가입 시 6개월 무료 + 이후 6개월 50% 할인",
+                "가입 시점 혜택 그대로 고정",
+              ].map((li) => (
+                <li key={li} className="flex items-start gap-2.5">
+                  <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-blue-600/10 text-[11px] text-blue-600">
+                    ✓
+                  </span>
+                  {li}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-7 flex items-center gap-3">
+              <KakaoChannelButton />
+              <span className="text-[12.5px] text-gray-400">
+                카톡으로 문의하거나 소식을 받아보세요
+              </span>
+            </div>
+          </div>
+          <BetaSignupForm />
+        </div>
       </section>
 
       {/* ───────────────── Trust / Security ───────────────── */}
@@ -545,9 +753,16 @@ export default function LandingPage() {
             <a href="#pricing" className="hover:text-gray-900">
               요금
             </a>
+            <a href="#beta" className="hover:text-gray-900">
+              베타 신청
+            </a>
+            <Link href="/blog" className="hover:text-gray-900">
+              블로그
+            </Link>
             <Link href="/login" className="hover:text-gray-900">
               로그인
             </Link>
+            <KakaoChannelButton className="!px-3 !py-1.5 !text-[12px]" />
           </div>
         </div>
       </footer>

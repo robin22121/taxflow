@@ -1,3 +1,4 @@
+from app.models.beta_signup import BetaSignup
 from app.models.business_type import BUSINESS_TYPE_CODES, BusinessTypeCode
 from app.models.client import Client
 from app.models.client_payroll_default import ClientPayrollDefault
@@ -18,6 +19,7 @@ from app.models.secure_token import SecureToken
 
 __all__ = [
     "BUSINESS_TYPE_CODES",
+    "BetaSignup",
     "BusinessTypeCode",
     "Client",
     "ClientPayrollDefault",
