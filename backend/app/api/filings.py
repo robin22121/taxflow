@@ -386,6 +386,7 @@ async def session_timeline(
             "label": label,
             "sender_name": ev.sender_name,
             "detail": detail,
+            "raw_text": ev.raw_text,
         })
     return out
 

@@ -1,8 +1,9 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import {
   useClients,
@@ -19,7 +20,7 @@ import {
 } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
-import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent, SourceEvent } from "@/lib/types";
+import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
 
@@ -29,6 +30,8 @@ export default function FilingDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
+  const preferredClientId = searchParams.get("client_id");
   const { data, isLoading } = useFilingDashboard(id);
   const { data: entries } = useFilingEntries(id);
   const sendInvite = useSendInvite(id);
@@ -46,9 +49,12 @@ export default function FilingDetailPage({
   useEffect(() => {
     if (sessions.length === 0) return;
     if (!activeSession || !sessions.find((s) => s.id === activeSession)) {
-      setActiveSession(sessions[0].id);
+      const preferred = preferredClientId
+        ? sessions.find((s) => s.client_id === preferredClientId)
+        : null;
+      setActiveSession((preferred ?? sessions[0]).id);
     }
-  }, [activeSession, sessions]);
+  }, [activeSession, sessions, preferredClientId]);
 
   if (isLoading || !data) {
     return (
@@ -165,62 +171,63 @@ export default function FilingDetailPage({
 
   return (
     <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Compact header — aligned with 3-pane columns on desktop, stacks on mobile */}
-      <div className="flex flex-col md:flex-row md:h-10 border-b border-gray-200 bg-white shrink-0">
-        {/* Left col — matches session list width */}
-        <div className="hidden md:flex w-[240px] shrink-0 items-center gap-2 px-4 border-r border-gray-200">
-          <span className={`text-[11px] font-semibold shrink-0 ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
-            마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`} · {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()}
+      {/* Toolbar — deadline + 자료요청/다운로드 actions */}
+      <div className="flex flex-col md:flex-row md:items-center md:h-[60px] gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 border-b border-gray-200 bg-white shrink-0">
+        {/* Mobile menu + title row */}
+        <div className="flex md:hidden items-center gap-2 min-w-0">
+          <button onClick={() => setShowSidebar((v) => !v)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" aria-label="거래처 목록">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+          </button>
+          <Link href="/dashboard" className="text-[13.5px] font-bold tracking-tight truncate hover:text-blue-600 transition-colors">
+            {Number(filing.period.split("-")[1])}월 원천세 신고
+          </Link>
+          <span className={`shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-bold tabular-nums ${daysLeft <= 5 ? "bg-red-50 text-red-600 border border-red-100" : "bg-gray-50 text-gray-500 border border-gray-200"}`}>
+            D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
           </span>
-          <h1 className="text-[13px] font-bold tracking-tight truncate">
-            <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
-              {Number(filing.period.split("-")[1])}월 원천세 신고
-            </Link>
-          </h1>
         </div>
-        {/* Mobile-only top row */}
-        <div className="flex md:hidden items-center justify-between px-3 py-2 gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <button onClick={() => setShowSidebar((v) => !v)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" aria-label="거래처 목록">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
-            </button>
-            <h1 className="text-[13px] font-bold tracking-tight truncate">
-              <Link href="/dashboard" className="hover:text-blue-600 transition-colors">
+
+        {/* Desktop deadline group */}
+        <div className="hidden md:flex items-center gap-2.5 pr-4 border-r border-gray-200 shrink-0">
+          <Link href="/dashboard" className="block hover:text-blue-600 transition-colors">
+            <div className="flex items-center gap-2">
+              <h1 className="text-[15px] font-bold tracking-tight text-gray-900">
                 {Number(filing.period.split("-")[1])}월 원천세 신고
-              </Link>
-            </h1>
-            <span className={`text-[11px] font-semibold shrink-0 ${daysLeft <= 5 ? "text-red-600" : "text-gray-400"}`}>
-              D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
-            </span>
-          </div>
-        </div>
-        {/* Center col — matches AI table */}
-        <div className="flex-1 min-w-0 flex items-center justify-between px-3 md:px-4 py-1.5 md:py-0">
-          <div className="flex items-center gap-2 md:gap-3 min-w-0">
-            {!reviewOnly && selectedSession && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600 border border-blue-100">
-                {selectedSession.client_name}
+              </h1>
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-bold tabular-nums ${daysLeft <= 5 ? "bg-red-50 text-red-600 border border-red-100" : "bg-gray-50 text-gray-500 border border-gray-200"}`}>
+                마감 D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? "-Day" : `+${Math.abs(daysLeft)}`}
               </span>
-            )}
-            {reviewOnly && (
-              <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer">
-                확인필요만 보기 ✕
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-            <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1 hidden sm:inline-flex">
-              {sendInvite.isPending ? "발송중..." : "전체 업체 자료요청"}
-            </Button>
-            <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1 hidden sm:inline-flex">
-              {requestCollection.isPending ? "발송중..." : "선택업체 자료요청"}
-            </Button>
-            <Button variant="secondary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
-            <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
-          </div>
+            </div>
+            <div className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
+              신고기한 {deadlineDate.getMonth() + 1}/{deadlineDate.getDate()} ({["일","월","화","수","목","금","토"][deadlineDate.getDay()]})
+            </div>
+          </Link>
         </div>
-        {/* Right col — matches original docs width (desktop only) */}
-        <div className="hidden md:block w-[280px] shrink-0 border-l border-gray-200" />
+
+        {/* 자료요청 group */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
+            {sendInvite.isPending ? "발송중..." : "자료요청 (전체)"}
+          </Button>
+          <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1">
+            {requestCollection.isPending ? "발송중..." : "자료요청 (선택)"}
+          </Button>
+        </div>
+
+        {/* Review mode indicator (when active) */}
+        {reviewOnly && (
+          <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
+            확인필요만 보기 ✕
+          </button>
+        )}
+
+        {/* Spacer */}
+        <div className="hidden md:block flex-1" />
+
+        {/* Download group */}
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+          <Button variant="primary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
+          <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
+        </div>
       </div>
 
       {/* Body */}
@@ -289,6 +296,8 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
 
 /* ═══ Default 3-Pane Mode ═══ */
 
+type MainTab = "received" | "wht" | "insurance";
+
 function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar }: {
   filingId: string;
   sessions: CollectionSession[];
@@ -306,6 +315,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
   const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
+  const [mainTab, setMainTab] = useState<MainTab>("received");
 
   const isReview = (s: CollectionSession) => {
     const se = entries.filter((e) => e.client_id === s.client_id);
@@ -369,26 +379,77 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
       </div>
 
-      {/* CENTER — AI table */}
-      <div className="flex-1 min-w-0 bg-white flex flex-col">
+      {/* CENTER — 3 tabs + content */}
+      <div className="flex-1 min-w-0 bg-white flex flex-col min-h-0">
         {selectedSession ? (
-          <RightPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
-            highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">AI 추출 결과</div>
-        )}
-      </div>
+          <>
+            {/* Tab bar */}
+            <div className="flex items-end gap-1 px-3 md:px-5 border-b border-gray-200 bg-white shrink-0">
+              <MainTabButton active={mainTab === "received"} onClick={() => setMainTab("received")}>
+                받은 자료
+              </MainTabButton>
+              <MainTabButton active={mainTab === "wht"} onClick={() => setMainTab("wht")}>
+                원천세관리
+              </MainTabButton>
+              <MainTabButton active={mainTab === "insurance"} onClick={() => setMainTab("insurance")}>
+                4대보험관리
+              </MainTabButton>
+              <div className="flex-1" />
+              <div className="pb-2 text-[11px] text-gray-500 hidden sm:flex items-center gap-1.5">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 border border-blue-100">
+                  {selectedSession.client_name}
+                </span>
+              </div>
+            </div>
 
-      {/* RIGHT — Original docs (hidden on mobile) */}
-      <div className="hidden md:flex w-[280px] border-l border-gray-200 bg-white flex-col shrink-0">
-        {selectedSession ? (
-          <CenterPane key={selectedSession.id} filingId={filingId} session={selectedSession} entries={selectedEntries}
-            highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
+            {/* Tab content */}
+            <div className="flex-1 min-h-0 flex overflow-hidden">
+              {mainTab === "received" && (
+                <>
+                  {/* Main: entries table */}
+                  <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                    <RightPane key={`${selectedSession.id}-received-main`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                      highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                      forcedTab="wht" summaryMode="received" />
+                  </div>
+                  {/* Right: 고객소통내역 panel (received tab only) */}
+                  <div className="hidden lg:flex w-[380px] xl:w-[440px] border-l border-gray-200 bg-gray-50/40 flex-col shrink-0">
+                    <CenterPane key={`${selectedSession.id}-received-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                      highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
+                  </div>
+                </>
+              )}
+              {(mainTab === "wht" || mainTab === "insurance") && (
+                <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                  <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                    highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                    forcedTab={mainTab === "wht" ? "wht" : "insurance"}
+                    summaryMode={mainTab === "wht" ? "wht" : undefined} />
+                </div>
+              )}
+            </div>
+          </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">고객 소통 내역</div>
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
         )}
       </div>
     </div>
+  );
+}
+
+function MainTabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`relative px-3 md:px-4 pt-2.5 pb-2.5 text-[13.5px] font-semibold transition-colors whitespace-nowrap ${
+        active ? "text-blue-600" : "text-gray-500 hover:text-gray-800"
+      }`}
+    >
+      {children}
+      {active && (
+        <span className="absolute left-1 right-1 bottom-[-1px] h-[2.5px] bg-blue-600 rounded-t" />
+      )}
+    </button>
   );
 }
 
@@ -462,6 +523,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
   const qc = useQueryClient();
   const { data: attachments } = useSessionAttachments(filingId, session.id);
   const { data: timeline } = useSessionTimeline(filingId, session.id);
+  const { data: clients } = useClients();
   const submit = useSubmitMessage(filingId);
   const requestCollection = useRequestCollection(filingId);
   const [showInput, setShowInput] = useState(false);
@@ -472,7 +534,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
   const [zoomKey, setZoomKey] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SessionAttachment | null>(null);
   const [deletedKeys, setDeletedKeys] = useState<Set<string>>(new Set());
-  const [deleteEventTarget, setDeleteEventTarget] = useState<SourceEvent | null>(null);
+  const [deleteTimelineTarget, setDeleteTimelineTarget] = useState<SessionTimelineEvent | null>(null);
   const [deletedEventIds, setDeletedEventIds] = useState<Set<string>>(new Set());
   const [expandedTimelineIds, setExpandedTimelineIds] = useState<Set<string>>(new Set());
   const toggleTimelineExpanded = useCallback((id: string) => {
@@ -483,20 +545,9 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
     });
   }, []);
 
-  const sourceTexts = useMemo(() => {
-    const seen = new Set<string>();
-    return entries
-      .filter((e) => e.source_event?.raw_text)
-      .map((e) => e.source_event!)
-      .filter((se) => {
-        if (seen.has(se.id)) return false;
-        seen.add(se.id);
-        return true;
-      })
-      .filter((se) => !deletedEventIds.has(se.id));
-  }, [entries, deletedEventIds]);
-
+  const clientDetail = clients?.find((c) => c.id === session.client_id);
   const visibleAttachments = (attachments ?? []).filter((a) => !deletedKeys.has(a.storage_key));
+  const visibleTimeline = (timeline ?? []).filter((t) => !deletedEventIds.has(t.id));
   const publicUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`;
 
   return (
@@ -518,45 +569,87 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
       </div>
 
       <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
-        {timeline && timeline.length > 0 && (
+        {visibleTimeline.length > 0 && (
           <div className="space-y-1">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-0.5">소통 타임라인</div>
-            {timeline.map((t: SessionTimelineEvent) => {
+            {visibleTimeline.map((t: SessionTimelineEvent) => {
               const isExpanded = expandedTimelineIds.has(t.id);
-              const hasBody = !!(t.sender_name || t.detail);
+              const fullText = t.raw_text ?? t.detail;
+              const hasBody = !!(t.sender_name || fullText);
+              const isHighlighted = highlightEventId === t.id;
               return (
                 <div
                   key={t.id}
-                  onClick={() => hasBody && toggleTimelineExpanded(t.id)}
-                  className={`flex items-start gap-2 px-2 py-1.5 rounded-md bg-gray-50 border border-gray-100 transition-colors ${
-                    hasBody ? "cursor-pointer hover:bg-gray-100" : ""
-                  }`}
+                  onClick={() => {
+                    if (hasBody) toggleTimelineExpanded(t.id);
+                    if (t.raw_text) onHighlight(isHighlighted ? null : t.id);
+                  }}
+                  className={`flex items-start gap-2 px-2 py-1.5 rounded-md border transition-colors ${
+                    isHighlighted ? "bg-blue-50 border-blue-300" : "bg-gray-50 border-gray-100"
+                  } ${hasBody ? "cursor-pointer hover:bg-gray-100" : ""}`}
                 >
                   <span className={`mt-px shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
                     t.direction === "out" ? "bg-blue-50 text-blue-600"
                       : t.direction === "in" ? "bg-green-50 text-green-600"
                       : "bg-gray-100 text-gray-500"
                   }`}>
-                    {t.direction === "out" ? "프로덕트→고객" : t.direction === "in" ? "고객사→서버" : "시스템"}
+                    {t.direction === "out" ? "발신" : t.direction === "in" ? "수신" : "시스템"}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 text-[11.5px] text-gray-700">
+                    <div className="flex items-center gap-1.5 text-[11.5px] text-gray-700 flex-wrap">
                       <span className="tabular-nums text-gray-400">
-                        {t.at ? new Date(t.at).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : ""}
+                        {formatTimelineAt(t.at)}
                       </span>
                       <span className="font-medium">{t.label}</span>
-                      {t.channel && <span className="text-gray-400">· {t.channel}</span>}
+                      {t.channel && (() => {
+                        const { label, cls } = channelBadge(t.channel);
+                        return (
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}`}>
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </div>
-                    {hasBody && (
-                      <div className={`text-[11px] text-gray-500 mt-0.5 ${
-                        isExpanded ? "whitespace-pre-wrap break-words" : "truncate"
-                      }`}>
-                        {t.sender_name ? `${t.sender_name} · ` : ""}{t.detail}
+                    {hasBody && isExpanded && (
+                      <div className="mt-1.5 space-y-1.5">
+                        {/* 프로덕트→고객 수신자 정보 */}
+                        {t.direction === "out" && clientDetail && (clientDetail.contact_email || clientDetail.collect_email || clientDetail.contact_phone) && (
+                          <div className="text-[10.5px] text-gray-500 bg-blue-50/50 border border-blue-100 rounded px-2 py-1.5 space-y-0.5">
+                            <div className="text-[9.5px] font-semibold uppercase tracking-widest text-blue-600">수신자</div>
+                            {(clientDetail.contact_email || clientDetail.collect_email) && (
+                              <div>📧 {clientDetail.contact_email || clientDetail.collect_email}</div>
+                            )}
+                            {clientDetail.contact_phone && (
+                              <div>📞 {clientDetail.contact_phone}</div>
+                            )}
+                          </div>
+                        )}
+                        {/* 본문 */}
+                        {fullText && (
+                          <div className="text-[11.5px] text-gray-700 whitespace-pre-wrap break-words leading-relaxed bg-white border border-gray-100 rounded px-2 py-1.5">
+                            {t.sender_name && (
+                              <div className="text-[10.5px] text-gray-400 mb-1">{t.sender_name}</div>
+                            )}
+                            {fullText}
+                          </div>
+                        )}
+                        {/* 삭제 액션 — 텍스트 본문이 있는 경우만 */}
+                        {t.raw_text && (
+                          <div className="flex justify-end">
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); setDeleteTimelineTarget(t); }}
+                              className="text-[10.5px] text-red-500 hover:text-red-700 hover:underline"
+                            >이 메시지 삭제</button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                   {hasBody && (
-                    <span className={`mt-0.5 shrink-0 text-[9px] text-gray-300 transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
+                    <span
+                      className={`mt-0.5 shrink-0 text-[10px] text-gray-400 transition-transform ${isExpanded ? "rotate-90 text-blue-500" : ""}`}
+                      title={isExpanded ? "접기" : "전체 내역 보기"}
+                    >▶</span>
                   )}
                 </div>
               );
@@ -577,24 +670,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
           </div>
         )}
 
-        {sourceTexts.map((se) => (
-          <div key={se.id}
-            onClick={() => onHighlight(highlightEventId === se.id ? null : se.id)}
-            className={`group relative p-2 rounded-lg border cursor-pointer transition-all ${
-              highlightEventId === se.id
-                ? "bg-blue-50 border-blue-400 ring-1 ring-blue-400"
-                : "bg-gray-50 border-gray-200 hover:border-gray-300"
-            }`}>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">텍스트</span>
-              <button onClick={(ev) => { ev.stopPropagation(); setDeleteEventTarget(se); }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-red-500 hover:text-red-700">삭제</button>
-            </div>
-            <div className="text-[12px] leading-relaxed text-gray-700 whitespace-pre-wrap mt-1 max-h-32 overflow-y-auto">{se.raw_text}</div>
-          </div>
-        ))}
-
-        {visibleAttachments.length === 0 && sourceTexts.length === 0 && (
+        {visibleAttachments.length === 0 && visibleTimeline.length === 0 && (
           <div className="text-center py-6 text-xs text-gray-400">수신된 자료 없음</div>
         )}
 
@@ -651,15 +727,17 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
         />
       )}
 
-      {deleteEventTarget && (
+      {deleteTimelineTarget && (
         <DeleteAttachmentModal
-          filename={`텍스트 메시지 (${(deleteEventTarget.raw_text ?? "").slice(0, 20)}...)`}
-          onClose={() => setDeleteEventTarget(null)}
+          filename={`텍스트 메시지 (${(deleteTimelineTarget.raw_text ?? deleteTimelineTarget.detail ?? "").slice(0, 20)}...)`}
+          onClose={() => setDeleteTimelineTarget(null)}
           onConfirm={(deletedBy) => {
-            setDeletedEventIds((prev) => new Set([...prev, deleteEventTarget.id]));
-            setDeleteEventTarget(null);
-            api(`/api/v1/filings/${filingId}/sessions/${session.id}/events/${deleteEventTarget.id}?deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" })
+            const tid = deleteTimelineTarget.id;
+            setDeletedEventIds((prev) => new Set([...prev, tid]));
+            setDeleteTimelineTarget(null);
+            api(`/api/v1/filings/${filingId}/sessions/${session.id}/events/${tid}?deleted_by=${encodeURIComponent(deletedBy)}`, { method: "DELETE" })
               .then(() => {
+                qc.invalidateQueries({ queryKey: ["filings", filingId, "sessions", session.id, "timeline"] });
                 qc.invalidateQueries({ queryKey: ["filings", filingId, "entries"] });
                 qc.invalidateQueries({ queryKey: ["filings", filingId, "dashboard"] });
               })
@@ -673,12 +751,14 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
 
 /* ═══ Right Pane (AI Table) ═══ */
 
-function RightPane({ filingId, session, entries, highlightEventId, onHighlight }: {
+function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab, summaryMode }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
   highlightEventId: string | null;
   onHighlight: (id: string | null) => void;
+  forcedTab?: "wht" | "insurance";
+  summaryMode?: "received" | "wht";
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
@@ -686,12 +766,17 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [tab, setTab] = useState<"wht" | "insurance">("wht");
+  const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
+  const [whtSubTab, setWhtSubTab] = useState<WhtSubTab>("WAGE");
+  const tab = forcedTab ?? internalTab;
+  const setTab = forcedTab ? () => {} : setInternalTab;
+  const showInternalTabBar = forcedTab === undefined;
   const clientDetail = clients?.find((c) => c.id === session.client_id);
 
-  // Initialize drafts for pending entries
-  const pendingEntries = entries.filter((e) => !e.approved);
-  const approvedEntries = entries.filter((e) => e.approved);
+  // 원천세관리 탭에서는 income_type별 서브탭으로 entries 필터링 (더존 메뉴 분리 미러링)
+  const displayEntries = summaryMode === "wht" ? entries.filter((e) => matchesWhtSubTab(e, whtSubTab)) : entries;
+  const pendingEntries = displayEntries.filter((e) => !e.approved);
+  const approvedEntries = displayEntries.filter((e) => e.approved);
 
   const getDraft = useCallback((e: PayrollEntry): Partial<PayrollEntry> => {
     return drafts[e.id] ?? {
@@ -714,8 +799,8 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
     });
   }
   function toggleSelectAll() {
-    if (selected.size === entries.length) setSelected(new Set());
-    else setSelected(new Set(entries.map((e) => e.id)));
+    if (selected.size === displayEntries.length) setSelected(new Set());
+    else setSelected(new Set(displayEntries.map((e) => e.id)));
   }
   function bulkDelete() {
     if (selected.size === 0) return;
@@ -761,10 +846,10 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
           <div>
             <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 결과</span>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[15px] font-semibold">{session.client_name} · {entries.length}명</span>
-              {entries.length > 0 && (
+              <span className="text-[15px] font-semibold">{session.client_name} · {displayEntries.length}명</span>
+              {displayEntries.length > 0 && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
-                  {entries.filter((e) => e.approved).length}/{entries.length} 승인
+                  {displayEntries.filter((e) => e.approved).length}/{displayEntries.length} 승인
                 </span>
               )}
             </div>
@@ -799,58 +884,306 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight }
             {clientDetail.is_corporation !== undefined && <><span className="text-gray-300">|</span><span>{clientDetail.is_corporation ? "법인" : "개인"}</span></>}
           </div>
         )}
-        <div className="flex gap-1 mt-2.5">
-          <button onClick={() => setTab("wht")}
-            className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            원천세 관리
-          </button>
-          <button onClick={() => setTab("insurance")}
-            className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            4대보험 관리
-          </button>
-        </div>
+        {showInternalTabBar && (
+          <div className="flex gap-1 mt-2.5">
+            <button onClick={() => setTab("wht")}
+              className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+              원천세 관리
+            </button>
+            <button onClick={() => setTab("insurance")}
+              className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+              4대보험 관리
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto">
         {tab === "insurance" ? (
           <InsuranceTab filingId={filingId} session={session} />
-        ) : entries.length > 0 ? (
-          <table className="w-full text-[12px]">
-            <thead className="sticky top-0 bg-white">
-              <tr className="border-b border-gray-200">
-                <th className="w-8 py-2.5 pl-4">
-                  <input type="checkbox" checked={entries.length > 0 && selected.size === entries.length}
-                    onChange={toggleSelectAll} title="전체 선택" className="h-3.5 w-3.5 accent-blue-600" />
-                </th>
-                <th className="text-left py-2.5 pl-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">직원 · 구분</th>
-                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">전월</th>
-                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">이번달</th>
-                <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">변동</th>
-                <th className="text-right py-2.5 pr-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">액션</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* ── 검토 대상 섹션 ── */}
-              {pendingEntries.length > 0 && (
-                <tr><td colSpan={6} className="px-4 py-1.5 bg-amber-50/70 text-[10.5px] font-semibold text-amber-700 uppercase tracking-wider border-b border-amber-100">
-                  검토 대상 ({pendingEntries.length}명)
-                </td></tr>
-              )}
-              {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
-              {/* ── 승인 완료 섹션 ── */}
-              {approvedEntries.length > 0 && (
-                <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
-                  승인 완료 ({approvedEntries.length}명)
-                </td></tr>
-              )}
-              {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
-            </tbody>
-          </table>
         ) : (
-          <div className="flex items-center justify-center h-full text-sm text-gray-400">아직 파싱된 항목이 없습니다</div>
+          <>
+            {summaryMode === "wht" && (
+              <WhtSubTabBar value={whtSubTab} onChange={setWhtSubTab} entries={entries} />
+            )}
+            {summaryMode && <SummaryCards mode={summaryMode} entries={displayEntries} />}
+            {summaryMode === "received" && <ReceivedActionRow />}
+            {displayEntries.length > 0 ? (
+              <table className="w-full text-[12px]">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-gray-200">
+                    <th className="w-8 py-2.5 pl-4">
+                      <input type="checkbox" checked={displayEntries.length > 0 && selected.size === displayEntries.length}
+                        onChange={toggleSelectAll} title="전체 선택" className="h-3.5 w-3.5 accent-blue-600" />
+                    </th>
+                    <th className="text-left py-2.5 pl-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">직원 · 구분</th>
+                    <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">전월</th>
+                    <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">이번달</th>
+                    <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">변동</th>
+                    <th className="text-right py-2.5 pr-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">액션</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* ── 검토 대상 섹션 ── */}
+                  {pendingEntries.length > 0 && (
+                    <tr><td colSpan={6} className="px-4 py-1.5 bg-amber-50/70 text-[10.5px] font-semibold text-amber-700 uppercase tracking-wider border-b border-amber-100">
+                      검토 대상 ({pendingEntries.length}명)
+                    </td></tr>
+                  )}
+                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {/* ── 승인 완료 섹션 ── */}
+                  {approvedEntries.length > 0 && (
+                    <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
+                      승인 완료 ({approvedEntries.length}명)
+                    </td></tr>
+                  )}
+                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                </tbody>
+              </table>
+            ) : (
+              <div className="flex items-center justify-center py-12 text-sm text-gray-400">
+                {summaryMode === "wht"
+                  ? `${WHT_SUBTAB_LABEL[whtSubTab]}로 분류된 항목이 없습니다`
+                  : "아직 파싱된 항목이 없습니다"}
+              </div>
+            )}
+            {summaryMode && displayEntries.length > 0 && <EntriesFooter mode={summaryMode} entries={displayEntries} />}
+            {summaryMode === "wht" && entries.length > 0 && <WhtFormPreview entries={entries} />}
+          </>
         )}
       </div>
     </>
+  );
+}
+
+/* ═══ Summary Cards (받은 자료 / 원천세관리 누계) ═══ */
+
+function SummaryCards({ mode, entries }: { mode: "received" | "wht"; entries: PayrollEntry[] }) {
+  const grossTotal = entries.reduce((acc, e) => acc + (e.total_amount ?? 0), 0);
+  const approvedCount = entries.filter((e) => e.approved).length;
+  const pendingCount = entries.length - approvedCount;
+  const reviewCount = entries.filter((e) => {
+    if (e.approved) return false;
+    if (e.match_status === "UNCONFIRMED" || e.match_status === "AMBIGUOUS") return true;
+    return !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0);
+  }).length;
+  const incomeTaxTotal = entries.reduce((acc, e) => acc + (e.income_tax ?? 0), 0);
+  const localTaxTotal = entries.reduce((acc, e) => acc + (e.local_tax ?? 0), 0);
+
+  if (mode === "received") {
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-3 md:px-4 pt-3 pb-1">
+        <SumCard label="총 직원" value={`${entries.length}`} unit="명" />
+        <SumCard label="검토 대상" value={`${reviewCount}`} unit="건" tone={reviewCount > 0 ? "warning" : "neutral"} />
+        <SumCard label="승인 완료" value={`${approvedCount}`} unit={`/ ${entries.length}`} tone={approvedCount === entries.length && entries.length > 0 ? "success" : "neutral"} />
+        <SumCard label="총지급액 합계" value={formatKrw(grossTotal)} tone="accent" />
+      </div>
+    );
+  }
+
+  // mode === "wht"
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-3 md:px-4 pt-3 pb-1">
+      <SumCard label="근로소득 원천세" value={formatKrw(incomeTaxTotal)} sub="소득세 합계" />
+      <SumCard label="지방소득세" value={formatKrw(localTaxTotal)} sub="소득세의 10%" />
+      <SumCard label="납부 대상" value={formatKrw(incomeTaxTotal + localTaxTotal)} sub="합계 납부세액" tone="accent" />
+      <SumCard label="신고 인원" value={`${entries.length}`} unit="명" sub={`승인 ${approvedCount} · 검토 ${pendingCount}`} />
+    </div>
+  );
+}
+
+function SumCard({ label, value, unit, sub, tone = "neutral" }: {
+  label: string; value: string; unit?: string; sub?: string;
+  tone?: "neutral" | "accent" | "warning" | "success";
+}) {
+  const valueColor =
+    tone === "accent" ? "text-blue-700"
+    : tone === "warning" ? "text-amber-700"
+    : tone === "success" ? "text-green-700"
+    : "text-gray-900";
+  return (
+    <div className="border border-gray-200 rounded-lg px-3 py-2 bg-white">
+      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-gray-500">{label}</div>
+      <div className="flex items-baseline gap-1 mt-1">
+        <span className={`font-mono tabular-nums text-[17px] font-bold tracking-tight ${valueColor}`}>{value}</span>
+        {unit && <span className="text-[11.5px] text-gray-500">{unit}</span>}
+      </div>
+      {sub && <div className="text-[10.5px] text-gray-400 mt-0.5 truncate">{sub}</div>}
+    </div>
+  );
+}
+
+/* ═══ 받은 자료 Action Row (백엔드 미지원 — 준비중) ═══ */
+
+function ReceivedActionRow() {
+  const tip = "준비중 — 다음 업데이트에서 활성화";
+  return (
+    <div className="flex items-center gap-1.5 px-3 md:px-4 pt-2.5 pb-1.5 flex-wrap">
+      <DisabledActionButton title={tip}>전월자료 불러오기</DisabledActionButton>
+      <DisabledActionButton title={tip}>직원 추가</DisabledActionButton>
+      <DisabledActionButton title={tip}>신규지정</DisabledActionButton>
+      <DisabledActionButton title={tip} danger>퇴사처리</DisabledActionButton>
+      <span className="text-[10.5px] text-gray-400 ml-1">· 준비중</span>
+    </div>
+  );
+}
+
+function DisabledActionButton({ children, danger, title }: { children: React.ReactNode; danger?: boolean; title: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      title={title}
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] font-medium border bg-white cursor-not-allowed opacity-50 ${
+        danger ? "border-red-200 text-red-500" : "border-gray-200 text-gray-500"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ═══ 원천세관리 서브탭 (더존 [급여자료입력] / [일용근로소득자료입력] / [사업·기타소득] 미러링) ═══ */
+
+type WhtSubTab = "WAGE" | "DAILY" | "BIZ_OTHER";
+
+const WHT_SUBTAB_LABEL: Record<WhtSubTab, string> = {
+  WAGE: "상용직",
+  DAILY: "일용직",
+  BIZ_OTHER: "사업·기타소득",
+};
+
+function matchesWhtSubTab(e: PayrollEntry, sub: WhtSubTab): boolean {
+  if (sub === "WAGE") return e.income_type === "WAGE";
+  if (sub === "DAILY") return e.income_type === "DAILY";
+  return e.income_type === "BUSINESS" || e.income_type === "OTHER" || e.income_type === "RETIREMENT";
+}
+
+function WhtSubTabBar({ value, onChange, entries }: {
+  value: WhtSubTab; onChange: (v: WhtSubTab) => void; entries: PayrollEntry[];
+}) {
+  const counts: Record<WhtSubTab, number> = {
+    WAGE: entries.filter((e) => matchesWhtSubTab(e, "WAGE")).length,
+    DAILY: entries.filter((e) => matchesWhtSubTab(e, "DAILY")).length,
+    BIZ_OTHER: entries.filter((e) => matchesWhtSubTab(e, "BIZ_OTHER")).length,
+  };
+  const subs: WhtSubTab[] = ["WAGE", "DAILY", "BIZ_OTHER"];
+  return (
+    <div className="flex items-center gap-1 px-3 md:px-4 pt-3 pb-1 border-b border-gray-100">
+      {subs.map((s) => {
+        const active = value === s;
+        return (
+          <button
+            key={s}
+            onClick={() => onChange(s)}
+            className={`px-3 py-1.5 rounded-md text-[12px] font-semibold transition-colors ${
+              active ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            {WHT_SUBTAB_LABEL[s]}
+            <span className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1 rounded-full text-[10.5px] tabular-nums ${
+              active ? "bg-blue-500/40 text-white" : "bg-white text-gray-500 border border-gray-200"
+            }`}>
+              {counts[s]}
+            </span>
+          </button>
+        );
+      })}
+      <span className="ml-2 text-[10.5px] text-gray-400">더존 [급여자료입력] · [일용근로소득자료입력] · [사업·기타소득] 분리 미러링</span>
+    </div>
+  );
+}
+
+/* ═══ 원천징수이행상황신고서 합계 미리보기 (더존 [불러오기] 결과) ═══ */
+
+function WhtFormPreview({ entries }: { entries: PayrollEntry[] }) {
+  // A코드별로 합산 (더존 이행상황신고서 코드 기준)
+  // A01 상용근로(간이세액) / A03 일용근로 / A25 사업소득 / A42 기타소득
+  const groups = {
+    A01: entries.filter((e) => e.income_type === "WAGE"),
+    A03: entries.filter((e) => e.income_type === "DAILY"),
+    A25: entries.filter((e) => e.income_type === "BUSINESS"),
+    A42: entries.filter((e) => e.income_type === "OTHER" || e.income_type === "RETIREMENT"),
+  };
+  const rows: { code: string; label: string; list: PayrollEntry[] }[] = [
+    { code: "A01", label: "상용근로 (간이세액)", list: groups.A01 },
+    { code: "A03", label: "일용근로", list: groups.A03 },
+    { code: "A25", label: "사업소득", list: groups.A25 },
+    { code: "A42", label: "기타소득", list: groups.A42 },
+  ];
+  const totalCount = entries.length;
+  const totalGross = entries.reduce((a, e) => a + (e.total_amount ?? 0), 0);
+  const totalIncomeTax = entries.reduce((a, e) => a + (e.income_tax ?? 0), 0);
+  const totalLocalTax = entries.reduce((a, e) => a + (e.local_tax ?? 0), 0);
+  const totalTax = totalIncomeTax + totalLocalTax;
+
+  return (
+    <div className="mt-4 mx-3 md:mx-4 mb-4 border border-blue-200 rounded-lg overflow-hidden bg-white">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-200">
+        <div>
+          <span className="text-[12px] font-bold text-blue-800">원천징수이행상황신고서 합계 미리보기</span>
+          <span className="ml-2 text-[10.5px] text-blue-600/70">더존 [불러오기] 결과 미러링 — 전체 소득종류 합산</span>
+        </div>
+        <button
+          type="button"
+          disabled
+          title="준비중 — 다음 업데이트에서 활성화 (현재는 툴바의 통합다운로드로 신고서 생성)"
+          className="px-3 py-1.5 rounded-md text-[12px] font-semibold bg-white border border-blue-300 text-blue-500 opacity-60 cursor-not-allowed"
+        >
+          마감 (준비중)
+        </button>
+      </div>
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="border-b border-gray-100 bg-gray-50/50">
+            <th className="text-left py-2 pl-4 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">A코드</th>
+            <th className="text-left py-2 pl-2 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">소득구분</th>
+            <th className="text-right py-2 pr-3 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">인원</th>
+            <th className="text-right py-2 pr-3 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">총지급액</th>
+            <th className="text-right py-2 pr-4 text-[10.5px] font-medium text-gray-500 uppercase tracking-wider">징수세액</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const sum = r.list.reduce((a, e) => a + (e.total_amount ?? 0), 0);
+            const tax = r.list.reduce((a, e) => a + (e.income_tax ?? 0) + (e.local_tax ?? 0), 0);
+            const empty = r.list.length === 0;
+            return (
+              <tr key={r.code} className={`border-b border-gray-50 ${empty ? "text-gray-400" : "text-gray-800"}`}>
+                <td className="py-2 pl-4 font-mono text-[11px]">{r.code}</td>
+                <td className="py-2 pl-2">{r.label}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{r.list.length}명</td>
+                <td className="py-2 pr-3 text-right font-mono tabular-nums">{formatKrw(sum)}</td>
+                <td className="py-2 pr-4 text-right font-mono tabular-nums">{formatKrw(tax)}</td>
+              </tr>
+            );
+          })}
+          <tr className="border-t-2 border-gray-300 bg-blue-50/40">
+            <td className="py-2.5 pl-4 font-bold text-blue-800" colSpan={2}>총계</td>
+            <td className="py-2.5 pr-3 text-right tabular-nums font-bold text-gray-900">{totalCount}명</td>
+            <td className="py-2.5 pr-3 text-right font-mono tabular-nums font-bold text-gray-900">{formatKrw(totalGross)}</td>
+            <td className="py-2.5 pr-4 text-right font-mono tabular-nums font-bold text-blue-700">{formatKrw(totalTax)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ═══ Entries Footer (직원수 · 총지급액 합계) ═══ */
+
+function EntriesFooter({ mode, entries }: { mode: "received" | "wht"; entries: PayrollEntry[] }) {
+  const grossTotal = entries.reduce((acc, e) => acc + (e.total_amount ?? 0), 0);
+  const incomeTaxTotal = entries.reduce((acc, e) => acc + (e.income_tax ?? 0), 0);
+  const localTaxTotal = entries.reduce((acc, e) => acc + (e.local_tax ?? 0), 0);
+  return (
+    <div className="flex items-center justify-end gap-5 px-4 py-3 border-t-2 border-gray-300 bg-gray-50/60 text-[12px] sticky bottom-0">
+      <span className="text-gray-500">직원 <strong className="ml-1 text-gray-900 tabular-nums">{entries.length}명</strong></span>
+      <span className="text-gray-500">총지급액 합계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(grossTotal)}</strong></span>
+      {mode === "wht" && (
+        <span className="text-gray-500">납부세액 합계 <strong className="ml-1 text-blue-700 font-mono tabular-nums">{formatKrw(incomeTaxTotal + localTaxTotal)}</strong></span>
+      )}
+    </div>
   );
 }
 
@@ -1921,6 +2254,65 @@ function formatKrw(n: number | null | undefined): string {
 function channelLabel(ch: string | null): string {
   if (!ch) return "—";
   return { kakao: "카톡", email: "이메일", sms: "문자", voice: "전화", manual: "직접입력", public_url: "URL폼" }[ch] ?? ch;
+}
+
+const CHANNEL_KO_MAP: Record<string, string> = {
+  // 백엔드에서 이미 한글 변환된 값들
+  "카카오톡": "카톡",
+  "이메일": "이메일",
+  "문자": "문자",
+  "전화": "전화",
+  "직접": "직접",
+  "웹폼": "URL폼",
+  // 영문 raw 값들 (combined 분해 시에도 사용)
+  "kakao": "카톡",
+  "alimtalk": "알림톡",
+  "alimtalk_stub": "알림톡",
+  "alimtalk_skipped": "알림톡",
+  "email": "이메일",
+  "sms": "문자",
+  "voice": "전화",
+  "manual": "직접",
+  "url": "URL폼",
+  "public_url": "URL폼",
+};
+
+const CHANNEL_COLOR_MAP: Record<string, string> = {
+  "카톡": "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200",
+  "알림톡": "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200",
+  "이메일": "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+  "문자": "bg-green-50 text-green-700 ring-1 ring-green-200",
+  "전화": "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
+  "URL폼": "bg-gray-100 text-gray-600 ring-1 ring-gray-200",
+  "직접": "bg-gray-100 text-gray-600 ring-1 ring-gray-200",
+};
+
+const CHANNEL_DEFAULT_CLS = "bg-gray-100 text-gray-600 ring-1 ring-gray-200";
+
+function channelBadge(ch: string): { label: string; cls: string } {
+  if (!ch) return { label: "", cls: CHANNEL_DEFAULT_CLS };
+  // 결합 채널 (e.g. "alimtalk+sms+email") → 각 부분 한글 변환 + 콤팩트하게 결합
+  if (ch.includes("+")) {
+    const parts = ch.split("+").map((p) => CHANNEL_KO_MAP[p.trim()] ?? p.trim());
+    const unique: string[] = [];
+    for (const p of parts) if (!unique.includes(p)) unique.push(p);
+    const firstCls = CHANNEL_COLOR_MAP[unique[0]] ?? CHANNEL_DEFAULT_CLS;
+    return { label: unique.join("·"), cls: firstCls };
+  }
+  const ko = CHANNEL_KO_MAP[ch] ?? ch;
+  const cls = CHANNEL_COLOR_MAP[ko] ?? CHANNEL_DEFAULT_CLS;
+  return { label: ko, cls };
+}
+
+function formatTimelineAt(at: string | null | undefined): string {
+  if (!at) return "";
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${m}월 ${day}일 ${hh}:${mm}`;
 }
 
 const FIELD_LABELS: Record<string, string> = {

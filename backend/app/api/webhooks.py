@@ -31,7 +31,6 @@ from app.models import (
     KakaoUserBinding,
     KakaoPendingMessage,
     MonthlyFiling,
-    MonthlyFilingStatus,
     PayrollEntry,
     TaxOffice,
 )
@@ -79,35 +78,26 @@ def _verify_sendgrid_basic_auth(request: Request, expected_password: str) -> boo
 async def _find_active_session(
     db: AsyncSession, client: Client
 ) -> CollectionSession | None:
-    """Find the most recent SENT/NEEDS_REVIEW session for a client."""
-    filing = (
-        await db.execute(
-            select(MonthlyFiling)
-            .where(
-                MonthlyFiling.tax_office_id == client.tax_office_id,
-                MonthlyFiling.status.in_([
-                    MonthlyFilingStatus.COLLECTING,
-                    MonthlyFilingStatus.REVIEWING,
-                ]),
-            )
-            .order_by(MonthlyFiling.period.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if not filing:
-        return None
+    """그 client의 가장 최근 CollectionSession을 반환.
 
+    MonthlyFiling.status 가드는 두지 않는다 — 신규 사무실의 첫 신고는 아직
+    COLLECTING/REVIEWING으로 전환되지 않은 상태에서도 거래처가 답신할 수
+    있으므로. (filing.tax_office_id × client_id) 조합으로 매칭 강도는 충분.
+    """
     session = (
         await db.execute(
             select(CollectionSession)
+            .join(MonthlyFiling, CollectionSession.monthly_filing_id == MonthlyFiling.id)
             .where(
-                CollectionSession.monthly_filing_id == filing.id,
                 CollectionSession.client_id == client.id,
+                MonthlyFiling.tax_office_id == client.tax_office_id,
             )
+            .order_by(MonthlyFiling.period.desc())
             .options(
                 selectinload(CollectionSession.client),
                 selectinload(CollectionSession.monthly_filing),
             )
+            .limit(1)
         )
     ).scalar_one_or_none()
     return session
@@ -922,11 +912,18 @@ async def email_webhook(
         # 이메일 주소에서 <> 제거 (SendGrid가 "Name <email>" 형식으로 보낼 수 있음)
         clean_from = re.search(r"[\w.-]+@[\w.-]+", from_addr)
         sender_email = clean_from.group(0) if clean_from else from_addr
-        client = (
+        # 동일 contact_email을 가진 거래처가 여러 개일 수 있으므로 first()로 안전 매칭
+        matches = (
             await db.execute(
                 select(Client).where(Client.contact_email == sender_email)
             )
-        ).scalar_one_or_none()
+        ).scalars().all()
+        if len(matches) > 1:
+            logger.warning(
+                "이메일 웹훅: 동일 이메일 다중 매칭 (sender=%s, count=%d) — 첫 거래처 사용",
+                sender_email, len(matches),
+            )
+        client = matches[0] if matches else None
         if client:
             session = await _find_active_session(db, client)
 
@@ -1155,11 +1152,18 @@ async def _handle_resend_event(
     if not session:
         clean_from = re.search(r"[\w.-]+@[\w.-]+", from_addr)
         sender_email = clean_from.group(0) if clean_from else from_addr
-        client = (
+        # 동일 contact_email을 가진 거래처가 여러 개일 수 있으므로 first()로 안전 매칭
+        matches = (
             await db.execute(
                 select(Client).where(Client.contact_email == sender_email)
             )
-        ).scalar_one_or_none()
+        ).scalars().all()
+        if len(matches) > 1:
+            logger.warning(
+                "Resend 웹훅: 동일 이메일 다중 매칭 (sender=%s, count=%d) — 첫 거래처 사용",
+                sender_email, len(matches),
+            )
+        client = matches[0] if matches else None
         if client:
             session = await _find_active_session(db, client)
 
