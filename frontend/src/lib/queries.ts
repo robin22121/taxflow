@@ -9,6 +9,8 @@ import {
 import { api } from "./api";
 import { apiUpload } from "./api";
 import type {
+  AdminOffice,
+  AdminOfficeDetail,
   Client,
   ClientInviteResult,
   CurrentUser,
@@ -21,6 +23,7 @@ import type {
   PayrollDefault,
   PayrollDefaultPatch,
   PayrollEntry,
+  Promotion,
   SessionAttachment,
   SessionTimelineEvent,
 } from "./types";
@@ -318,5 +321,92 @@ export function useSubmitMessage(filingId: string) {
       }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["filings", filingId] }),
+  });
+}
+
+// ── 서버 관리자: 사무소 회원 관리 ───────────────────────────
+export function useAdminOffices(statusFilter?: string) {
+  const qs = statusFilter ? `?status_filter=${statusFilter}` : "";
+  return useQuery({
+    queryKey: ["admin", "offices", statusFilter ?? "ALL"],
+    queryFn: () => api<AdminOffice[]>(`/api/v1/admin/offices${qs}`),
+    retry: false,
+  });
+}
+
+export function useAdminOfficeDetail(officeId: string | null) {
+  return useQuery({
+    queryKey: ["admin", "office", officeId],
+    queryFn: () => api<AdminOfficeDetail>(`/api/v1/admin/offices/${officeId}`),
+    enabled: !!officeId,
+  });
+}
+
+function invalidateAdmin(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["admin"] });
+}
+
+export function useApproveOffice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (officeId: string) =>
+      api(`/api/v1/admin/offices/${officeId}/approve`, { method: "POST", json: {} }),
+    onSuccess: () => invalidateAdmin(qc),
+  });
+}
+
+export function useRejectOffice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (officeId: string) =>
+      api(`/api/v1/admin/offices/${officeId}/reject`, { method: "POST", json: {} }),
+    onSuccess: () => invalidateAdmin(qc),
+  });
+}
+
+export function useUpdateOffice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      officeId: string;
+      customer_class?: string;
+      subscription_start?: string | null;
+      subscription_end?: string | null;
+      admin_memo?: string | null;
+    }) => {
+      const { officeId, ...body } = vars;
+      return api(`/api/v1/admin/offices/${officeId}`, { method: "PATCH", json: body });
+    },
+    onSuccess: () => invalidateAdmin(qc),
+  });
+}
+
+export function useAddPromotion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      officeId: string;
+      name: string;
+      discount?: string | null;
+      start_date?: string | null;
+      end_date?: string | null;
+      memo?: string | null;
+    }) => {
+      const { officeId, ...body } = vars;
+      return api<Promotion>(`/api/v1/admin/offices/${officeId}/promotions`, {
+        method: "POST",
+        json: body,
+      });
+    },
+    onSuccess: () => invalidateAdmin(qc),
+  });
+}
+
+export function useDeletePromotion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (promotionId: string) =>
+      api(`/api/v1/admin/promotions/${promotionId}`, { method: "DELETE" }),
+    onSuccess: () => invalidateAdmin(qc),
   });
 }

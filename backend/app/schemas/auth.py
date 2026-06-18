@@ -36,9 +36,8 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     office_id: str
     short_code: str
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
+    approval_status: str = "PENDING"
+    message: str = "가입이 접수되었습니다. 서버 관리자 승인 후 로그인할 수 있습니다."
 
 
 class TokenPair(BaseModel):
@@ -55,8 +54,9 @@ class CurrentUser(BaseModel):
     id: str
     email: str
     name: str
-    tax_office_id: str
+    tax_office_id: str | None = None
     is_admin: bool
+    is_superadmin: bool = False
     short_code: str | None = None
     office_name: str | None = None
     office_phone: str | None = None

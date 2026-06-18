@@ -43,3 +43,10 @@ async def get_current_user(
 async def require_same_office(user: User, tax_office_id: str) -> None:
     if user.tax_office_id != tax_office_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Cross-office access denied")
+
+
+async def require_superadmin(user: User = Depends(get_current_user)) -> User:
+    """서버 관리자 전용 엔드포인트 가드."""
+    if not user.is_superadmin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "서버 관리자 권한이 필요합니다")
+    return user

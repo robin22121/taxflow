@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-import { api, setTokens } from "@/lib/api";
+import { api } from "@/lib/api";
 import { Button, Card, Input } from "@/components/ui";
 import type { RegisterResponse } from "@/lib/types";
 
@@ -67,7 +67,6 @@ export default function RegisterPage() {
         },
       });
       setResult(res);
-      setTokens(res.access_token, res.refresh_token);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -86,12 +85,17 @@ export default function RegisterPage() {
             <span className="text-xl font-bold tracking-tight text-black">이지원천</span>
           </div>
           <Card className="p-6 text-center">
-            <div className="text-4xl mb-4">🎉</div>
-            <h1 className="text-lg font-semibold text-gray-900 mb-2">가입이 완료되었습니다</h1>
+            <div className="text-4xl mb-4">📨</div>
+            <h1 className="text-lg font-semibold text-gray-900 mb-2">가입이 접수되었습니다</h1>
             <p className="text-[13px] text-gray-500 mb-4">
-              카카오톡 채널에서 아래 인가코드를 입력하면<br />
-              직원들이 자료를 전송할 수 있습니다.
+              {result.message ?? "서버 관리자 승인 후 로그인할 수 있습니다."}
             </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl py-3 px-4 mb-4">
+              <div className="text-[12px] font-medium text-amber-700">승인 대기 중</div>
+              <div className="text-[11px] text-amber-600 mt-0.5">
+                승인이 완료되면 로그인하여 이용할 수 있습니다.
+              </div>
+            </div>
             <div className="bg-gray-50 border border-gray-200 rounded-xl py-4 px-6 mb-4">
               <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">사무소 인가코드</div>
               <div className="text-[28px] font-bold tracking-[0.15em] text-gray-900 font-mono">
@@ -101,8 +105,8 @@ export default function RegisterPage() {
             <p className="text-[12px] text-gray-400 mb-6">
               인가코드가 담당자 연락처로 문자 발송되었습니다.
             </p>
-            <Button className="w-full" onClick={() => router.push("/dashboard")}>
-              대시보드로 이동
+            <Button className="w-full" onClick={() => router.push("/login")}>
+              로그인 페이지로
             </Button>
           </Card>
         </div>

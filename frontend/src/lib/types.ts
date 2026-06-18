@@ -2,8 +2,9 @@ export type CurrentUser = {
   id: string;
   email: string;
   name: string;
-  tax_office_id: string;
+  tax_office_id: string | null;
   is_admin: boolean;
+  is_superadmin: boolean;
   short_code: string | null;
   office_name: string | null;
   office_phone: string | null;
@@ -15,9 +16,43 @@ export type CurrentUser = {
 export type RegisterResponse = {
   office_id: string;
   short_code: string;
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
+  approval_status: string;
+  message: string;
+};
+
+// ── 서버 관리자 회원 관리 ───────────────────────────────
+export type Promotion = {
+  id: string;
+  name: string;
+  discount: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  memo: string | null;
+  granted_by: string | null;
+  created_at: string;
+};
+
+export type AdminOffice = {
+  id: string;
+  name: string;
+  business_number: string | null;
+  representative: string | null;
+  phone: string | null;
+  email: string | null;
+  short_code: string | null;
+  approval_status: "PENDING" | "APPROVED" | "REJECTED";
+  customer_class: "TRIAL" | "REGULAR" | "VIP" | "CHURNED";
+  subscription_start: string | null;
+  subscription_end: string | null;
+  admin_memo: string | null;
+  approved_at: string | null;
+  created_at: string;
+  user_count: number;
+  promotion_count: number;
+};
+
+export type AdminOfficeDetail = AdminOffice & {
+  promotions: Promotion[];
 };
 
 export type TokenPair = {

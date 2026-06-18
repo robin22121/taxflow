@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { api, setTokens } from "@/lib/api";
 import { Button, Card, Input } from "@/components/ui";
-import type { TokenPair } from "@/lib/types";
+import type { CurrentUser, TokenPair } from "@/lib/types";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,7 +24,8 @@ export default function LoginPage() {
         json: { email, password },
       });
       setTokens(res.access_token, res.refresh_token);
-      router.push("/dashboard");
+      const me = await api<CurrentUser>("/api/v1/auth/me");
+      router.push(me.is_superadmin ? "/admin" : "/dashboard");
     } catch (e) {
       setErr((e as Error).message);
     } finally {

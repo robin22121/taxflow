@@ -16,6 +16,12 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.core.bootstrap import seed_superadmin
+
+    try:
+        await seed_superadmin()
+    except Exception:
+        logging.getLogger(__name__).exception("슈퍼어드민 시드 실패 (앱 기동은 계속)")
     yield
 
 

@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     jwt_access_ttl_min: int = 60
     jwt_refresh_ttl_days: int = 14
 
+    # ── 서버 관리자(슈퍼어드민) 시드 ──────────────────────────
+    # email/password 둘 다 설정돼야 기동 시 슈퍼어드민 계정을 시드한다.
+    superadmin_email: str = ""
+    superadmin_password: str = ""
+    superadmin_name: str = "서버 관리자"
+
     # ── 메시징 채널 ─────────────────────────────────────────
     # alimtalk 우선순위: nhn_cloud > aligo > stub
     kakao_alimtalk_provider: str = "stub"  # stub | aligo | nhn_cloud

@@ -16,7 +16,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models import TaxOffice, User
+from app.models import OfficeApprovalStatus, TaxOffice, User
 from app.schemas.auth import (
     CurrentUser,
     LoginRequest,
@@ -104,14 +104,10 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     except Exception:
         logger.exception("인가코드 SMS 발송 실패 (가입은 정상 완료)")
 
-    logger.info("사무소 가입 완료: %s (%s) code=%s", payload.office_name, payload.business_number, short_code)
+    logger.info("사무소 가입 접수(승인대기): %s (%s) code=%s", payload.office_name, payload.business_number, short_code)
 
-    return RegisterResponse(
-        office_id=office.id,
-        short_code=short_code,
-        access_token=create_access_token(user.id, tax_office_id=office.id),
-        refresh_token=create_refresh_token(user.id, tax_office_id=office.id),
-    )
+    # 승인 게이트: 가입 시점에는 토큰을 발급하지 않는다 (서버 관리자 승인 후 로그인 가능).
+    return RegisterResponse(office_id=office.id, short_code=short_code)
 
 
 @router.post("/login", response_model=TokenPair)
@@ -121,6 +117,19 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     ).scalar_one_or_none()
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다")
+
+    # 승인 게이트 — 서버 관리자는 사무소가 없으므로 검사 생략
+    if not user.is_superadmin:
+        office = await db.get(TaxOffice, user.tax_office_id) if user.tax_office_id else None
+        approval = office.approval_status if office else None
+        if approval == OfficeApprovalStatus.REJECTED:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "가입이 거부되었습니다. 사무소로 문의해 주세요.")
+        if approval != OfficeApprovalStatus.APPROVED:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "서버 관리자 승인 대기 중입니다. 승인 후 이용할 수 있습니다.",
+            )
+
     return TokenPair(
         access_token=create_access_token(user.id, tax_office_id=user.tax_office_id),
         refresh_token=create_refresh_token(user.id, tax_office_id=user.tax_office_id),
@@ -150,13 +159,14 @@ async def me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CurrentUser:
-    office = await db.get(TaxOffice, user.tax_office_id)
+    office = await db.get(TaxOffice, user.tax_office_id) if user.tax_office_id else None
     return CurrentUser(
         id=user.id,
         email=user.email,
         name=user.name,
         tax_office_id=user.tax_office_id,
         is_admin=user.is_admin,
+        is_superadmin=user.is_superadmin,
         short_code=office.short_code if office else None,
         office_name=office.name if office else None,
         office_phone=office.phone if office else None,
@@ -174,7 +184,7 @@ async def update_me(
 ) -> CurrentUser:
     if payload.name is not None:
         user.name = payload.name
-    office = await db.get(TaxOffice, user.tax_office_id)
+    office = await db.get(TaxOffice, user.tax_office_id) if user.tax_office_id else None
     if office:
         if payload.office_phone is not None:
             office.phone = payload.office_phone
@@ -191,6 +201,7 @@ async def update_me(
         name=user.name,
         tax_office_id=user.tax_office_id,
         is_admin=user.is_admin,
+        is_superadmin=user.is_superadmin,
         short_code=office.short_code if office else None,
         office_name=office.name if office else None,
         office_phone=office.phone if office else None,

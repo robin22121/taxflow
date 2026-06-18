@@ -11,7 +11,8 @@ from app.models.kakao_binding import KakaoUserBinding
 from app.models.kakao_pending import KakaoPendingMessage
 from app.models.monthly_filing import MonthlyFiling, MonthlyFilingStatus
 from app.models.payroll import IncomeType, MatchStatus, PayrollEntry
-from app.models.tax_office import TaxOffice
+from app.models.promotion import Promotion
+from app.models.tax_office import CustomerClass, OfficeApprovalStatus, TaxOffice
 from app.models.user import User
 from app.models.secure_token import SecureToken
 
@@ -23,6 +24,7 @@ __all__ = [
     "CollectionEvent",
     "CollectionSession",
     "CollectionSessionStatus",
+    "CustomerClass",
     "Employee",
     "EmploymentStatus",
     "IncomeType",
@@ -31,7 +33,9 @@ __all__ = [
     "MatchStatus",
     "MonthlyFiling",
     "MonthlyFilingStatus",
+    "OfficeApprovalStatus",
     "PayrollEntry",
+    "Promotion",
     "SecureToken",
     "TaxOffice",
     "User",
