@@ -30,6 +30,7 @@ from app.models import (
     CollectionSession,
     Employee,
     PayrollEntry,
+    SecureToken,
     TaxOffice,
 )
 
@@ -80,12 +81,14 @@ async def main(business_number: str, short_code: str, commit: bool) -> None:
         pay_n = await count(PayrollEntry, PayrollEntry.client_id.in_(client_ids))
         ev_n = await count(CollectionEvent, CollectionEvent.session_id.in_(sess_ids)) if sess_ids else 0
         sess_n = len(sess_ids)
+        tok_n = await count(SecureToken, SecureToken.client_id.in_(client_ids))
         emp_n = await count(Employee, Employee.client_id.in_(client_ids))
 
         print("─" * 50)
         print(f"삭제 예정 급여내역(payroll_entries)    : {pay_n}")
         print(f"삭제 예정 소통이벤트(collection_events) : {ev_n}")
         print(f"삭제 예정 소통세션(collection_sessions) : {sess_n}")
+        print(f"삭제 예정 입력토큰(secure_tokens)       : {tok_n}")
         print(f"보존되는 직원(employees)               : {emp_n}")
         print(f"보존되는 거래처(clients)               : {len(client_ids)}")
         print("─" * 50)
@@ -94,8 +97,10 @@ async def main(business_number: str, short_code: str, commit: bool) -> None:
             print("[DRY-RUN] 실제 삭제하지 않았습니다. 위 건수가 맞으면 끝에 --yes 를 붙여 다시 실행하세요.")
             return
 
-        # FK 의존성 순서: payroll → collection_events → collection_sessions
+        # FK 의존성 순서: payroll → secure_tokens → collection_events → collection_sessions
+        # (payroll·secure_tokens 모두 collection_sessions 를 참조하므로 세션보다 먼저 삭제)
         await db.execute(delete(PayrollEntry).where(PayrollEntry.client_id.in_(client_ids)))
+        await db.execute(delete(SecureToken).where(SecureToken.client_id.in_(client_ids)))
         if sess_ids:
             await db.execute(delete(CollectionEvent).where(CollectionEvent.session_id.in_(sess_ids)))
         await db.execute(delete(CollectionSession).where(CollectionSession.client_id.in_(client_ids)))
