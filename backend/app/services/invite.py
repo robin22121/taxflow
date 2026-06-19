@@ -148,6 +148,8 @@ async def send_invite_to_client(
             f"</ol>"
             f"<p style='color:#666;font-size:12px;'>회신하시면 자동으로 접수됩니다.</p>"
         )
+        _y, _, _m = filing.period.partition("-")
+        period_label = f"{_y[2:]}년 {_m}월" if _m else filing.period
         email_result = await email_ch.send(
             MessageRecipient(
                 name=client.business_name,
@@ -155,7 +157,7 @@ async def send_invite_to_client(
                 email=client.contact_email,
             ),
             body=email_body,
-            template_code=f"[{office_name}] {filing.period} 원천세 자료 요청",
+            template_code=f"{client.business_name} 대표님 {period_label} 급여지급자료 부탁드립니다",
             url=url,
             reply_to=client.collect_email,
         )
