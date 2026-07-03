@@ -1625,7 +1625,8 @@ function V3Spreadsheet({
   const paySum = bonus + meal + car + childcare;
   const insSum = np + hi + ei + ltc;
   const taxSum = it + lt;
-  const gross = basic + paySum;
+  // 총지급액(total_amount)은 상여·비과세를 이미 포함한 값. 다시 더하지 않는다.
+  const gross = basic;
   const deduct = insSum + taxSum;
   const net = gross - deduct;
 
@@ -1671,7 +1672,7 @@ function V3Spreadsheet({
       {/* 헤더 바 */}
       <div className={`${V3_GRID} bg-gray-50 border-b border-gray-200 text-[10.5px] font-bold uppercase tracking-wider text-gray-500`}>
         <div className="px-3.5 py-2 border-r border-gray-200">(+) 총지급</div>
-        <div className="px-3.5 py-2 border-r border-gray-200">(+) 비과세 수당</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">상여·비과세 (총지급 내역)</div>
         <div className="px-3.5 py-2 border-r border-gray-200">(−) 4대보험</div>
         <div className="px-3.5 py-2 border-r border-gray-200">(−) 세금</div>
         <div className="px-3.5 py-2">메모</div>
@@ -1690,7 +1691,7 @@ function V3Spreadsheet({
         {/* 2: 지급항목 multi */}
         <V3MultiCell
           title="지급항목"
-          sum={`${paySum >= 0 ? "+ " : "− "}${Math.abs(paySum).toLocaleString("ko-KR")}`}
+          sum={`내 ${paySum.toLocaleString("ko-KR")}`}
           rows={[
             ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount)],
             ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount)],

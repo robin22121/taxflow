@@ -673,7 +673,8 @@ async def update_entry(
                              "meal_amount", "car_amount", "childcare_amount")
     )
     if money_changed:
-        entry.taxable = entry.total_amount - entry.non_taxable
+        # 비과세는 총지급액에 포함되므로 과세표준은 음수가 될 수 없다.
+        entry.taxable = max(0, entry.total_amount - entry.non_taxable)
         manual_tax = "income_tax" in patch or "local_tax" in patch
         if not manual_tax:
             from app.services.tax_calc import calculate_withholding_tax
