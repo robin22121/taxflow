@@ -7,13 +7,15 @@ class LoginRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    business_number: str
+    # 저마찰 가입: 아이디(이메일) + 비밀번호 + 상호만 필수.
+    # 사업자번호 등 나머지는 유료 전환 시 수집(선택 입력).
+    email: EmailStr
     password: str
     office_name: str
-    address: str
-    representative: str
-    phone: str
-    email: EmailStr
+    business_number: str | None = None
+    address: str | None = None
+    representative: str | None = None
+    phone: str | None = None
 
     @field_validator("password")
     @classmethod
@@ -26,7 +28,9 @@ class RegisterRequest(BaseModel):
 
     @field_validator("business_number")
     @classmethod
-    def biz_number_format(cls, v: str) -> str:
+    def biz_number_format(cls, v: str | None) -> str | None:
+        if not v:
+            return None
         cleaned = v.replace("-", "").replace(" ", "")
         if not cleaned.isdigit() or len(cleaned) != 10:
             raise ValueError("사업자번호는 10자리 숫자여야 합니다")

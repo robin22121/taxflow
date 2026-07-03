@@ -125,6 +125,12 @@ export default function LandingPage() {
             원천세 업무 시간을 최대 80%까지 줄입니다.
           </p>
           <div className="mt-7 flex justify-center">
+            <span className="inline-flex items-center gap-2 rounded-full border border-blue-600/20 bg-blue-600/[0.06] px-4 py-1.5 text-[13px] font-semibold text-blue-700 sm:text-[14px]">
+              🎁 지금 가입 시 <span className="font-extrabold">6개월 무료</span> + 이후{" "}
+              <span className="font-extrabold">1년 50% 할인</span>
+            </span>
+          </div>
+          <div className="mt-5 flex justify-center">
             <WaitlistCounter />
           </div>
           <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">

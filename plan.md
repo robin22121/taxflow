@@ -19,6 +19,7 @@
 | [`plan/08-action-items.md`](plan/08-action-items.md) | 액션 아이템 + 백로그 (진행 상태) |
 | [`plan/09-design.md`](plan/09-design.md) | 디자인 와이어프레임 구현 A/B/C |
 | [`plan/10-privacy-security.md`](plan/10-privacy-security.md) | 개인정보(주민번호) 보안 + 추후 결정·심화 검토 |
+| [`plan/11-beta-funnel.md`](plan/11-beta-funnel.md) | 베타 모객 퍼널 — 저마찰 직접 가입(이메일 아이디·상호) + 혜택 문구(카카오·사업자검증은 후속) |
 
 ---
 

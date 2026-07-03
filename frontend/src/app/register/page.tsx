@@ -11,14 +11,10 @@ import type { RegisterResponse } from "@/lib/types";
 export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState({
-    business_number: "",
+    email: "",
     password: "",
     passwordConfirm: "",
     office_name: "",
-    address: "",
-    representative: "",
-    phone: "",
-    email: "",
   });
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,17 +26,13 @@ export default function RegisterPage() {
   }
 
   function validate(): string | null {
-    if (!form.business_number.replace(/-/g, "").match(/^\d{10}$/))
-      return "사업자번호는 10자리 숫자여야 합니다";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()))
+      return "올바른 이메일 형식이 아닙니다";
     if (form.password.length < 6) return "비밀번호는 6자리 이상이어야 합니다";
     if (!/[!@#$%^&*()_+\-=\[\]{}|;:',.<>?/~`]/.test(form.password))
       return "비밀번호에 특수문자를 포함해야 합니다";
     if (form.password !== form.passwordConfirm) return "비밀번호가 일치하지 않습니다";
-    if (!form.office_name.trim()) return "상호를 입력해주세요";
-    if (!form.representative.trim()) return "담당자명을 입력해주세요";
-    if (!form.phone.trim()) return "연락처를 입력해주세요";
-    if (!form.email.trim()) return "이메일을 입력해주세요";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "올바른 이메일 형식이 아닙니다";
+    if (!form.office_name.trim()) return "세무사사무소 상호를 입력해주세요";
     return null;
   }
 
@@ -57,13 +49,9 @@ export default function RegisterPage() {
       const res = await api<RegisterResponse>("/api/v1/auth/register", {
         method: "POST",
         json: {
-          business_number: form.business_number,
+          email: form.email.trim(),
           password: form.password,
-          office_name: form.office_name,
-          address: form.address,
-          representative: form.representative,
-          phone: form.phone,
-          email: form.email,
+          office_name: form.office_name.trim(),
         },
       });
       setResult(res);
@@ -85,15 +73,17 @@ export default function RegisterPage() {
             <span className="text-xl font-bold tracking-tight text-black">이지원천</span>
           </div>
           <Card className="p-6 text-center">
-            <div className="text-4xl mb-4">📨</div>
+            <div className="text-4xl mb-4">🎉</div>
             <h1 className="text-lg font-semibold text-gray-900 mb-2">가입이 접수되었습니다</h1>
             <p className="text-[13px] text-gray-500 mb-4">
               {result.message ?? "서버 관리자 승인 후 로그인할 수 있습니다."}
             </p>
-            <div className="bg-amber-50 border border-amber-200 rounded-xl py-3 px-4 mb-4">
-              <div className="text-[12px] font-medium text-amber-700">승인 대기 중</div>
-              <div className="text-[11px] text-amber-600 mt-0.5">
-                승인이 완료되면 로그인하여 이용할 수 있습니다.
+            <div className="bg-blue-50 border border-blue-200 rounded-xl py-3 px-4 mb-4">
+              <div className="text-[12px] font-medium text-blue-700">
+                지금 가입 혜택: 6개월 무료 + 이후 1년 50% 할인
+              </div>
+              <div className="text-[11px] text-blue-600 mt-0.5">
+                가입 시점 혜택이 그대로 고정됩니다.
               </div>
             </div>
             <div className="bg-gray-50 border border-gray-200 rounded-xl py-4 px-6 mb-4">
@@ -103,7 +93,7 @@ export default function RegisterPage() {
               </div>
             </div>
             <p className="text-[12px] text-gray-400 mb-6">
-              인가코드가 담당자 연락처로 문자 발송되었습니다.
+              직원을 초대할 때 이 인가코드를 사용하세요.
             </p>
             <Button className="w-full" onClick={() => router.push("/login")}>
               로그인 페이지로
@@ -126,15 +116,21 @@ export default function RegisterPage() {
 
         <Card className="p-6">
           <h1 className="text-lg font-semibold tracking-tight text-gray-900 mb-1">회원가입</h1>
-          <p className="text-[13px] text-gray-500 mb-5">세무사사무소 정보를 입력해주세요</p>
+          <p className="text-[13px] text-gray-500 mb-4">이메일로 가입하고 바로 시작하세요</p>
+
+          <div className="mb-5 rounded-xl bg-blue-50 border border-blue-200 px-4 py-2.5 text-center">
+            <span className="text-[12.5px] font-semibold text-blue-700">
+              🎁 지금 가입 시 6개월 무료 + 이후 1년 50% 할인
+            </span>
+          </div>
 
           <form className="space-y-3" onSubmit={onSubmit}>
-            <Field label="아이디 (사업자번호)" required>
+            <Field label="아이디 (이메일)" required>
               <Input
-                type="text"
-                value={form.business_number}
-                onChange={set("business_number")}
-                placeholder="000-00-00000"
+                type="email"
+                value={form.email}
+                onChange={set("email")}
+                placeholder="example@office.com"
                 required
               />
             </Field>
@@ -154,47 +150,12 @@ export default function RegisterPage() {
                 required
               />
             </Field>
-            <Field label="상호" required>
+            <Field label="세무사사무소 상호" required>
               <Input
                 type="text"
                 value={form.office_name}
                 onChange={set("office_name")}
                 placeholder="OO세무사사무소"
-                required
-              />
-            </Field>
-            <Field label="주소">
-              <Input
-                type="text"
-                value={form.address}
-                onChange={set("address")}
-                placeholder="서울특별시 강남구..."
-              />
-            </Field>
-            <Field label="담당자" required>
-              <Input
-                type="text"
-                value={form.representative}
-                onChange={set("representative")}
-                placeholder="홍길동"
-                required
-              />
-            </Field>
-            <Field label="담당자 연락처" required hint="인가코드가 이 번호로 발송됩니다">
-              <Input
-                type="tel"
-                value={form.phone}
-                onChange={set("phone")}
-                placeholder="010-0000-0000"
-                required
-              />
-            </Field>
-            <Field label="이메일" required hint="거래처 회신 시 참조로 발송됩니다">
-              <Input
-                type="email"
-                value={form.email}
-                onChange={set("email")}
-                placeholder="example@office.com"
                 required
               />
             </Field>

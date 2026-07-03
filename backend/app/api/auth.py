@@ -39,14 +39,12 @@ def _generate_short_code() -> str:
 @router.post("/register", response_model=RegisterResponse)
 async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)) -> RegisterResponse:
     """세무사사무소 회원가입 — 사무소 + 관리자 계정 생성 + 인가코드 자동 발급."""
-    # 사업자번호 중복 체크
+    # 이메일(로그인 아이디) 중복 체크
     existing = (
-        await db.execute(
-            select(TaxOffice).where(TaxOffice.business_number == payload.business_number)
-        )
+        await db.execute(select(User).where(User.email == str(payload.email)))
     ).scalar_one_or_none()
     if existing:
-        raise HTTPException(status.HTTP_409_CONFLICT, "이미 등록된 사업자번호입니다")
+        raise HTTPException(status.HTTP_409_CONFLICT, "이미 등록된 이메일입니다")
 
     # 인가코드 생성 (중복 방지)
     for _ in range(10):
@@ -74,37 +72,38 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     db.add(office)
     await db.flush()
 
-    # 관리자 계정 (아이디 = 사업자번호)
+    # 관리자 계정 (아이디 = 이메일)
     user = User(
         tax_office_id=office.id,
-        email=payload.business_number,
+        email=str(payload.email),
         password_hash=hash_password(payload.password),
-        name=payload.representative,
+        name=payload.representative or payload.office_name,
         is_admin=True,
     )
     db.add(user)
     await db.commit()
 
-    # 인가코드 SMS 발송
-    try:
-        from app.channels.sms import get_sms_channel
-        from app.channels.base import MessageRecipient
-        sms = get_sms_channel()
-        await sms.send(
-            MessageRecipient(name=payload.representative, phone=payload.phone),
-            body=(
-                f"[이지원천] 사무소 인가코드: {short_code}\n"
-                f"카카오톡 채널 '이지원천'\n"
-                f"http://pf.kakao.com/_lxazsX\n"
-                f"채널 가입 및 채팅방 입장 후\n"
-                f"인가코드를 다음과 같이 입력하세요\n"
-                f"입력할 내용 : 등록 {short_code}"
-            ),
-        )
-    except Exception:
-        logger.exception("인가코드 SMS 발송 실패 (가입은 정상 완료)")
+    # 인가코드 SMS 발송 (연락처를 남긴 경우에만)
+    if payload.phone:
+        try:
+            from app.channels.sms import get_sms_channel
+            from app.channels.base import MessageRecipient
+            sms = get_sms_channel()
+            await sms.send(
+                MessageRecipient(name=payload.representative or payload.office_name, phone=payload.phone),
+                body=(
+                    f"[이지원천] 사무소 인가코드: {short_code}\n"
+                    f"카카오톡 채널 '이지원천'\n"
+                    f"http://pf.kakao.com/_lxazsX\n"
+                    f"채널 가입 및 채팅방 입장 후\n"
+                    f"인가코드를 다음과 같이 입력하세요\n"
+                    f"입력할 내용 : 등록 {short_code}"
+                ),
+            )
+        except Exception:
+            logger.exception("인가코드 SMS 발송 실패 (가입은 정상 완료)")
 
-    logger.info("사무소 가입 접수(승인대기): %s (%s) code=%s", payload.office_name, payload.business_number, short_code)
+    logger.info("사무소 가입 접수(승인대기): %s (%s) code=%s", payload.office_name, payload.email, short_code)
 
     # 승인 게이트: 가입 시점에는 토큰을 발급하지 않는다 (서버 관리자 승인 후 로그인 가능).
     return RegisterResponse(office_id=office.id, short_code=short_code)

@@ -51,13 +51,13 @@ export default function LoginPage() {
           <form className="space-y-4" onSubmit={onSubmit}>
             <div>
               <label className="block text-[12px] font-medium text-gray-700 mb-1.5">
-                아이디 (사업자번호)
+                아이디 (이메일)
               </label>
               <Input
-                type="text"
+                type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value.replace(/[^0-9]/g, ""))}
-                placeholder="0000000000"
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="example@office.com"
                 required
               />
             </div>
