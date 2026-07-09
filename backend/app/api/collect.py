@@ -267,13 +267,27 @@ async def _persist_results(
         prev = prev_by_emp.get(cand.employee_id) if cand.employee_id else None
 
         # 비과세 지급항목 (plan.md 3.8):
+        # 비과세는 상용근로(WAGE)에만 존재. 일용·사업·기타·퇴직소득은 비과세 0.
         # 1순위 — AI가 원시파일에서 추출한 값 (0 초과면 채택)
         # 2순위 — 거래처 세팅값 (없으면 시스템 비과세 한도)
-        meal = cand.meal_amount if cand.meal_amount > 0 else defaults.meal_default
-        car = cand.car_amount if cand.car_amount > 0 else defaults.car_default
-        childcare = cand.childcare_amount if cand.childcare_amount > 0 else defaults.childcare_default
-        breakdown_sum = meal + car + childcare
-        non_taxable = max(cand.non_taxable, breakdown_sum)
+        if cand.income_type == IncomeType.WAGE:
+            meal = cand.meal_amount if cand.meal_amount > 0 else defaults.meal_default
+            car = cand.car_amount if cand.car_amount > 0 else defaults.car_default
+            childcare = cand.childcare_amount if cand.childcare_amount > 0 else defaults.childcare_default
+            non_taxable = max(cand.non_taxable, meal + car + childcare)
+            # 총지급액은 비과세를 이미 포함하므로, 비과세 합이 총지급액을 넘을 수 없음
+            # (저액 급여자 음수 과세표준 방지). 초과 시 식대→자가운전→육아 순으로 축소.
+            if non_taxable > cand.total_amount:
+                non_taxable = cand.total_amount
+                remaining = cand.total_amount
+                meal = min(meal, remaining)
+                remaining -= meal
+                car = min(car, remaining)
+                remaining -= car
+                childcare = min(childcare, remaining)
+        else:
+            meal = car = childcare = 0
+            non_taxable = 0
         salary_amt = cand.total_amount if cand.income_type == IncomeType.WAGE else None
         bonus_amt = 0 if cand.income_type == IncomeType.WAGE else None
 
