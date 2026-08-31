@@ -192,12 +192,18 @@ Phase 6  보안 하드닝·백업·E2E
   - ⚠️ LB 헬스모니터가 `/`→200 기대. 백엔드 `/`는 404라 한때 503 → nginx `location = /` 200 스텁으로 해결.
 - **E2E 검증**: LB 경유 `POST /api/v1/auth/login` → **200 + JWT 발급** (RDS 조회+argon2+서명 전구간 동작).
 
+- **Phase 5 — 도메인 + 공인 TLS** ✅ (경로 B: vm-node 직접, LB 우회):
+  - 가비아 A레코드 `api.easyonechon.co.kr` → `133.186.134.144` (전파 확인).
+  - vm-node 보안그룹 `iac-vm-node-sg` 인바운드 tcp/80·443 `0.0.0.0/0` 개방.
+  - nginx `server_name api.easyonechon.co.kr`, certbot `--nginx` → **Let's Encrypt 인증서** (만료 2026-11-29, 자동 갱신 스케줄됨), HTTP→HTTPS 301.
+  - `APP_BASE_URL=https://api.easyonechon.co.kr` 갱신, 백엔드 재시작.
+  - 검증: `https://api.easyonechon.co.kr/healthz` 200(공인 cert), 실도메인 로그인 200.
+
 ### 남은 작업 (사용자 입력/접근 필요)
-- **Phase 5 — 도메인 + 공인 TLS** (⚠️ Vercel 연동 전 필수): 백엔드 공인 도메인 확정 → DNS A레코드 `133.186.152.242` → 공인 인증서(LB 등록 or vm-node certbot). 현재 self-signed라 Vercel(브라우저)에서 fetch 시 인증서 거부됨.
-- **Vercel 재배선**: `NEXT_PUBLIC_API_BASE_URL` → 새 백엔드 도메인. (Vercel 접근 필요)
-- **AI 키**: `/opt/taxflow/.env`의 `ANTHROPIC_API_KEY` 채우고 서비스 재시작.
-- **Phase 6 보안**: SSH 22 소스 제한, RDS 자동백업/`pg_dump` 크론.
-- **Render 폐기**: 컷오버 완료 후.
+- **Vercel 재배선**: `NEXT_PUBLIC_API_BASE_URL` → `https://api.easyonechon.co.kr` 후 재배포. (Vercel 접근 필요)
+- **AI 키**: `/opt/taxflow/.env`의 `ANTHROPIC_API_KEY` 채우고 `sudo systemctl restart taxflow-backend`.
+- **Phase 6 보안**: SSH 22 소스 제한, RDS 자동백업/`pg_dump` 크론. (선택, 권장)
+- **Render 폐기**: Vercel 컷오버 확인 후.
 
 ### 재배포 방법(현재 방식)
 로컬 코드 → `tar | ssh … tar x -C /opt/taxflow` → `sudo systemctl restart taxflow-backend`.
