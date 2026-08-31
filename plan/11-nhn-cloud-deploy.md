@@ -201,8 +201,14 @@ Phase 6  보안 하드닝·백업·E2E
 
 - **AI 키** ✅: `ANTHROPIC_API_KEY` 설정, `AI_PROVIDER=anthropic`, 백엔드 재시작. Anthropic `/v1/models` 200 유효성 확인.
 
+- **메시징**: `.env`에 이메일/문자 프로바이더 추가.
+  - **이메일 Resend** ✅: `EMAIL_PROVIDER=resend`, 키 유효, 도메인 `easyonechon.co.kr` verified.
+  - **문자 Aligo** ⚠️: `SMS_PROVIDER=aligo`, 키·ID 정상이나 **발신 허용 IP 미등록** — Aligo 콘솔에 vm-node IP `133.186.134.144` 등록 필요(현재 `-101 IP 인증오류`).
+  - 알림톡: `KAKAO_ALIMTALK_PROVIDER=stub` 유지(Render와 동일).
+
 ### 남은 작업 (사용자 입력/접근 필요)
-- **Vercel 재배선**: `NEXT_PUBLIC_API_BASE_URL` → `https://api.easyonechon.co.kr` 후 재배포. (Vercel 접근 필요) — 이것만 하면 프론트↔백엔드 컷오버 완료.
+- **Aligo 허용 IP 등록**: 콘솔에 `133.186.134.144` 추가 → 문자 발송 활성화.
+- **Vercel 재배선**: `NEXT_PUBLIC_API_BASE_URL` → `https://api.easyonechon.co.kr` 후 재배포. (Vercel 접근 필요) — 프론트↔백엔드 컷오버 완료.
 - **Phase 6 보안**: SSH 22 소스 제한, RDS 자동백업/`pg_dump` 크론. (선택, 권장)
 - **Render 폐기**: Vercel 컷오버 확인 후.
 
