@@ -114,12 +114,13 @@ def _data_row(entry: PayrollEntry, idx: int) -> list:
     car_allowance = entry.car_amount or 0
     childcare = entry.childcare_amount or 0
 
-    # 기본급 = 총액 - 상여 - 비과세 항목들
+    # 기본급 = 총액 - 상여 - 비과세 항목들 (상여·비과세는 총지급액에 이미 포함)
     base_salary = entry.total_amount - bonus - meal_allowance - car_allowance - childcare
     if base_salary < 0:
-        base_salary = entry.total_amount
+        base_salary = 0
 
-    gross = base_salary + bonus + meal_allowance + car_allowance + childcare
+    # 총지급액은 언제나 total_amount (상여·비과세는 그 내부 분해이므로 재가산 금지)
+    gross = entry.total_amount
 
     national_pension = entry.national_pension or 0
     health_insurance = entry.health_insurance or 0

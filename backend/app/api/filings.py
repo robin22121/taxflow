@@ -666,14 +666,30 @@ async def update_entry(
     if breakdown_changed and "non_taxable" not in patch:
         entry.non_taxable = (entry.meal_amount or 0) + (entry.car_amount or 0) + (entry.childcare_amount or 0)
 
+    # 비과세 정규화: 비과세는 상용근로(WAGE)에만 존재하고, 총지급액에 이미 포함된 값이다.
+    # 일용·사업·기타·퇴직소득은 0으로 고정, WAGE도 총지급액을 넘을 수 없다.
+    from app.models.payroll import IncomeType as _IncomeType
+    if entry.income_type != _IncomeType.WAGE:
+        normalized = (entry.non_taxable or 0, entry.meal_amount or 0,
+                      entry.car_amount or 0, entry.childcare_amount or 0) != (0, 0, 0, 0)
+        entry.non_taxable = 0
+        entry.meal_amount = 0
+        entry.car_amount = 0
+        entry.childcare_amount = 0
+    else:
+        normalized = entry.non_taxable > entry.total_amount
+        if normalized:
+            entry.non_taxable = entry.total_amount
+
     # Auto-recompute taxes / 4대보험 only if money fields changed AND
     # user did not manually set the corresponding values in the same PATCH.
-    money_changed = any(
+    money_changed = normalized or any(
         k in patch for k in ("total_amount", "non_taxable", "income_type",
                              "meal_amount", "car_amount", "childcare_amount")
     )
     if money_changed:
-        entry.taxable = entry.total_amount - entry.non_taxable
+        # 비과세는 총지급액에 포함되므로 과세표준은 음수가 될 수 없다.
+        entry.taxable = max(0, entry.total_amount - entry.non_taxable)
         manual_tax = "income_tax" in patch or "local_tax" in patch
         if not manual_tax:
             from app.services.tax_calc import calculate_withholding_tax

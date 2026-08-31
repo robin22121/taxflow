@@ -1610,11 +1610,16 @@ function V3Spreadsheet({
   const v = (k: keyof PayrollEntry): number => Number(draft[k] ?? 0) || 0;
   const set = (k: keyof PayrollEntry, val: number) => setDraft({ ...draft, [k]: val });
 
+  // 비과세 수당(식대·자가운전·육아)과 상여 구분은 상용근로(WAGE)에만 존재한다.
+  // 일용·사업·기타·퇴직소득은 지급액 전액이 과세 대상.
+  const incomeType = String(draft.income_type ?? "WAGE");
+  const isWage = incomeType === "WAGE";
+
   const basic = v("total_amount");
-  const bonus = v("bonus_amount");
-  const meal = v("meal_amount");
-  const car = v("car_amount");
-  const childcare = v("childcare_amount");
+  const bonus = isWage ? v("bonus_amount") : 0;
+  const meal = isWage ? v("meal_amount") : 0;
+  const car = isWage ? v("car_amount") : 0;
+  const childcare = isWage ? v("childcare_amount") : 0;
   const np = v("national_pension");
   const hi = v("health_insurance");
   const ei = v("employment_insurance");
@@ -1625,7 +1630,8 @@ function V3Spreadsheet({
   const paySum = bonus + meal + car + childcare;
   const insSum = np + hi + ei + ltc;
   const taxSum = it + lt;
-  const gross = basic + paySum;
+  // 총지급액(total_amount)은 상여·비과세를 이미 포함한 값. 다시 더하지 않는다.
+  const gross = basic;
   const deduct = insSum + taxSum;
   const net = gross - deduct;
 
@@ -1671,7 +1677,9 @@ function V3Spreadsheet({
       {/* 헤더 바 */}
       <div className={`${V3_GRID} bg-gray-50 border-b border-gray-200 text-[10.5px] font-bold uppercase tracking-wider text-gray-500`}>
         <div className="px-3.5 py-2 border-r border-gray-200">(+) 총지급</div>
-        <div className="px-3.5 py-2 border-r border-gray-200">(+) 비과세 수당</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">
+          {isWage ? "상여·비과세 (총지급 내역)" : "비과세 미적용"}
+        </div>
         <div className="px-3.5 py-2 border-r border-gray-200">(−) 4대보험</div>
         <div className="px-3.5 py-2 border-r border-gray-200">(−) 세금</div>
         <div className="px-3.5 py-2">메모</div>
@@ -1681,23 +1689,32 @@ function V3Spreadsheet({
       <div className={`${V3_GRID} border-b border-gray-200`}>
         {/* 1: 총지급액 */}
         <div className="px-3.5 py-2.5 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
-          <span className="text-[11px] text-gray-500">총지급액 · 근로</span>
+          <span className="text-[11px] text-gray-500">총지급액 · {incomeLabel(incomeType)}</span>
           <span className="font-mono tabular-nums text-[13.5px] font-semibold text-gray-900">
             ₩ {editing ? v3Num("total_amount", basic) : basic.toLocaleString("ko-KR")}
           </span>
         </div>
 
-        {/* 2: 지급항목 multi */}
-        <V3MultiCell
-          title="지급항목"
-          sum={`${paySum >= 0 ? "+ " : "− "}${Math.abs(paySum).toLocaleString("ko-KR")}`}
-          rows={[
-            ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount)],
-            ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount)],
-            ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount)],
-            ["육아수당", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount)],
-          ]}
-        />
+        {/* 2: 지급항목 multi — 상용근로만. 일용·사업 등은 비과세 미적용 */}
+        {isWage ? (
+          <V3MultiCell
+            title="지급항목"
+            sum={`내 ${paySum.toLocaleString("ko-KR")}`}
+            rows={[
+              ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount)],
+              ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount)],
+              ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount)],
+              ["육아수당", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount)],
+            ]}
+          />
+        ) : (
+          <div className="px-3.5 py-2 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">지급항목</div>
+            <span className="text-[11.5px] text-gray-400 leading-snug">
+              {incomeLabel(incomeType)}은 비과세 수당이 적용되지 않습니다. 지급액 전액이 과세 대상입니다.
+            </span>
+          </div>
+        )}
 
         {/* 3: 4대보험 */}
         <V3MultiCell
