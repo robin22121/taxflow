@@ -171,8 +171,34 @@ Phase 5  도메인 + 공인 TLS
 Phase 6  보안 하드닝·백업·E2E
 ```
 
-## 미해결 질문 (Phase 0에서 답 필요)
-1. **A(신규) vs B(운영 이관)?** — 데이터 마이그레이션·RRN 키·컷오버 여부 결정.
-2. 프론트: vm-node 직접 vs Vercel 유지?
-3. 도메인: 어떤 호스트명을 이 환경에 붙일지?
-4. 시크릿: 기존 운영 `ANTHROPIC_API_KEY`(및 이관 시 `RRN_ENCRYPTION_KEY`) 제공 가능?
+## 확정된 결정 (2026-08-31)
+1. **(B) 운영 이관** — Render 대체. 단 기존 DB는 전부 더미데이터라 **데이터 마이그레이션 불필요**, RRN 키 새로 생성.
+2. **프론트: Vercel 유지** — 백엔드/DB만 NHN. vm-node엔 프론트 미배치.
+3. 도메인: **미정** (백엔드용 공인 도메인 필요, 예 `api.easyonechon.co.kr`).
+4. `ANTHROPIC_API_KEY`: **미제공** (부팅엔 불필요, AI 파싱 기능 사용 전 필요).
+
+---
+
+## 🟢 실행 현황 (2026-08-31)
+
+### 완료 (검증됨)
+- **Phase 1 — DB 스키마**: `alembic upgrade head` → head `f7a8b9c0d1e2`, **16개 테이블 생성**.
+  - ⚠️ NHN RDS 기본 스키마가 `public`이 아닌 **`rds`** (dbadmin search_path). 앱·alembic 동일 계정이라 정합성 OK.
+- **Phase 2 — 백엔드**: `/opt/taxflow`(backend 코드) + venv(Python 3.12.3) + 의존성 설치.
+  - `/opt/taxflow/.env` (600): APP_ENV=prod, 시크릿 3종 생성, DATABASE_URL(asyncpg→RDS), CORS(Vercel 허용), 슈퍼어드민 시드.
+  - systemd `taxflow-backend.service` (uvicorn `127.0.0.1:8000`, enable+active). `/healthz` 200.
+  - 슈퍼어드민 `robin1q84@gmail.com` 시드됨.
+- **Phase 4 — nginx 리버스 프록시**: placeholder 제거, `/`=200 헬스스텁 + 그 외 → `:8000` 프록시.
+  - ⚠️ LB 헬스모니터가 `/`→200 기대. 백엔드 `/`는 404라 한때 503 → nginx `location = /` 200 스텁으로 해결.
+- **E2E 검증**: LB 경유 `POST /api/v1/auth/login` → **200 + JWT 발급** (RDS 조회+argon2+서명 전구간 동작).
+
+### 남은 작업 (사용자 입력/접근 필요)
+- **Phase 5 — 도메인 + 공인 TLS** (⚠️ Vercel 연동 전 필수): 백엔드 공인 도메인 확정 → DNS A레코드 `133.186.152.242` → 공인 인증서(LB 등록 or vm-node certbot). 현재 self-signed라 Vercel(브라우저)에서 fetch 시 인증서 거부됨.
+- **Vercel 재배선**: `NEXT_PUBLIC_API_BASE_URL` → 새 백엔드 도메인. (Vercel 접근 필요)
+- **AI 키**: `/opt/taxflow/.env`의 `ANTHROPIC_API_KEY` 채우고 서비스 재시작.
+- **Phase 6 보안**: SSH 22 소스 제한, RDS 자동백업/`pg_dump` 크론.
+- **Render 폐기**: 컷오버 완료 후.
+
+### 재배포 방법(현재 방식)
+로컬 코드 → `tar | ssh … tar x -C /opt/taxflow` → `sudo systemctl restart taxflow-backend`.
+(추후 git 기반 배포로 전환 권장.)
