@@ -379,6 +379,11 @@ async def import_payroll(
             match_status = MatchStatus.AMBIGUOUS
             errors.append(f"행 {i}: '{name or code}' — 직원 매칭 실패")
 
+        # 비과세는 상용근로(WAGE)에만 존재하고, 총지급액에 이미 포함된 값이다.
+        if income_type != IncomeType.WAGE:
+            non_taxable = 0
+        else:
+            non_taxable = min(non_taxable, total_amount)
         taxable = total_amount - non_taxable
         biz_code = emp.business_type_code if emp and income_type == IncomeType.BUSINESS else None
         tax = calculate_withholding_tax(
