@@ -199,9 +199,10 @@ Phase 6  보안 하드닝·백업·E2E
   - `APP_BASE_URL=https://api.easyonechon.co.kr` 갱신, 백엔드 재시작.
   - 검증: `https://api.easyonechon.co.kr/healthz` 200(공인 cert), 실도메인 로그인 200.
 
+- **AI 키** ✅: `ANTHROPIC_API_KEY` 설정, `AI_PROVIDER=anthropic`, 백엔드 재시작. Anthropic `/v1/models` 200 유효성 확인.
+
 ### 남은 작업 (사용자 입력/접근 필요)
-- **Vercel 재배선**: `NEXT_PUBLIC_API_BASE_URL` → `https://api.easyonechon.co.kr` 후 재배포. (Vercel 접근 필요)
-- **AI 키**: `/opt/taxflow/.env`의 `ANTHROPIC_API_KEY` 채우고 `sudo systemctl restart taxflow-backend`.
+- **Vercel 재배선**: `NEXT_PUBLIC_API_BASE_URL` → `https://api.easyonechon.co.kr` 후 재배포. (Vercel 접근 필요) — 이것만 하면 프론트↔백엔드 컷오버 완료.
 - **Phase 6 보안**: SSH 22 소스 제한, RDS 자동백업/`pg_dump` 크론. (선택, 권장)
 - **Render 폐기**: Vercel 컷오버 확인 후.
 
