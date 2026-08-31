@@ -206,11 +206,14 @@ Phase 6  보안 하드닝·백업·E2E
   - **문자 Aligo** ⚠️: `SMS_PROVIDER=aligo`, 키·ID 정상이나 **발신 허용 IP 미등록** — Aligo 콘솔에 vm-node IP `133.186.134.144` 등록 필요(현재 `-101 IP 인증오류`).
   - 알림톡: `KAKAO_ALIMTALK_PROVIDER=stub` 유지(Render와 동일).
 
+- **Vercel 재배선** ✅: `NEXT_PUBLIC_API_BASE_URL`(Type=Config) → `https://api.easyonechon.co.kr`, 캐시 OFF 재배포.
+  - 라이브 번들 검증: 새 빌드에 `api.easyonechon.co.kr` 박힘(onrender 제거). CORS 프리플라이트 200 + `allow-origin: www.easyonechon.co.kr`, 로그인 200.
+  - 주의: `NEXT_PUBLIC_`은 빌드 시 JS에 inline → 값 변경 후 **빌드 캐시 OFF 재배포** 필수(청크 해시 변경 확인).
+
 ### 남은 작업 (사용자 입력/접근 필요)
-- **Aligo 허용 IP 등록**: 콘솔에 `133.186.134.144` 추가 → 문자 발송 활성화.
-- **Vercel 재배선**: `NEXT_PUBLIC_API_BASE_URL` → `https://api.easyonechon.co.kr` 후 재배포. (Vercel 접근 필요) — 프론트↔백엔드 컷오버 완료.
+- **Aligo 허용 IP 등록**: 콘솔에 `133.186.134.144` 추가 → 문자 발송 활성화. (현재 `-101 IP 인증오류`)
 - **Phase 6 보안**: SSH 22 소스 제한, RDS 자동백업/`pg_dump` 크론. (선택, 권장)
-- **Render 폐기**: Vercel 컷오버 확인 후.
+- **Render 폐기**: 브라우저 실로그인 최종 확인 후.
 
 ### 재배포 방법(현재 방식)
 로컬 코드 → `tar | ssh … tar x -C /opt/taxflow` → `sudo systemctl restart taxflow-backend`.
