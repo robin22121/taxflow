@@ -254,11 +254,21 @@ async def commit_message(
             )
         )
 
+    # 검토 후에도 확인이 필요한 항목(신규 의심·모호)은 세션이 '검토 필요'로 남도록
+    # 후속 목록을 복원한다 — submit_message 경로와 상태 처리를 맞추기 위함.
     matching = MatchingResult(
         entries=candidates,
-        new_hire_followups=[],
+        new_hire_followups=[
+            {"name": c.raw_name, "amount": c.total_amount}
+            for c in candidates
+            if c.match_status == MatchStatus.NEW_HIRE_SUSPECTED
+        ],
         resignation_followups=[],
-        ambiguous_followups=[],
+        ambiguous_followups=[
+            {"name": c.raw_name}
+            for c in candidates
+            if c.match_status == MatchStatus.AMBIGUOUS
+        ],
     )
     return await _persist_results(
         db,
