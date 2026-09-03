@@ -1,16 +1,21 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import {
   useClients,
+  useCommitEntries,
   useDeleteEntry,
   useFilingDashboard,
   useFilingEntries,
   useInsuranceSummary,
+  usePreviewCarryForward,
+  usePreviewMessage,
+  usePreviewUpload,
   useRequestCollection,
   useSendInvite,
   useSessionAttachments,
@@ -18,8 +23,10 @@ import {
   useSubmitMessage,
   useUpdateEntry,
 } from "@/lib/queries";
+import type { CollectPreview, ParsedEntryPreview } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
+import { useHeaderSlots } from "@/components/header-slot";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -42,6 +49,8 @@ export default function FilingDetailPage({
   const [bulkPassword, setBulkPassword] = useState("");
   const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [showCertificate, setShowCertificate] = useState(false);
+  const headerSlots = useHeaderSlots();
 
   const allEntries = entries ?? [];
   const sessions = data?.sessions ?? [];
@@ -170,9 +179,10 @@ export default function FilingDetailPage({
   }
 
   return (
-    <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Toolbar — deadline + 자료요청/다운로드 actions */}
-      <div className="flex flex-col md:flex-row md:items-center md:h-[60px] gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 border-b border-gray-200 bg-white shrink-0">
+    <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 60px)" }}>
+      {/* 헤더 정보 슬롯 — 마감/신고기한 (레이아웃 헤더로 포털) */}
+      {headerSlots.info && createPortal(
+        <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
         {/* Mobile menu + title row */}
         <div className="flex md:hidden items-center gap-2 min-w-0">
           <button onClick={() => setShowSidebar((v) => !v)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" aria-label="거래처 목록">
@@ -202,33 +212,25 @@ export default function FilingDetailPage({
             </div>
           </Link>
         </div>
+        </div>,
+        headerSlots.info,
+      )}
 
-        {/* 자료요청 group */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
-            {sendInvite.isPending ? "발송중..." : "자료요청 (전체)"}
-          </Button>
-          <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1">
-            {requestCollection.isPending ? "발송중..." : "자료요청 (선택)"}
-          </Button>
-        </div>
-
-        {/* Review mode indicator (when active) */}
-        {reviewOnly && (
-          <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
-            확인필요만 보기 ✕
-          </button>
-        )}
-
-        {/* Spacer */}
-        <div className="hidden md:block flex-1" />
-
-        {/* Download group */}
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+      {/* 헤더 액션 슬롯 — 통합 다운로드 / 급여명세서 (레이아웃 헤더로 포털) */}
+      {headerSlots.actions && createPortal(
+        <>
+          {/* Review mode indicator (when active) */}
+          {reviewOnly && (
+            <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
+              확인필요만 보기 ✕
+            </button>
+          )}
           <Button variant="primary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
           <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
-        </div>
-      </div>
+          <Button variant="ghost" onClick={() => setShowCertificate(true)} className="!text-[12px] !px-2.5 !py-1">증명원 발급</Button>
+        </>,
+        headerSlots.actions,
+      )}
 
       {/* Body */}
       {reviewOnly ? (
@@ -247,8 +249,17 @@ export default function FilingDetailPage({
           flaggedCount={flaggedEntries.length}
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}
+          onRequestAll={() => setShowBulkConfirm(true)}
+          requestAllPending={sendInvite.isPending}
+          onRequestSelected={() => {
+            if (selectedSession) setShowSelectedRequestConfirm(true);
+            else alert("업체를 선택해주세요.");
+          }}
+          requestSelectedPending={requestCollection.isPending}
         />
       )}
+
+      {showCertificate && <CertificateModal onClose={() => setShowCertificate(false)} />}
 
       {showBulkConfirm && (
         <Modal open={true} onClose={() => { setShowBulkConfirm(false); setBulkPassword(""); }} title="전체 업체 자료요청"
@@ -276,6 +287,34 @@ export default function FilingDetailPage({
   );
 }
 
+/* ═══ 증명원 발급 (준비중 — 메뉴 자리) ═══ */
+
+const CERTIFICATE_KINDS = [
+  "근로소득 원천징수영수증",
+  "재직증명서",
+  "경력증명원",
+  "소득금액증명원",
+] as const;
+
+function CertificateModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal open onClose={onClose} title="증명원 발급"
+      footer={<Button variant="ghost" onClick={onClose}>닫기</Button>}>
+      <p className="text-[13px] text-gray-700">
+        직원별 증명원을 이 화면에서 바로 발급할 수 있도록 준비하고 있습니다.
+      </p>
+      <div className="mt-3 space-y-1.5">
+        {CERTIFICATE_KINDS.map((kind) => (
+          <div key={kind} className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <span className="text-[12.5px] text-gray-500">{kind}</span>
+            <span className="text-[10.5px] font-semibold text-gray-400 border border-gray-200 bg-white rounded-full px-2 py-0.5">준비중</span>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
 /* ═══ Toggle Pill ═══ */
 
 function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -298,7 +337,7 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
 
 type MainTab = "received" | "wht" | "insurance";
 
-function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar }: {
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar, onRequestAll, requestAllPending, onRequestSelected, requestSelectedPending }: {
   filingId: string;
   sessions: CollectionSession[];
   entries: PayrollEntry[];
@@ -311,11 +350,19 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   flaggedCount: number;
   showSidebar: boolean;
   setShowSidebar: (v: boolean) => void;
+  onRequestAll: () => void;
+  requestAllPending: boolean;
+  onRequestSelected: () => void;
+  requestSelectedPending: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
   const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("received");
+  const [commOpen, setCommOpen] = useState(false);
+  // 한 번이라도 연 뒤에만 마운트 — 닫힌 상태에서 타임라인/첨부를 불러오지 않는다.
+  const [commMounted, setCommMounted] = useState(false);
+  const [preview, setPreview] = useState<{ data: CollectPreview; meta: PreviewMeta } | null>(null);
 
   const isReview = (s: CollectionSession) => {
     const se = entries.filter((e) => e.client_id === s.client_id);
@@ -374,7 +421,12 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
           {filtered.map((s) => (
-            <SessionItem key={s.id} session={s} entries={entries} active={s.id === activeSession} onClick={() => { setActiveSession(s.id); setShowSidebar(false); }} />
+            <div key={s.id}>
+              <SessionItem session={s} entries={entries} active={s.id === activeSession} onClick={() => { setActiveSession(s.id); setShowSidebar(false); }} />
+              {s.id === activeSession && selectedSession && (
+                <ClientInfoPanel session={selectedSession} entries={selectedEntries} />
+              )}
+            </div>
           ))}
         </div>
       </div>
@@ -404,37 +456,412 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
 
             {/* Tab content */}
             <div className="flex-1 min-h-0 flex overflow-hidden">
-              {mainTab === "received" && (
-                <>
-                  {/* Main: entries table */}
-                  <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                    <RightPane key={`${selectedSession.id}-received-main`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                      highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                      forcedTab="wht" summaryMode="received" />
-                  </div>
-                  {/* Right: 고객소통내역 panel (received tab only) */}
-                  <div className="hidden lg:flex w-[380px] xl:w-[440px] border-l border-gray-200 bg-gray-50/40 flex-col shrink-0">
-                    <CenterPane key={`${selectedSession.id}-received-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                      highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
-                  </div>
-                </>
-              )}
-              {(mainTab === "wht" || mainTab === "insurance") && (
-                <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                  <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                    highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                    forcedTab={mainTab === "wht" ? "wht" : "insurance"}
-                    summaryMode={mainTab === "wht" ? "wht" : undefined} />
-                </div>
-              )}
+              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                  highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                  forcedTab={mainTab === "insurance" ? "insurance" : "wht"}
+                  summaryMode={mainTab === "received" ? "received" : mainTab === "wht" ? "wht" : undefined} />
+              </div>
             </div>
+
+            {/* 급여자료 입력 바 */}
+            <PayrollInputBar
+              session={selectedSession}
+              commOpen={commOpen}
+              onToggleComm={() => { setCommMounted(true); setCommOpen((v) => !v); }}
+              onRequestAll={onRequestAll}
+              requestAllPending={requestAllPending}
+              onRequestSelected={onRequestSelected}
+              requestSelectedPending={requestSelectedPending}
+              onPreview={(data, meta) => setPreview({ data, meta })}
+            />
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
         )}
       </div>
+
+      {/* RIGHT — 고객소통내역 (기본 숨김, 슬라이드 개폐) */}
+      {selectedSession && (
+        <>
+          {commOpen && (
+            <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setCommOpen(false)} />
+          )}
+          <div
+            className={`absolute lg:static inset-y-0 right-0 z-30 lg:z-auto bg-white lg:bg-gray-50/40 border-gray-200 flex flex-col shrink-0 overflow-hidden shadow-xl lg:shadow-none transition-all duration-200 ease-in-out ${
+              commOpen
+                ? "translate-x-0 w-[min(92vw,380px)] xl:w-[440px] border-l"
+                : "translate-x-full w-[min(92vw,380px)] lg:translate-x-0 lg:w-0 lg:border-l-0"
+            }`}
+          >
+            {commMounted && (
+              <CenterPane key={`${selectedSession.id}-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                onClose={() => setCommOpen(false)} />
+            )}
+          </div>
+        </>
+      )}
+
+      {preview && selectedSession && (
+        <AiReviewModal
+          filingId={filingId}
+          sessionId={selectedSession.id}
+          preview={preview.data}
+          meta={preview.meta}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
+}
+
+/* ═══ 선택 거래처 정보 (선택한 행 아래에 펼침) ═══ */
+
+function ClientInfoPanel({ session, entries }: { session: CollectionSession; entries: PayrollEntry[] }) {
+  const { data: clients } = useClients();
+  const c = clients?.find((x) => x.id === session.client_id);
+  const approved = entries.filter((e) => e.approved).length;
+  const email = c?.contact_email || c?.collect_email;
+
+  return (
+    <div className="mt-1 mb-1 ml-2 rounded-lg border border-gray-200 border-l-2 border-l-blue-400 bg-gray-50/80 px-2.5 py-2 space-y-1.5">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[11px] text-gray-500 tabular-nums">{entries.length}명</span>
+        {entries.length > 0 && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 tabular-nums">
+            {approved}/{entries.length} 승인
+          </span>
+        )}
+      </div>
+      {c && (
+        <dl className="space-y-0.5 text-[11px]">
+          {c.business_number && <InfoRow label="사업자" value={c.business_number} />}
+          {c.representative && <InfoRow label="대표" value={c.representative} />}
+          {c.contact_phone && <InfoRow label="연락처" value={c.contact_phone} />}
+          {email && <InfoRow label="이메일" value={email} />}
+          {c.is_corporation !== undefined && <InfoRow label="구분" value={c.is_corporation ? "법인" : "개인"} />}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-1.5">
+      <dt className="w-[38px] shrink-0 text-gray-400">{label}</dt>
+      <dd className="min-w-0 truncate font-medium text-gray-700" title={value}>{value}</dd>
+    </div>
+  );
+}
+
+/* ═══ 급여자료 입력 바 (화면 하단) ═══ */
+
+type PreviewMeta = {
+  text: string;
+  channel: string;
+  sender_name: string;
+  received_date: string;
+  attachments: Record<string, unknown>[] | null;
+};
+
+function PayrollInputBar({
+  session, commOpen, onToggleComm, onRequestAll, requestAllPending,
+  onRequestSelected, requestSelectedPending, onPreview,
+}: {
+  session: CollectionSession;
+  commOpen: boolean;
+  onToggleComm: () => void;
+  onRequestAll: () => void;
+  requestAllPending: boolean;
+  onRequestSelected: () => void;
+  requestSelectedPending: boolean;
+  onPreview: (data: CollectPreview, meta: PreviewMeta) => void;
+}) {
+  const previewMessage = usePreviewMessage();
+  const previewUpload = usePreviewUpload();
+  const previewCarryForward = usePreviewCarryForward();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState("");
+  const [senderName, setSenderName] = useState("");
+  const [channel, setChannel] = useState("kakao");
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const busy = previewMessage.isPending || previewUpload.isPending || previewCarryForward.isPending;
+  const sender = senderName.trim() || "직접입력";
+
+  function runText() {
+    if (!text.trim() || busy) return;
+    previewMessage.mutate(
+      { sessionId: session.id, text, channel, sender_name: sender, received_date: receivedDate },
+      {
+        onSuccess: (data) => {
+          onPreview(data, { text, channel, sender_name: sender, received_date: receivedDate, attachments: null });
+          setText("");
+        },
+        onError: (e) => alert((e as Error).message),
+      },
+    );
+  }
+
+  function runCarryForward() {
+    if (busy) return;
+    previewCarryForward.mutate(
+      { sessionId: session.id },
+      {
+        onSuccess: (data) =>
+          onPreview(data, {
+            text: data.source_text,
+            channel: data.channel,
+            sender_name: senderName.trim() || "전월자료",
+            received_date: receivedDate,
+            attachments: null,
+          }),
+        onError: (e) => alert((e as Error).message),
+      },
+    );
+  }
+
+  function runFile(file: File) {
+    previewUpload.mutate(
+      { sessionId: session.id, file },
+      {
+        onSuccess: (data) =>
+          onPreview(data, {
+            text: data.source_text,
+            channel: data.channel,
+            sender_name: senderName.trim() || "급여파일 업로드",
+            received_date: receivedDate,
+            attachments: data.attachments,
+          }),
+        onError: (e) => alert((e as Error).message),
+      },
+    );
+  }
+
+  return (
+    <div className="shrink-0 border-t border-gray-200 bg-white px-3 md:px-5 py-2 space-y-1.5">
+      {/* 1줄 — 자료 수집 메뉴 */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mr-0.5">급여자료 입력</span>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.pdf" className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) runFile(f);
+          }} />
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
+          {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
+        </Button>
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={runCarryForward}
+          title="전월 급여자료를 이번 달 후보로 불러옵니다">
+          {previewCarryForward.isPending ? "불러오는 중..." : "전월자료 불러오기"}
+        </Button>
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestAll} disabled={requestAllPending}>
+          {requestAllPending ? "발송중..." : "자료요청 (전체)"}
+        </Button>
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestSelected} disabled={requestSelectedPending}>
+          {requestSelectedPending ? "발송중..." : "자료요청 (선택)"}
+        </Button>
+        <div className="flex-1" />
+        <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
+          고객소통내역 {commOpen ? "▶" : "◀"}
+        </Button>
+      </div>
+
+      {/* 2줄 — 직접입력 */}
+      <div className="flex items-stretch gap-1.5">
+        <input placeholder="발신자" value={senderName} onChange={(e) => setSenderName(e.target.value)}
+          className="w-[92px] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-blue-500" />
+        <select value={channel} onChange={(e) => setChannel(e.target.value)}
+          className="w-[86px] shrink-0 rounded-md border border-gray-200 bg-white px-1.5 py-1.5 text-[12px]">
+          <option value="kakao">카카오톡</option>
+          <option value="email">이메일</option>
+          <option value="sms">문자</option>
+          <option value="voice">전화</option>
+          <option value="manual">직접</option>
+        </select>
+        <input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)}
+          className="w-[130px] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[12px]" />
+        <textarea rows={1} value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runText(); }}
+          placeholder={`${session.client_name} 급여 내용을 직접 입력하거나 붙여넣으세요 — 예: 김연호 320만원, 신입 박지훈 250만원 (⌘+Enter)`}
+          className="flex-1 min-w-0 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-500 resize-none" />
+        <Button className="!text-[12px] !px-3 !py-1 shrink-0" onClick={runText} disabled={busy || !text.trim()}>
+          {previewMessage.isPending ? "AI 읽는 중..." : "AI 파싱"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ AI 파싱 결과 검토 모달 ═══ */
+
+const INCOME_OPTIONS = [
+  ["WAGE", "근로"],
+  ["DAILY", "일용"],
+  ["BUSINESS", "사업"],
+  ["OTHER", "기타"],
+  ["RETIREMENT", "퇴직"],
+] as const;
+
+function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
+  filingId: string;
+  sessionId: string;
+  preview: CollectPreview;
+  meta: PreviewMeta;
+  onClose: () => void;
+}) {
+  const commit = useCommitEntries(filingId);
+  const [rows, setRows] = useState(() => preview.entries.map((entry) => ({ entry, include: true })));
+  const [showSource, setShowSource] = useState(false);
+
+  const included = rows.filter((r) => r.include).map((r) => r.entry);
+  const total = included.reduce((s, e) => s + e.total_amount, 0);
+  const updateCount = rows.filter((r) => r.entry.mode === "update").length;
+
+  function patch(idx: number, p: Partial<ParsedEntryPreview>) {
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, entry: { ...r.entry, ...p } } : r)));
+  }
+
+  function setInclude(idx: number, include: boolean) {
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, include } : r)));
+  }
+
+  function save() {
+    commit.mutate(
+      {
+        sessionId,
+        text: meta.text,
+        channel: meta.channel,
+        sender_name: meta.sender_name,
+        received_date: meta.received_date,
+        attachments: meta.attachments,
+        entries: included,
+      },
+      { onSuccess: onClose, onError: (e) => alert((e as Error).message) },
+    );
+  }
+
+  return (
+    <Modal open onClose={onClose} size="lg" title="AI 파싱 결과 검토"
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button onClick={save} disabled={commit.isPending || included.length === 0}>
+          {commit.isPending ? "반영 중..." : `${included.length}건 반영`}
+        </Button>
+      </>}>
+      {rows.length === 0 ? (
+        <p className="text-[13px] text-gray-600 py-4 text-center">AI가 급여 항목을 찾지 못했습니다. 내용을 확인하고 다시 시도해주세요.</p>
+      ) : (
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+            <Badge tone="info">인식 {rows.length}건</Badge>
+            {updateCount > 0 && <Badge tone="info">기존 수정 {updateCount}건</Badge>}
+            {preview.new_hire_suspected > 0 && <Badge tone="warning">신규 의심 {preview.new_hire_suspected}</Badge>}
+            {preview.resignation_suspected > 0 && <Badge tone="warning">퇴사 의심 {preview.resignation_suspected}</Badge>}
+            {preview.ambiguous > 0 && <Badge tone="warning">모호 {preview.ambiguous}</Badge>}
+            {preview.unconfirmed > 0 && <Badge tone="warning">미언급 {preview.unconfirmed}</Badge>}
+            <div className="flex-1" />
+            <button onClick={() => setShowSource((v) => !v)} className="text-blue-600 hover:underline">
+              {showSource ? "원문 접기" : "원문 보기"}
+            </button>
+          </div>
+
+          {showSource && (
+            <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 p-2 text-[11px] text-gray-600">
+              {preview.source_text}
+            </pre>
+          )}
+
+          <div className="max-h-[46vh] overflow-y-auto rounded-lg border border-gray-200">
+            <table className="w-full text-[12px]">
+              <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
+                <tr className="text-left text-[10.5px] uppercase tracking-wider text-gray-500">
+                  <th className="px-2 py-1.5 w-10">반영</th>
+                  <th className="px-2 py-1.5">이름</th>
+                  <th className="px-2 py-1.5 w-20">구분</th>
+                  <th className="px-2 py-1.5 w-20">소득구분</th>
+                  <th className="px-2 py-1.5 w-28 text-right">총지급액</th>
+                  <th className="px-2 py-1.5 w-24 text-right">전월</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ entry, include }, i) => (
+                  <tr key={`${entry.raw_name}-${i}`} className={`border-b border-gray-100 last:border-0 ${include ? "" : "opacity-40"}`}>
+                    <td className="px-2 py-1.5">
+                      <input type="checkbox" checked={include} onChange={(e) => setInclude(i, e.target.checked)} />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <div className="font-medium text-gray-900">{entry.raw_name}</div>
+                      {entry.employee_name && entry.employee_name !== entry.raw_name && (
+                        <div className="text-[10.5px] text-gray-400">→ {entry.employee_name}</div>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {entry.mode === "update" ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
+                          수정
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          entry.match_status === "MATCHED" ? "bg-green-50 text-green-600 border border-green-100"
+                            : "bg-amber-50 text-amber-700 border border-amber-100"
+                        }`}>
+                          {matchStatusLabel(entry.match_status)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <select value={entry.income_type} onChange={(e) => patch(i, { income_type: e.target.value })}
+                        className="w-full rounded border border-gray-200 bg-white px-1 py-0.5 text-[11.5px]">
+                        {INCOME_OPTIONS.map(([v, label]) => (
+                          <option key={v} value={v}>{label}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input type="number" min={0} value={entry.total_amount}
+                        onChange={(e) => patch(i, { total_amount: Math.max(0, Number(e.target.value) || 0) })}
+                        className="w-full rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px] text-right tabular-nums" />
+                      {entry.mode === "update" && entry.existing_amount != null && entry.existing_amount !== entry.total_amount && (
+                        <div className="mt-0.5 text-right text-[10px] text-gray-400 tabular-nums">
+                          {formatKrw(entry.existing_amount)} →
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-gray-500">
+                      {entry.prev_amount != null ? formatKrw(entry.prev_amount) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between text-[12px] text-gray-600">
+            <span>반영 대상 {included.length}건</span>
+            <span className="tabular-nums font-semibold text-gray-900">{formatKrw(total)}</span>
+          </div>
+          <p className="text-[11px] text-gray-400">
+            비과세·4대보험·소득세는 거래처 설정값으로 자동 계산됩니다. 반영 후 표에서 수정할 수 있습니다.
+            {updateCount > 0 && " 기존 항목을 수정하면 금액이 바뀌므로 승인 상태는 해제됩니다."}
+          </p>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function matchStatusLabel(s: string): string {
+  switch (s) {
+    case "MATCHED": return "매칭";
+    case "NEW_HIRE_SUSPECTED": return "신규";
+    case "RESIGNATION_SUSPECTED": return "퇴사";
+    case "UNCONFIRMED": return "미확인";
+    default: return "모호";
+  }
 }
 
 function MainTabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -513,12 +940,13 @@ function SessionItem({ session, entries, active, onClick }: {
 
 /* ═══ Center Pane (Original Docs) ═══ */
 
-function CenterPane({ filingId, session, entries, highlightEventId, onHighlight }: {
+function CenterPane({ filingId, session, entries, highlightEventId, onHighlight, onClose }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
   highlightEventId: string | null;
   onHighlight: (id: string | null) => void;
+  onClose?: () => void;
 }) {
   const qc = useQueryClient();
   const { data: attachments } = useSessionAttachments(filingId, session.id);
@@ -565,6 +993,10 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
           </button>
           <span className="text-gray-300">|</span>
           <button onClick={() => setShowInput((v) => !v)} className="text-blue-600 hover:underline">수동입력</button>
+          {onClose && (<>
+            <span className="text-gray-300">|</span>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700" aria-label="고객 소통 내역 닫기">✕</button>
+          </>)}
         </div>
       </div>
 
@@ -762,7 +1194,6 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
-  const { data: clients } = useClients();
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -771,7 +1202,6 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const tab = forcedTab ?? internalTab;
   const setTab = forcedTab ? () => {} : setInternalTab;
   const showInternalTabBar = forcedTab === undefined;
-  const clientDetail = clients?.find((c) => c.id === session.client_id);
 
   // 원천세관리 탭에서는 income_type별 서브탭으로 entries 필터링 (더존 메뉴 분리 미러링)
   const displayEntries = summaryMode === "wht" ? entries.filter((e) => matchesWhtSubTab(e, whtSubTab)) : entries;
@@ -841,62 +1271,41 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
 
   return (
     <>
-      <div className="px-4 py-3 border-b border-gray-100 shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 결과</span>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[15px] font-semibold">{session.client_name} · {displayEntries.length}명</span>
-              {displayEntries.length > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
-                  {displayEntries.filter((e) => e.approved).length}/{displayEntries.length} 승인
-                </span>
-              )}
+      {/* 거래처 정보는 좌측 목록 하단(ClientInfoPanel)으로 이동 — 여기는 선택 시 액션만 */}
+      {(selected.size > 0 || showInternalTabBar) && (
+        <div className="px-4 py-2 border-b border-gray-100 shrink-0">
+          {selected.size > 0 && (
+            <div className="flex gap-1.5">
+              <Button variant="primary" className="text-xs px-3 py-1.5"
+                onClick={() => {
+                  selected.forEach((id) => {
+                    const entry = entries.find((e) => e.id === id);
+                    if (entry && !entry.approved) update.mutate({ id, patch: { approved: true } });
+                  });
+                  setSelected(new Set());
+                }}
+                disabled={update.isPending}>
+                {update.isPending ? "승인중..." : selected.size === 1 ? "승인" : `일괄 승인 (${selected.size})`}
+              </Button>
+              <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
+                {remove.isPending ? "삭제중..." : selected.size === 1 ? "삭제" : `일괄 삭제 (${selected.size})`}
+              </Button>
             </div>
-          </div>
-          <div className="flex gap-1.5">
-            {selected.size > 0 && (
-              <>
-                <Button variant="primary" className="text-xs px-3 py-1.5"
-                  onClick={() => {
-                    selected.forEach((id) => {
-                      const entry = entries.find((e) => e.id === id);
-                      if (entry && !entry.approved) update.mutate({ id, patch: { approved: true } });
-                    });
-                    setSelected(new Set());
-                  }}
-                  disabled={update.isPending}>
-                  {update.isPending ? "승인중..." : selected.size === 1 ? "승인" : `일괄 승인 (${selected.size})`}
-                </Button>
-                <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
-                  {remove.isPending ? "삭제중..." : selected.size === 1 ? "삭제" : `일괄 삭제 (${selected.size})`}
-                </Button>
-              </>
-            )}
-          </div>
+          )}
+          {showInternalTabBar && (
+            <div className={`flex gap-1 ${selected.size > 0 ? "mt-2.5" : ""}`}>
+              <button onClick={() => setTab("wht")}
+                className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                원천세 관리
+              </button>
+              <button onClick={() => setTab("insurance")}
+                className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                4대보험 관리
+              </button>
+            </div>
+          )}
         </div>
-        {clientDetail && (
-          <div className="flex items-center gap-3 mt-2 text-[11px] text-gray-500 overflow-x-auto">
-            {clientDetail.business_number && <span>사업자 <strong className="text-gray-700">{clientDetail.business_number}</strong></span>}
-            {clientDetail.representative && <><span className="text-gray-300">|</span><span>대표 <strong className="text-gray-700">{clientDetail.representative}</strong></span></>}
-            {clientDetail.contact_phone && <><span className="text-gray-300">|</span><span><strong className="text-gray-700">{clientDetail.contact_phone}</strong></span></>}
-            {clientDetail.contact_email && <><span className="text-gray-300">|</span><span><strong className="text-gray-700">{clientDetail.contact_email}</strong></span></>}
-            {clientDetail.is_corporation !== undefined && <><span className="text-gray-300">|</span><span>{clientDetail.is_corporation ? "법인" : "개인"}</span></>}
-          </div>
-        )}
-        {showInternalTabBar && (
-          <div className="flex gap-1 mt-2.5">
-            <button onClick={() => setTab("wht")}
-              className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-              원천세 관리
-            </button>
-            <button onClick={() => setTab("insurance")}
-              className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-              4대보험 관리
-            </button>
-          </div>
-        )}
-      </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {tab === "insurance" ? (
@@ -906,7 +1315,6 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
             {summaryMode === "wht" && (
               <WhtSubTabBar value={whtSubTab} onChange={setWhtSubTab} entries={entries} />
             )}
-            {summaryMode && <SummaryCards mode={summaryMode} entries={displayEntries} />}
             {summaryMode === "received" && <ReceivedActionRow />}
             {displayEntries.length > 0 ? (
               <table className="w-full text-[12px]">
@@ -956,70 +1364,12 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   );
 }
 
-/* ═══ Summary Cards (받은 자료 / 원천세관리 누계) ═══ */
-
-function SummaryCards({ mode, entries }: { mode: "received" | "wht"; entries: PayrollEntry[] }) {
-  const grossTotal = entries.reduce((acc, e) => acc + (e.total_amount ?? 0), 0);
-  const approvedCount = entries.filter((e) => e.approved).length;
-  const pendingCount = entries.length - approvedCount;
-  const reviewCount = entries.filter((e) => {
-    if (e.approved) return false;
-    if (e.match_status === "UNCONFIRMED" || e.match_status === "AMBIGUOUS") return true;
-    return !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0);
-  }).length;
-  const incomeTaxTotal = entries.reduce((acc, e) => acc + (e.income_tax ?? 0), 0);
-  const localTaxTotal = entries.reduce((acc, e) => acc + (e.local_tax ?? 0), 0);
-
-  if (mode === "received") {
-    return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-3 md:px-4 pt-3 pb-1">
-        <SumCard label="총 직원" value={`${entries.length}`} unit="명" />
-        <SumCard label="검토 대상" value={`${reviewCount}`} unit="건" tone={reviewCount > 0 ? "warning" : "neutral"} />
-        <SumCard label="승인 완료" value={`${approvedCount}`} unit={`/ ${entries.length}`} tone={approvedCount === entries.length && entries.length > 0 ? "success" : "neutral"} />
-        <SumCard label="총지급액 합계" value={formatKrw(grossTotal)} tone="accent" />
-      </div>
-    );
-  }
-
-  // mode === "wht"
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-3 md:px-4 pt-3 pb-1">
-      <SumCard label="근로소득 원천세" value={formatKrw(incomeTaxTotal)} sub="소득세 합계" />
-      <SumCard label="지방소득세" value={formatKrw(localTaxTotal)} sub="소득세의 10%" />
-      <SumCard label="납부 대상" value={formatKrw(incomeTaxTotal + localTaxTotal)} sub="합계 납부세액" tone="accent" />
-      <SumCard label="신고 인원" value={`${entries.length}`} unit="명" sub={`승인 ${approvedCount} · 검토 ${pendingCount}`} />
-    </div>
-  );
-}
-
-function SumCard({ label, value, unit, sub, tone = "neutral" }: {
-  label: string; value: string; unit?: string; sub?: string;
-  tone?: "neutral" | "accent" | "warning" | "success";
-}) {
-  const valueColor =
-    tone === "accent" ? "text-blue-700"
-    : tone === "warning" ? "text-amber-700"
-    : tone === "success" ? "text-green-700"
-    : "text-gray-900";
-  return (
-    <div className="border border-gray-200 rounded-lg px-3 py-2 bg-white">
-      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-gray-500">{label}</div>
-      <div className="flex items-baseline gap-1 mt-1">
-        <span className={`font-mono tabular-nums text-[17px] font-bold tracking-tight ${valueColor}`}>{value}</span>
-        {unit && <span className="text-[11.5px] text-gray-500">{unit}</span>}
-      </div>
-      {sub && <div className="text-[10.5px] text-gray-400 mt-0.5 truncate">{sub}</div>}
-    </div>
-  );
-}
-
 /* ═══ 받은 자료 Action Row (백엔드 미지원 — 준비중) ═══ */
 
 function ReceivedActionRow() {
   const tip = "준비중 — 다음 업데이트에서 활성화";
   return (
     <div className="flex items-center gap-1.5 px-3 md:px-4 pt-2.5 pb-1.5 flex-wrap">
-      <DisabledActionButton title={tip}>전월자료 불러오기</DisabledActionButton>
       <DisabledActionButton title={tip}>직원 추가</DisabledActionButton>
       <DisabledActionButton title={tip}>신규지정</DisabledActionButton>
       <DisabledActionButton title={tip} danger>퇴사처리</DisabledActionButton>
@@ -1610,11 +1960,16 @@ function V3Spreadsheet({
   const v = (k: keyof PayrollEntry): number => Number(draft[k] ?? 0) || 0;
   const set = (k: keyof PayrollEntry, val: number) => setDraft({ ...draft, [k]: val });
 
+  // 비과세 수당(식대·자가운전·육아)과 상여 구분은 상용근로(WAGE)에만 존재한다.
+  // 일용·사업·기타·퇴직소득은 지급액 전액이 과세 대상.
+  const incomeType = String(draft.income_type ?? "WAGE");
+  const isWage = incomeType === "WAGE";
+
   const basic = v("total_amount");
-  const bonus = v("bonus_amount");
-  const meal = v("meal_amount");
-  const car = v("car_amount");
-  const childcare = v("childcare_amount");
+  const bonus = isWage ? v("bonus_amount") : 0;
+  const meal = isWage ? v("meal_amount") : 0;
+  const car = isWage ? v("car_amount") : 0;
+  const childcare = isWage ? v("childcare_amount") : 0;
   const np = v("national_pension");
   const hi = v("health_insurance");
   const ei = v("employment_insurance");
@@ -1672,7 +2027,9 @@ function V3Spreadsheet({
       {/* 헤더 바 */}
       <div className={`${V3_GRID} bg-gray-50 border-b border-gray-200 text-[10.5px] font-bold uppercase tracking-wider text-gray-500`}>
         <div className="px-3.5 py-2 border-r border-gray-200">(+) 총지급</div>
-        <div className="px-3.5 py-2 border-r border-gray-200">상여·비과세 (총지급 내역)</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">
+          {isWage ? "상여·비과세 (총지급 내역)" : "비과세 미적용"}
+        </div>
         <div className="px-3.5 py-2 border-r border-gray-200">(−) 4대보험</div>
         <div className="px-3.5 py-2 border-r border-gray-200">(−) 세금</div>
         <div className="px-3.5 py-2">메모</div>
@@ -1682,23 +2039,32 @@ function V3Spreadsheet({
       <div className={`${V3_GRID} border-b border-gray-200`}>
         {/* 1: 총지급액 */}
         <div className="px-3.5 py-2.5 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
-          <span className="text-[11px] text-gray-500">총지급액 · 근로</span>
+          <span className="text-[11px] text-gray-500">총지급액 · {incomeLabel(incomeType)}</span>
           <span className="font-mono tabular-nums text-[13.5px] font-semibold text-gray-900">
             ₩ {editing ? v3Num("total_amount", basic) : basic.toLocaleString("ko-KR")}
           </span>
         </div>
 
-        {/* 2: 지급항목 multi */}
-        <V3MultiCell
-          title="지급항목"
-          sum={`내 ${paySum.toLocaleString("ko-KR")}`}
-          rows={[
-            ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount)],
-            ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount)],
-            ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount)],
-            ["육아수당", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount)],
-          ]}
-        />
+        {/* 2: 지급항목 multi — 상용근로만. 일용·사업 등은 비과세 미적용 */}
+        {isWage ? (
+          <V3MultiCell
+            title="지급항목"
+            sum={`내 ${paySum.toLocaleString("ko-KR")}`}
+            rows={[
+              ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount)],
+              ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount)],
+              ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount)],
+              ["육아수당", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount)],
+            ]}
+          />
+        ) : (
+          <div className="px-3.5 py-2 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">지급항목</div>
+            <span className="text-[11.5px] text-gray-400 leading-snug">
+              {incomeLabel(incomeType)}은 비과세 수당이 적용되지 않습니다. 지급액 전액이 과세 대상입니다.
+            </span>
+          </div>
+        )}
 
         {/* 3: 4대보험 */}
         <V3MultiCell

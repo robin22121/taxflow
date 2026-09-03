@@ -37,7 +37,7 @@ class RegisterResponse(BaseModel):
     office_id: str
     short_code: str
     approval_status: str = "PENDING"
-    message: str = "가입이 접수되었습니다. 서버 관리자 승인 후 로그인할 수 있습니다."
+    message: str = "가입이 완료되었습니다. 바로 로그인하여 이용할 수 있습니다."
 
 
 class TokenPair(BaseModel):

@@ -44,7 +44,7 @@ export default function DashboardHomePage() {
   }
 
   return (
-    <div className="-m-4 sm:-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
+    <div className="-m-4 sm:-m-6 flex flex-col" style={{ height: "calc(100dvh - 60px)" }}>
       {/* Body — clients sidebar + monthly filings list */}
       <div className="flex-1 flex min-h-0 bg-gray-50">
         {/* LEFT — 거래처 sidebar */}

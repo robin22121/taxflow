@@ -88,12 +88,14 @@ export function Modal({
   title,
   children,
   footer,
+  size = "md",
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   footer?: ReactNode;
+  size?: "md" | "lg";
 }) {
   useEffect(() => {
     if (!open) return;
@@ -112,7 +114,10 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-[14px] bg-white border border-gray-300 shadow-[0_2px_0_rgba(28,25,23,0.04),0_32px_64px_-28px_rgba(28,25,23,0.18)]"
+        className={clsx(
+          "w-full rounded-[14px] bg-white border border-gray-300 shadow-[0_2px_0_rgba(28,25,23,0.04),0_32px_64px_-28px_rgba(28,25,23,0.18)]",
+          size === "lg" ? "max-w-3xl" : "max-w-md",
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-gray-300 px-5 py-3.5">

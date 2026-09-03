@@ -113,6 +113,58 @@ class CollectMessageOut(BaseModel):
     ambiguous: int
     needs_followup: int
     unconfirmed: int = 0  # 전월 대비 미언급 직원 — 계속근무/퇴사 확인 필요
+    updated: int = 0  # 기존 항목 수정 건수
+
+
+# ---------------------------------------------------------------------------
+# AI 파싱 미리보기 — 저장 전 검토용 (dry-run) + 검토 결과 확정 저장
+# ---------------------------------------------------------------------------
+
+
+class ParsedEntryPreview(BaseModel):
+    """AI가 읽어낸 급여 항목 1건. 사용자가 검토·수정한 뒤 그대로 commit에 되돌려 보낸다."""
+
+    raw_name: str = Field(min_length=1, max_length=100)
+    employee_id: str | None = None
+    employee_name: str | None = None  # 매칭된 직원 마스터의 이름 (표시용)
+    income_type: str
+    total_amount: int = Field(ge=0)
+    non_taxable: int = Field(default=0, ge=0)
+    meal_amount: int = Field(default=0, ge=0)
+    car_amount: int = Field(default=0, ge=0)
+    childcare_amount: int = Field(default=0, ge=0)
+    match_status: str
+    prev_amount: int | None = None
+    needs_followup: bool = False
+    anomaly_notes: dict | None = None
+    # 이번 달에 이미 있는 항목이면 'update' — 새로 만들지 않고 그 항목을 고친다.
+    mode: str = "create"
+    entry_id: str | None = None
+    existing_amount: int | None = None
+
+
+class CollectPreviewOut(BaseModel):
+    session_id: str
+    source_text: str
+    channel: str
+    kind: str | None = None  # 파일 업로드일 때 intake 종류 (excel/csv/image/pdf...)
+    attachments: list[dict] | None = None
+    entries: list[ParsedEntryPreview]
+    new_hire_suspected: int = 0
+    resignation_suspected: int = 0
+    ambiguous: int = 0
+    unconfirmed: int = 0
+
+
+class CollectCommitIn(BaseModel):
+    """미리보기에서 검토·수정한 항목을 실제로 저장."""
+
+    text: str
+    channel: str = "manual"
+    sender_name: str = Field(min_length=1, max_length=100)
+    received_date: date
+    attachments: list[dict] | None = None
+    entries: list[ParsedEntryPreview] = Field(max_length=500)
 
 
 # ---------------------------------------------------------------------------
