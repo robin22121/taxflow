@@ -34,9 +34,9 @@ def _local_tax(income_tax: int) -> int:
     return _round_down_10(income_tax * 0.1)
 
 
-def _wage_table_lookup(taxable_monthly: int, dependents: int) -> int:
+def _wage_table_lookup(taxable_monthly: int, dependents: int, children: int = 0) -> int:
     """간이세액표(100% 컬럼) 조회 — 소득세법 시행령 [별표2] 원문 기준."""
-    return lookup_wage_tax(taxable_monthly, dependents)
+    return lookup_wage_tax(taxable_monthly, dependents, children)
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +66,7 @@ def calculate_withholding_tax(
     income_type: IncomeType,
     taxable_amount: int,
     dependents: int = 1,
+    children: int = 0,
     daily_count: int | None = None,
     business_type_code: str | None = None,
 ) -> WithholdingTax:
@@ -74,7 +75,10 @@ def calculate_withholding_tax(
     Args:
         income_type: 소득 구분
         taxable_amount: 과세 대상 금액 (근로소득은 비과세 제외 월 과세소득)
-        dependents: 부양가족수 (본인 포함). WAGE만 사용.
+        dependents: 공제대상가족의 수 (본인 포함). WAGE만 사용.
+        children: 공제대상가족 중 8세 이상 20세 이하 자녀 수. WAGE만 사용.
+            기본값 0 — 자녀 신고 자료가 없으면 자녀가 없는 것으로 본다.
+            (자녀가 있으면 세액이 줄어드므로, 0은 과소징수가 아닌 안전한 쪽이다.)
         daily_count: 일용근로소득의 근로일수. DAILY 일 때만 사용.
         business_type_code: 사업소득 업종코드. BUSINESS일 때 세율 분기용.
     """
@@ -82,7 +86,7 @@ def calculate_withholding_tax(
         return WithholdingTax(0, 0)
 
     if income_type == IncomeType.WAGE:
-        income_tax = _wage_table_lookup(taxable_amount, dependents)
+        income_tax = _wage_table_lookup(taxable_amount, dependents, children)
     elif income_type == IncomeType.BUSINESS:
         rate = _business_tax_rate(business_type_code)
         income_tax = _round_down_10(taxable_amount * rate)

@@ -88,7 +88,9 @@ def _over_table_addition(monthly_wage: int) -> float:
 def lookup_wage_tax(monthly_wage: int, dependents: int = 1, children: int = 0) -> int:
     """월급여액(비과세·학자금 제외, 원)에 대한 간이세액표상 소득세.
 
-    ``children`` 은 공제대상가족 중 8세 이상 20세 이하 자녀 수.
+    ``children`` 은 공제대상가족 중 8세 이상 20세 이하 자녀 수로, 기본값은 0이다.
+    거래처가 자녀 자료를 제출하지 않으면 자녀가 없는 것으로 보고 세액을 계산한다
+    (자녀 공제는 세액을 줄이므로, 0으로 두면 과소징수가 아닌 쪽으로 안전하다).
     """
     if monthly_wage <= 0:
         return 0

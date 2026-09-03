@@ -45,6 +45,20 @@ def test_below_table_floor_is_zero():
     assert lookup_wage_tax(-1, 1) == 0
 
 
+def test_children_default_to_none():
+    """자녀 자료가 없으면 자녀 0명으로 본다 — 표 금액에서 아무것도 빼지 않는다."""
+    assert lookup_wage_tax(2_100_000, 1) == lookup_wage_tax(2_100_000, 1, children=0)
+    assert lookup_wage_tax(2_100_000, 1) == 22_740
+
+    # 공개 진입점도 동일하게 자녀 0명이 기본값이다.
+    wt = calculate_withholding_tax(IncomeType.WAGE, 2_100_000, dependents=1)
+    assert wt.income_tax == 22_740
+    with_children = calculate_withholding_tax(
+        IncomeType.WAGE, 2_100_000, dependents=1, children=1
+    )
+    assert with_children.income_tax == 22_740 - 20_830
+
+
 def test_child_credit_deducts_and_floors_at_zero():
     """별표2 제3호 — 8세 이상 20세 이하 자녀 공제, 음수면 0원."""
     assert lookup_wage_tax(2_100_000, 1, children=1) == 22_740 - 20_830
