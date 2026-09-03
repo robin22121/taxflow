@@ -88,14 +88,8 @@ export default function RegisterPage() {
             <div className="text-4xl mb-4">📨</div>
             <h1 className="text-lg font-semibold text-gray-900 mb-2">가입이 접수되었습니다</h1>
             <p className="text-[13px] text-gray-500 mb-4">
-              {result.message ?? "서버 관리자 승인 후 로그인할 수 있습니다."}
+              {result.message ?? "이제 바로 로그인하여 이용할 수 있습니다."}
             </p>
-            <div className="bg-amber-50 border border-amber-200 rounded-xl py-3 px-4 mb-4">
-              <div className="text-[12px] font-medium text-amber-700">승인 대기 중</div>
-              <div className="text-[11px] text-amber-600 mt-0.5">
-                승인이 완료되면 로그인하여 이용할 수 있습니다.
-              </div>
-            </div>
             <div className="bg-gray-50 border border-gray-200 rounded-xl py-4 px-6 mb-4">
               <div className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">사무소 인가코드</div>
               <div className="text-[28px] font-bold tracking-[0.15em] text-gray-900 font-mono">
