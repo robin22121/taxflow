@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime as _dt
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,10 +27,23 @@ from app.models import (
 )
 from app.models.payroll import IncomeType, MatchStatus
 from app.models import User
-from app.schemas.filings import CollectMessageIn, CollectMessageOut
+from app.schemas.filings import (
+    CollectCommitIn,
+    CollectMessageIn,
+    CollectMessageOut,
+    CollectPreviewOut,
+    ParsedEntryPreview,
+)
 from app.services.ai_parser import parse_payroll_message
-from app.services.matching import EmployeeMaster, MatchingResult, reconcile
+from app.services.file_intake import intake_file
+from app.services.matching import (
+    EmployeeMaster,
+    MatchingResult,
+    PayrollEntryCandidate,
+    reconcile,
+)
 from app.services.payroll_defaults import load_payroll_defaults
+from app.services.storage import get_storage
 from app.services.tax_calc import (
     calculate_withholding_tax,
     income_type_to_a_code,
@@ -39,13 +52,12 @@ from app.services.tax_calc import (
 router = APIRouter()
 
 
-@router.post("/sessions/{session_id}/messages", response_model=CollectMessageOut)
-async def submit_message(
-    session_id: str,
-    payload: CollectMessageIn,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> CollectMessageOut:
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
+async def _load_session(
+    db: AsyncSession, session_id: str, user: User
+) -> CollectionSession:
     session = await db.get(
         CollectionSession,
         session_id,
@@ -55,6 +67,17 @@ async def submit_message(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
     if session.monthly_filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN)
+    return session
+
+
+@router.post("/sessions/{session_id}/messages", response_model=CollectMessageOut)
+async def submit_message(
+    session_id: str,
+    payload: CollectMessageIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectMessageOut:
+    session = await _load_session(db, session_id, user)
 
     return await _ingest_message(
         db=db,
@@ -65,6 +88,201 @@ async def submit_message(
         channel=payload.channel,
         sender_name=payload.sender_name,
         received_date=payload.received_date,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 미리보기(dry-run) → 검토 → 확정 저장
+#
+# submit_message 는 파싱과 저장을 한 번에 처리한다. 대시보드의 "직접입력/파일
+# 업로드"는 AI가 읽은 값을 사람이 확인한 뒤 반영해야 하므로, 같은 파이프라인을
+# 파싱(_parse_and_match, DB 미접근) 과 저장(_persist_results) 으로 나눠 쓴다.
+# ---------------------------------------------------------------------------
+
+
+def _to_preview(
+    session: CollectionSession,
+    text: str,
+    channel: str,
+    matching: MatchingResult,
+    employees: list[Employee],
+    kind: str | None = None,
+    attachments: list[dict] | None = None,
+) -> CollectPreviewOut:
+    emp_names = {e.id: e.name for e in employees}
+    return CollectPreviewOut(
+        session_id=session.id,
+        source_text=text,
+        channel=channel,
+        kind=kind,
+        attachments=attachments,
+        entries=[
+            ParsedEntryPreview(
+                raw_name=c.raw_name,
+                employee_id=c.employee_id,
+                employee_name=emp_names.get(c.employee_id) if c.employee_id else None,
+                income_type=c.income_type.value,
+                total_amount=c.total_amount,
+                non_taxable=c.non_taxable,
+                meal_amount=c.meal_amount,
+                car_amount=c.car_amount,
+                childcare_amount=c.childcare_amount,
+                match_status=c.match_status.value,
+                prev_amount=c.prev_amount,
+                needs_followup=c.needs_followup,
+                anomaly_notes=c.anomaly_notes or None,
+            )
+            for c in matching.entries
+        ],
+        new_hire_suspected=len(matching.new_hire_followups),
+        resignation_suspected=len(matching.resignation_followups),
+        ambiguous=len(matching.ambiguous_followups),
+        unconfirmed=len(matching.unconfirmed_followups),
+    )
+
+
+@router.post("/sessions/{session_id}/messages/preview", response_model=CollectPreviewOut)
+async def preview_message(
+    session_id: str,
+    payload: CollectMessageIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectPreviewOut:
+    """텍스트를 AI로 읽어 항목만 돌려준다. DB에는 아무것도 쓰지 않는다."""
+    session = await _load_session(db, session_id, user)
+    if not payload.text.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "내용이 비어 있습니다")
+
+    client, filing = session.client, session.monthly_filing
+    employees, prev_entries = await _build_context(db, client, filing)
+    matching = await _parse_and_match(payload.text, client, filing, employees, prev_entries)
+    return _to_preview(session, payload.text, payload.channel, matching, employees)
+
+
+@router.post("/sessions/{session_id}/upload/preview", response_model=CollectPreviewOut)
+async def preview_upload(
+    session_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectPreviewOut:
+    """급여파일(엑셀·CSV·이미지·PDF)을 AI로 읽어 항목만 돌려준다. DB 미저장."""
+    session = await _load_session(db, session_id, user)
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 파일입니다")
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "25MB 초과 파일은 허용되지 않습니다"
+        )
+
+    intake = await intake_file(
+        filename=file.filename or "upload",
+        content=content,
+        storage=get_storage(),
+    )
+    if not intake.text.strip() and not intake.images:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"파일에서 내용을 추출하지 못했습니다 ({intake.kind}). {intake.note or ''}",
+        )
+
+    client, filing = session.client, session.monthly_filing
+    employees, prev_entries = await _build_context(db, client, filing)
+    matching = await _parse_and_match(
+        intake.text, client, filing, employees, prev_entries, images=intake.images or None
+    )
+    attachments = (
+        [{
+            "filename": file.filename or "upload",
+            "storage_key": intake.storage_key,
+            "kind": intake.kind,
+        }]
+        if intake.storage_key
+        else None
+    )
+    return _to_preview(
+        session,
+        intake.text,
+        f"upload_{intake.kind}",
+        matching,
+        employees,
+        kind=intake.kind,
+        attachments=attachments,
+    )
+
+
+@router.post("/sessions/{session_id}/messages/commit", response_model=CollectMessageOut)
+async def commit_message(
+    session_id: str,
+    payload: CollectCommitIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectMessageOut:
+    """미리보기에서 사람이 검토·수정한 항목을 저장한다. AI를 다시 호출하지 않는다."""
+    session = await _load_session(db, session_id, user)
+    if not payload.entries:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "반영할 항목이 없습니다")
+
+    client, filing = session.client, session.monthly_filing
+    employees, prev_entries = await _build_context(db, client, filing)
+    valid_emp_ids = {e.id for e in employees}
+
+    candidates: list[PayrollEntryCandidate] = []
+    for item in payload.entries:
+        try:
+            income_type = IncomeType(item.income_type)
+            match_status = MatchStatus(item.match_status)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"알 수 없는 구분값: {exc}") from exc
+        employee_id = item.employee_id if item.employee_id in valid_emp_ids else None
+        candidates.append(
+            PayrollEntryCandidate(
+                raw_name=item.raw_name,
+                employee_id=employee_id,
+                income_type=income_type,
+                total_amount=item.total_amount,
+                non_taxable=item.non_taxable,
+                meal_amount=item.meal_amount,
+                car_amount=item.car_amount,
+                childcare_amount=item.childcare_amount,
+                match_status=match_status,
+                prev_amount=item.prev_amount,
+                anomaly_notes=item.anomaly_notes or {},
+                needs_followup=item.needs_followup,
+            )
+        )
+
+    # 검토 후에도 확인이 필요한 항목(신규 의심·모호)은 세션이 '검토 필요'로 남도록
+    # 후속 목록을 복원한다 — submit_message 경로와 상태 처리를 맞추기 위함.
+    matching = MatchingResult(
+        entries=candidates,
+        new_hire_followups=[
+            {"name": c.raw_name, "amount": c.total_amount}
+            for c in candidates
+            if c.match_status == MatchStatus.NEW_HIRE_SUSPECTED
+        ],
+        resignation_followups=[],
+        ambiguous_followups=[
+            {"name": c.raw_name}
+            for c in candidates
+            if c.match_status == MatchStatus.AMBIGUOUS
+        ],
+    )
+    return await _persist_results(
+        db,
+        session,
+        client,
+        filing,
+        matching,
+        employees,
+        payload.text,
+        payload.channel,
+        payload.attachments,
+        sender_name=payload.sender_name,
+        received_date=payload.received_date,
+        prev_entries=prev_entries,
     )
 
 

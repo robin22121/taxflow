@@ -1,16 +1,20 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import {
   useClients,
+  useCommitEntries,
   useDeleteEntry,
   useFilingDashboard,
   useFilingEntries,
   useInsuranceSummary,
+  usePreviewMessage,
+  usePreviewUpload,
   useRequestCollection,
   useSendInvite,
   useSessionAttachments,
@@ -18,8 +22,10 @@ import {
   useSubmitMessage,
   useUpdateEntry,
 } from "@/lib/queries";
+import type { CollectPreview, ParsedEntryPreview } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
+import { useHeaderSlots } from "@/components/header-slot";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -42,6 +48,8 @@ export default function FilingDetailPage({
   const [bulkPassword, setBulkPassword] = useState("");
   const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [showCertificate, setShowCertificate] = useState(false);
+  const headerSlots = useHeaderSlots();
 
   const allEntries = entries ?? [];
   const sessions = data?.sessions ?? [];
@@ -170,9 +178,10 @@ export default function FilingDetailPage({
   }
 
   return (
-    <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Toolbar — deadline + 자료요청/다운로드 actions */}
-      <div className="flex flex-col md:flex-row md:items-center md:h-[60px] gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 border-b border-gray-200 bg-white shrink-0">
+    <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 60px)" }}>
+      {/* 헤더 정보 슬롯 — 마감/신고기한 (레이아웃 헤더로 포털) */}
+      {headerSlots.info && createPortal(
+        <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
         {/* Mobile menu + title row */}
         <div className="flex md:hidden items-center gap-2 min-w-0">
           <button onClick={() => setShowSidebar((v) => !v)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" aria-label="거래처 목록">
@@ -202,33 +211,25 @@ export default function FilingDetailPage({
             </div>
           </Link>
         </div>
+        </div>,
+        headerSlots.info,
+      )}
 
-        {/* 자료요청 group */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
-            {sendInvite.isPending ? "발송중..." : "자료요청 (전체)"}
-          </Button>
-          <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1">
-            {requestCollection.isPending ? "발송중..." : "자료요청 (선택)"}
-          </Button>
-        </div>
-
-        {/* Review mode indicator (when active) */}
-        {reviewOnly && (
-          <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
-            확인필요만 보기 ✕
-          </button>
-        )}
-
-        {/* Spacer */}
-        <div className="hidden md:block flex-1" />
-
-        {/* Download group */}
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+      {/* 헤더 액션 슬롯 — 통합 다운로드 / 급여명세서 (레이아웃 헤더로 포털) */}
+      {headerSlots.actions && createPortal(
+        <>
+          {/* Review mode indicator (when active) */}
+          {reviewOnly && (
+            <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
+              확인필요만 보기 ✕
+            </button>
+          )}
           <Button variant="primary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
           <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
-        </div>
-      </div>
+          <Button variant="ghost" onClick={() => setShowCertificate(true)} className="!text-[12px] !px-2.5 !py-1">증명원 발급</Button>
+        </>,
+        headerSlots.actions,
+      )}
 
       {/* Body */}
       {reviewOnly ? (
@@ -247,8 +248,17 @@ export default function FilingDetailPage({
           flaggedCount={flaggedEntries.length}
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}
+          onRequestAll={() => setShowBulkConfirm(true)}
+          requestAllPending={sendInvite.isPending}
+          onRequestSelected={() => {
+            if (selectedSession) setShowSelectedRequestConfirm(true);
+            else alert("업체를 선택해주세요.");
+          }}
+          requestSelectedPending={requestCollection.isPending}
         />
       )}
+
+      {showCertificate && <CertificateModal onClose={() => setShowCertificate(false)} />}
 
       {showBulkConfirm && (
         <Modal open={true} onClose={() => { setShowBulkConfirm(false); setBulkPassword(""); }} title="전체 업체 자료요청"
@@ -276,6 +286,34 @@ export default function FilingDetailPage({
   );
 }
 
+/* ═══ 증명원 발급 (준비중 — 메뉴 자리) ═══ */
+
+const CERTIFICATE_KINDS = [
+  "근로소득 원천징수영수증",
+  "재직증명서",
+  "경력증명원",
+  "소득금액증명원",
+] as const;
+
+function CertificateModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal open onClose={onClose} title="증명원 발급"
+      footer={<Button variant="ghost" onClick={onClose}>닫기</Button>}>
+      <p className="text-[13px] text-gray-700">
+        직원별 증명원을 이 화면에서 바로 발급할 수 있도록 준비하고 있습니다.
+      </p>
+      <div className="mt-3 space-y-1.5">
+        {CERTIFICATE_KINDS.map((kind) => (
+          <div key={kind} className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <span className="text-[12.5px] text-gray-500">{kind}</span>
+            <span className="text-[10.5px] font-semibold text-gray-400 border border-gray-200 bg-white rounded-full px-2 py-0.5">준비중</span>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
 /* ═══ Toggle Pill ═══ */
 
 function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -298,7 +336,7 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
 
 type MainTab = "received" | "wht" | "insurance";
 
-function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar }: {
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar, onRequestAll, requestAllPending, onRequestSelected, requestSelectedPending }: {
   filingId: string;
   sessions: CollectionSession[];
   entries: PayrollEntry[];
@@ -311,11 +349,19 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   flaggedCount: number;
   showSidebar: boolean;
   setShowSidebar: (v: boolean) => void;
+  onRequestAll: () => void;
+  requestAllPending: boolean;
+  onRequestSelected: () => void;
+  requestSelectedPending: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
   const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("received");
+  const [commOpen, setCommOpen] = useState(false);
+  // 한 번이라도 연 뒤에만 마운트 — 닫힌 상태에서 타임라인/첨부를 불러오지 않는다.
+  const [commMounted, setCommMounted] = useState(false);
+  const [preview, setPreview] = useState<{ data: CollectPreview; meta: PreviewMeta } | null>(null);
 
   const isReview = (s: CollectionSession) => {
     const se = entries.filter((e) => e.client_id === s.client_id);
@@ -404,37 +450,338 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
 
             {/* Tab content */}
             <div className="flex-1 min-h-0 flex overflow-hidden">
-              {mainTab === "received" && (
-                <>
-                  {/* Main: entries table */}
-                  <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                    <RightPane key={`${selectedSession.id}-received-main`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                      highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                      forcedTab="wht" summaryMode="received" />
-                  </div>
-                  {/* Right: 고객소통내역 panel (received tab only) */}
-                  <div className="hidden lg:flex w-[380px] xl:w-[440px] border-l border-gray-200 bg-gray-50/40 flex-col shrink-0">
-                    <CenterPane key={`${selectedSession.id}-received-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                      highlightEventId={highlightEventId} onHighlight={setHighlightEventId} />
-                  </div>
-                </>
-              )}
-              {(mainTab === "wht" || mainTab === "insurance") && (
-                <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                  <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                    highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                    forcedTab={mainTab === "wht" ? "wht" : "insurance"}
-                    summaryMode={mainTab === "wht" ? "wht" : undefined} />
-                </div>
-              )}
+              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                  highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                  forcedTab={mainTab === "insurance" ? "insurance" : "wht"}
+                  summaryMode={mainTab === "received" ? "received" : mainTab === "wht" ? "wht" : undefined} />
+              </div>
             </div>
+
+            {/* 급여자료 입력 바 */}
+            <PayrollInputBar
+              session={selectedSession}
+              commOpen={commOpen}
+              onToggleComm={() => { setCommMounted(true); setCommOpen((v) => !v); }}
+              onRequestAll={onRequestAll}
+              requestAllPending={requestAllPending}
+              onRequestSelected={onRequestSelected}
+              requestSelectedPending={requestSelectedPending}
+              onPreview={(data, meta) => setPreview({ data, meta })}
+            />
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
         )}
       </div>
+
+      {/* RIGHT — 고객소통내역 (기본 숨김, 슬라이드 개폐) */}
+      {selectedSession && (
+        <>
+          {commOpen && (
+            <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setCommOpen(false)} />
+          )}
+          <div
+            className={`absolute lg:static inset-y-0 right-0 z-30 lg:z-auto bg-white lg:bg-gray-50/40 border-gray-200 flex flex-col shrink-0 overflow-hidden shadow-xl lg:shadow-none transition-all duration-200 ease-in-out ${
+              commOpen
+                ? "translate-x-0 w-[min(92vw,380px)] xl:w-[440px] border-l"
+                : "translate-x-full w-[min(92vw,380px)] lg:translate-x-0 lg:w-0 lg:border-l-0"
+            }`}
+          >
+            {commMounted && (
+              <CenterPane key={`${selectedSession.id}-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                onClose={() => setCommOpen(false)} />
+            )}
+          </div>
+        </>
+      )}
+
+      {preview && selectedSession && (
+        <AiReviewModal
+          filingId={filingId}
+          sessionId={selectedSession.id}
+          preview={preview.data}
+          meta={preview.meta}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
+}
+
+/* ═══ 급여자료 입력 바 (화면 하단) ═══ */
+
+type PreviewMeta = {
+  text: string;
+  channel: string;
+  sender_name: string;
+  received_date: string;
+  attachments: Record<string, unknown>[] | null;
+};
+
+function PayrollInputBar({
+  session, commOpen, onToggleComm, onRequestAll, requestAllPending,
+  onRequestSelected, requestSelectedPending, onPreview,
+}: {
+  session: CollectionSession;
+  commOpen: boolean;
+  onToggleComm: () => void;
+  onRequestAll: () => void;
+  requestAllPending: boolean;
+  onRequestSelected: () => void;
+  requestSelectedPending: boolean;
+  onPreview: (data: CollectPreview, meta: PreviewMeta) => void;
+}) {
+  const previewMessage = usePreviewMessage();
+  const previewUpload = usePreviewUpload();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState("");
+  const [senderName, setSenderName] = useState("");
+  const [channel, setChannel] = useState("kakao");
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const busy = previewMessage.isPending || previewUpload.isPending;
+  const sender = senderName.trim() || "직접입력";
+
+  function runText() {
+    if (!text.trim() || busy) return;
+    previewMessage.mutate(
+      { sessionId: session.id, text, channel, sender_name: sender, received_date: receivedDate },
+      {
+        onSuccess: (data) => {
+          onPreview(data, { text, channel, sender_name: sender, received_date: receivedDate, attachments: null });
+          setText("");
+        },
+        onError: (e) => alert((e as Error).message),
+      },
+    );
+  }
+
+  function runFile(file: File) {
+    previewUpload.mutate(
+      { sessionId: session.id, file },
+      {
+        onSuccess: (data) =>
+          onPreview(data, {
+            text: data.source_text,
+            channel: data.channel,
+            sender_name: senderName.trim() || "급여파일 업로드",
+            received_date: receivedDate,
+            attachments: data.attachments,
+          }),
+        onError: (e) => alert((e as Error).message),
+      },
+    );
+  }
+
+  return (
+    <div className="shrink-0 border-t border-gray-200 bg-white px-3 md:px-5 py-2 space-y-1.5">
+      {/* 1줄 — 자료 수집 메뉴 */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mr-0.5">급여자료 입력</span>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.pdf" className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) runFile(f);
+          }} />
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
+          {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
+        </Button>
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled title="준비중 — 다음 업데이트에서 활성화">
+          전달자료 불러오기
+        </Button>
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestAll} disabled={requestAllPending}>
+          {requestAllPending ? "발송중..." : "자료요청 (전체)"}
+        </Button>
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestSelected} disabled={requestSelectedPending}>
+          {requestSelectedPending ? "발송중..." : "자료요청 (선택)"}
+        </Button>
+        <div className="flex-1" />
+        <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
+          고객소통내역 {commOpen ? "▶" : "◀"}
+        </Button>
+      </div>
+
+      {/* 2줄 — 직접입력 */}
+      <div className="flex items-stretch gap-1.5">
+        <input placeholder="발신자" value={senderName} onChange={(e) => setSenderName(e.target.value)}
+          className="w-[92px] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-blue-500" />
+        <select value={channel} onChange={(e) => setChannel(e.target.value)}
+          className="w-[86px] shrink-0 rounded-md border border-gray-200 bg-white px-1.5 py-1.5 text-[12px]">
+          <option value="kakao">카카오톡</option>
+          <option value="email">이메일</option>
+          <option value="sms">문자</option>
+          <option value="voice">전화</option>
+          <option value="manual">직접</option>
+        </select>
+        <input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)}
+          className="w-[130px] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[12px]" />
+        <textarea rows={1} value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runText(); }}
+          placeholder={`${session.client_name} 급여 내용을 직접 입력하거나 붙여넣으세요 — 예: 김연호 320만원, 신입 박지훈 250만원 (⌘+Enter)`}
+          className="flex-1 min-w-0 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-500 resize-none" />
+        <Button className="!text-[12px] !px-3 !py-1 shrink-0" onClick={runText} disabled={busy || !text.trim()}>
+          {previewMessage.isPending ? "AI 읽는 중..." : "AI 파싱"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ AI 파싱 결과 검토 모달 ═══ */
+
+const INCOME_OPTIONS = [
+  ["WAGE", "근로"],
+  ["DAILY", "일용"],
+  ["BUSINESS", "사업"],
+  ["OTHER", "기타"],
+  ["RETIREMENT", "퇴직"],
+] as const;
+
+function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
+  filingId: string;
+  sessionId: string;
+  preview: CollectPreview;
+  meta: PreviewMeta;
+  onClose: () => void;
+}) {
+  const commit = useCommitEntries(filingId);
+  const [rows, setRows] = useState(() => preview.entries.map((entry) => ({ entry, include: true })));
+  const [showSource, setShowSource] = useState(false);
+
+  const included = rows.filter((r) => r.include).map((r) => r.entry);
+  const total = included.reduce((s, e) => s + e.total_amount, 0);
+
+  function patch(idx: number, p: Partial<ParsedEntryPreview>) {
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, entry: { ...r.entry, ...p } } : r)));
+  }
+
+  function setInclude(idx: number, include: boolean) {
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, include } : r)));
+  }
+
+  function save() {
+    commit.mutate(
+      {
+        sessionId,
+        text: meta.text,
+        channel: meta.channel,
+        sender_name: meta.sender_name,
+        received_date: meta.received_date,
+        attachments: meta.attachments,
+        entries: included,
+      },
+      { onSuccess: onClose, onError: (e) => alert((e as Error).message) },
+    );
+  }
+
+  return (
+    <Modal open onClose={onClose} size="lg" title="AI 파싱 결과 검토"
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button onClick={save} disabled={commit.isPending || included.length === 0}>
+          {commit.isPending ? "반영 중..." : `${included.length}건 반영`}
+        </Button>
+      </>}>
+      {rows.length === 0 ? (
+        <p className="text-[13px] text-gray-600 py-4 text-center">AI가 급여 항목을 찾지 못했습니다. 내용을 확인하고 다시 시도해주세요.</p>
+      ) : (
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+            <Badge tone="info">인식 {rows.length}건</Badge>
+            {preview.new_hire_suspected > 0 && <Badge tone="warning">신규 의심 {preview.new_hire_suspected}</Badge>}
+            {preview.resignation_suspected > 0 && <Badge tone="warning">퇴사 의심 {preview.resignation_suspected}</Badge>}
+            {preview.ambiguous > 0 && <Badge tone="warning">모호 {preview.ambiguous}</Badge>}
+            {preview.unconfirmed > 0 && <Badge tone="warning">미언급 {preview.unconfirmed}</Badge>}
+            <div className="flex-1" />
+            <button onClick={() => setShowSource((v) => !v)} className="text-blue-600 hover:underline">
+              {showSource ? "원문 접기" : "원문 보기"}
+            </button>
+          </div>
+
+          {showSource && (
+            <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 p-2 text-[11px] text-gray-600">
+              {preview.source_text}
+            </pre>
+          )}
+
+          <div className="max-h-[46vh] overflow-y-auto rounded-lg border border-gray-200">
+            <table className="w-full text-[12px]">
+              <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
+                <tr className="text-left text-[10.5px] uppercase tracking-wider text-gray-500">
+                  <th className="px-2 py-1.5 w-10">반영</th>
+                  <th className="px-2 py-1.5">이름</th>
+                  <th className="px-2 py-1.5 w-20">매칭</th>
+                  <th className="px-2 py-1.5 w-20">소득구분</th>
+                  <th className="px-2 py-1.5 w-28 text-right">총지급액</th>
+                  <th className="px-2 py-1.5 w-24 text-right">전월</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ entry, include }, i) => (
+                  <tr key={`${entry.raw_name}-${i}`} className={`border-b border-gray-100 last:border-0 ${include ? "" : "opacity-40"}`}>
+                    <td className="px-2 py-1.5">
+                      <input type="checkbox" checked={include} onChange={(e) => setInclude(i, e.target.checked)} />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <div className="font-medium text-gray-900">{entry.raw_name}</div>
+                      {entry.employee_name && entry.employee_name !== entry.raw_name && (
+                        <div className="text-[10.5px] text-gray-400">→ {entry.employee_name}</div>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        entry.match_status === "MATCHED" ? "bg-green-50 text-green-600 border border-green-100"
+                          : "bg-amber-50 text-amber-700 border border-amber-100"
+                      }`}>
+                        {matchStatusLabel(entry.match_status)}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <select value={entry.income_type} onChange={(e) => patch(i, { income_type: e.target.value })}
+                        className="w-full rounded border border-gray-200 bg-white px-1 py-0.5 text-[11.5px]">
+                        {INCOME_OPTIONS.map(([v, label]) => (
+                          <option key={v} value={v}>{label}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input type="number" min={0} value={entry.total_amount}
+                        onChange={(e) => patch(i, { total_amount: Math.max(0, Number(e.target.value) || 0) })}
+                        className="w-full rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px] text-right tabular-nums" />
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-gray-500">
+                      {entry.prev_amount != null ? formatKrw(entry.prev_amount) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between text-[12px] text-gray-600">
+            <span>반영 대상 {included.length}건</span>
+            <span className="tabular-nums font-semibold text-gray-900">{formatKrw(total)}</span>
+          </div>
+          <p className="text-[11px] text-gray-400">
+            비과세·4대보험·소득세는 거래처 설정값으로 자동 계산됩니다. 반영 후 표에서 수정할 수 있습니다.
+          </p>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function matchStatusLabel(s: string): string {
+  switch (s) {
+    case "MATCHED": return "매칭";
+    case "NEW_HIRE_SUSPECTED": return "신규";
+    case "RESIGNATION_SUSPECTED": return "퇴사";
+    case "UNCONFIRMED": return "미확인";
+    default: return "모호";
+  }
 }
 
 function MainTabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -513,12 +860,13 @@ function SessionItem({ session, entries, active, onClick }: {
 
 /* ═══ Center Pane (Original Docs) ═══ */
 
-function CenterPane({ filingId, session, entries, highlightEventId, onHighlight }: {
+function CenterPane({ filingId, session, entries, highlightEventId, onHighlight, onClose }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
   highlightEventId: string | null;
   onHighlight: (id: string | null) => void;
+  onClose?: () => void;
 }) {
   const qc = useQueryClient();
   const { data: attachments } = useSessionAttachments(filingId, session.id);
@@ -565,6 +913,10 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight 
           </button>
           <span className="text-gray-300">|</span>
           <button onClick={() => setShowInput((v) => !v)} className="text-blue-600 hover:underline">수동입력</button>
+          {onClose && (<>
+            <span className="text-gray-300">|</span>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700" aria-label="고객 소통 내역 닫기">✕</button>
+          </>)}
         </div>
       </div>
 

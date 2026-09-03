@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { api, clearTokens, getToken } from "@/lib/api";
 import { useMe } from "@/lib/queries";
 import { Button, Input, Modal } from "@/components/ui";
+import { HeaderSlotContext } from "@/components/header-slot";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "월별 신고" },
@@ -21,6 +22,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { data: me, isError } = useMe();
   const [showMenu, setShowMenu] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [infoSlot, setInfoSlot] = useState<HTMLDivElement | null>(null);
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
+  const headerSlots = useMemo(() => ({ info: infoSlot, actions: actionsSlot }), [infoSlot, actionsSlot]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && !getToken()) {
@@ -39,9 +43,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* Top nav bar */}
-      <header className="flex items-center justify-between px-3 sm:px-5 border-b border-gray-200 bg-white shrink-0 h-12">
-        <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+      {/* Top nav bar — 로고 · 페이지 정보 · 네비 · 페이지 액션 · 사용자 메뉴 */}
+      <header className="flex flex-col md:flex-row md:items-center md:h-[60px] gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 border-b border-gray-200 bg-white shrink-0">
+        <div className="flex items-center gap-2 md:gap-4 min-w-0 flex-wrap md:flex-nowrap">
           {/* Logo */}
           <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
             <div className="w-[22px] h-[22px] rounded-md bg-gray-900 text-white flex items-center justify-center text-[11px] font-extrabold">
@@ -50,8 +54,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span className="text-[14px] font-bold tracking-tight text-black hidden sm:inline">이지원천</span>
           </Link>
 
+          {/* 페이지 정보 슬롯 — 마감/신고기한 등 */}
+          <div ref={setInfoSlot} className="flex items-center min-w-0 empty:hidden" />
+
           {/* Nav tabs */}
-          <nav className="flex items-center gap-1">
+          <nav className="flex items-center gap-1 shrink-0">
             {NAV_ITEMS.map((item) => {
               const active = pathname === item.href || pathname.startsWith(item.href + "/");
               return (
@@ -72,8 +79,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </nav>
         </div>
 
-        {/* User menu */}
-        <div className="relative shrink-0">
+        <div className="hidden md:block flex-1" />
+
+        <div className="flex items-center gap-1.5 md:gap-3">
+          {/* 페이지 액션 슬롯 — 통합 다운로드 / 급여명세서 등 */}
+          <div ref={setActionsSlot} className="flex items-center gap-1.5 flex-wrap empty:hidden" />
+
+          {/* User menu */}
+          <div className="relative shrink-0 ml-auto">
           <button
             onClick={() => setShowMenu((v) => !v)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full hover:bg-gray-100 transition-colors"
@@ -107,12 +120,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </div>
           </>)}
+          </div>
         </div>
       </header>
 
       {/* Main content */}
       <main className="flex-1 min-w-0 bg-gray-50">
-        <div className="p-4 sm:p-6 pb-24">{children}</div>
+        <div className="p-4 sm:p-6 pb-24">
+          <HeaderSlotContext.Provider value={headerSlots}>
+            {children}
+          </HeaderSlotContext.Provider>
+        </div>
       </main>
 
       {/* Profile modal */}

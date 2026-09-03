@@ -324,6 +324,98 @@ export function useSubmitMessage(filingId: string) {
   });
 }
 
+// ── AI 파싱 미리보기 → 검토 → 반영 ──────────────────────────
+
+export type ParsedEntryPreview = {
+  raw_name: string;
+  employee_id: string | null;
+  employee_name: string | null;
+  income_type: string;
+  total_amount: number;
+  non_taxable: number;
+  meal_amount: number;
+  car_amount: number;
+  childcare_amount: number;
+  match_status: string;
+  prev_amount: number | null;
+  needs_followup: boolean;
+  anomaly_notes: Record<string, unknown> | null;
+};
+
+export type CollectPreview = {
+  session_id: string;
+  source_text: string;
+  channel: string;
+  kind: string | null;
+  attachments: Record<string, unknown>[] | null;
+  entries: ParsedEntryPreview[];
+  new_hire_suspected: number;
+  resignation_suspected: number;
+  ambiguous: number;
+  unconfirmed: number;
+};
+
+/** 텍스트를 AI로 읽어 항목만 미리 받아온다 (저장 안 함). */
+export function usePreviewMessage() {
+  return useMutation({
+    mutationFn: (vars: {
+      sessionId: string;
+      text: string;
+      channel: string;
+      sender_name: string;
+      received_date: string;
+    }) =>
+      api<CollectPreview>(`/api/v1/collect/sessions/${vars.sessionId}/messages/preview`, {
+        method: "POST",
+        json: {
+          text: vars.text,
+          channel: vars.channel,
+          sender_name: vars.sender_name,
+          received_date: vars.received_date,
+        },
+      }),
+  });
+}
+
+/** 급여파일을 AI로 읽어 항목만 미리 받아온다 (저장 안 함). */
+export function usePreviewUpload() {
+  return useMutation({
+    mutationFn: (vars: { sessionId: string; file: File }) =>
+      apiUpload<CollectPreview>(
+        `/api/v1/collect/sessions/${vars.sessionId}/upload/preview`,
+        vars.file,
+      ),
+  });
+}
+
+/** 검토·수정한 항목을 실제로 반영한다. */
+export function useCommitEntries(filingId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      sessionId: string;
+      text: string;
+      channel: string;
+      sender_name: string;
+      received_date: string;
+      attachments: Record<string, unknown>[] | null;
+      entries: ParsedEntryPreview[];
+    }) =>
+      api(`/api/v1/collect/sessions/${vars.sessionId}/messages/commit`, {
+        method: "POST",
+        json: {
+          text: vars.text,
+          channel: vars.channel,
+          sender_name: vars.sender_name,
+          received_date: vars.received_date,
+          attachments: vars.attachments,
+          entries: vars.entries,
+        },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["filings", filingId] }),
+  });
+}
+
 // ── 서버 관리자: 사무소 회원 관리 ───────────────────────────
 export function useAdminOffices(statusFilter?: string) {
   const qs = statusFilter ? `?status_filter=${statusFilter}` : "";
