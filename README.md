@@ -72,21 +72,21 @@ uv run pytest
 
 ## 인프라 (NHN Cloud 기반)
 
-운영은 **NHN Cloud (한국 리전)** 를 메인으로 가정해서 모듈을 구성 (2026-06-05 결정 — 주민번호 국내보관 의무. 결정 맥락·이전 절차는 [`plan/10-privacy-security.md` §3](plan/10-privacy-security.md) 참고):
+운영 백엔드·DB는 **NHN Cloud (한국 리전, vm-node + RDS for PostgreSQL 17)** 에서 구동 (2026-06-05 결정 → 2026-08-31 이관 완료 — 주민번호 국내보관 의무. 결정 맥락은 [`plan/10-privacy-security.md` §3](plan/10-privacy-security.md), 배포 런북은 [`plan/11-nhn-cloud-deploy.md`](plan/11-nhn-cloud-deploy.md) 참고):
 
 | 영역 | 운영 (NHN Cloud) | 개발/대체 |
 |------|------------------|---------|
-| 컴퓨트 | NHN Cloud Instance + Docker Compose (1인 운영 가성비) — 향후 NHN Kubernetes Service 확장 가능 | 로컬 uvicorn |
-| DB | NHN Cloud RDB for PostgreSQL (매니지드 백업) | SQLite (aiosqlite) |
-| 캐시·큐 | NHN Cloud Memcached / Redis | docker-compose redis |
-| 객체 저장 | NHN Cloud Object Storage (S3 호환) | LocalFileStorage (`backend/data/uploads/`) |
+| 컴퓨트 | NHN Cloud Instance(vm-node, Ubuntu 24.04) + systemd·uvicorn·nginx (1인 운영 가성비) — 향후 NHN Kubernetes Service 확장 가능 | 로컬 uvicorn |
+| DB | NHN Cloud RDS for PostgreSQL 17 (매니지드 백업) | SQLite (aiosqlite) |
+| 캐시·큐 | NHN Cloud Memcached / Redis (현재 미도입) | docker-compose redis |
+| 객체 저장 | NHN Cloud Object Storage (S3 호환, 현재 미도입 → vm-node 로컬 디스크) | LocalFileStorage (`backend/data/uploads/`) |
 | 알림톡 | NHN Cloud Notification (자체) 또는 Aligo (외부 SaaS) | stub |
 | 이메일 | NHN Cloud Email 또는 Resend (외부 SaaS) | SendGrid / stub |
 | STT | CLOVA Speech (외부 호출) 또는 NHN Cloud Speech-to-Text | StubSTT (테스트용 canned 응답) |
 | 시크릿 | NHN Cloud Secure Key Manager | `.env` |
 | 인증 | NHN Cloud IAM + JWT | JWT 단독 |
 
-각 어댑터는 환경변수만 채우면 자동 활성화 (코드 수정 불필요). 자세한 인프라 비교·결정 근거는 `research.md` §4 + [`plan/10-privacy-security.md` §3](plan/10-privacy-security.md) 참고.
+각 어댑터는 환경변수만 채우면 자동 활성화 (코드 수정 불필요). **현재 실배포**(2026-08-31)는 vm-node systemd·uvicorn·nginx + RDS for PostgreSQL 17 + Let's Encrypt(`api.easyonechon.co.kr`)를 사용하며, Object Storage·Redis·Secure Key Manager·NHN Notification/Email/STT는 미도입(향후). 프론트는 Vercel 유지, 메시징은 Resend(이메일)·Aligo(SMS)·stub(알림톡). 자세한 인프라 비교·결정 근거는 `research.md` §4 + [`plan/10-privacy-security.md` §3](plan/10-privacy-security.md), 실배포 상세는 [`plan/11-nhn-cloud-deploy.md`](plan/11-nhn-cloud-deploy.md) 참고.
 
 ## 핵심 흐름
 

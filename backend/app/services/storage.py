@@ -107,15 +107,19 @@ def get_storage() -> ObjectStorage:
     s = get_settings()
     if s.ncp_object_storage_access_key and s.ncp_object_storage_secret_key:
         return NcpObjectStorage()
-    # Render Persistent Disk는 /data/uploads에 마운트됨
-    render_disk = Path("/data/uploads")
-    if render_disk.is_dir():
-        logger.info("[storage] Using Render Persistent Disk at %s", render_disk)
-        return LocalFileStorage(base_dir=render_disk)
-    # 로컬 개발 시에는 data/uploads (상대경로) 사용
+    # 1순위: UPLOAD_DIR env로 명시된 영속 경로 (NHN vm-node 운영 기본)
+    if s.upload_dir:
+        logger.info("[storage] Using UPLOAD_DIR at %s", s.upload_dir)
+        return LocalFileStorage(base_dir=s.upload_dir)
+    # 2순위(하위호환): 관례상 /data/uploads가 마운트돼 있으면 사용
+    legacy_disk = Path("/data/uploads")
+    if legacy_disk.is_dir():
+        logger.info("[storage] Using persistent disk at %s", legacy_disk)
+        return LocalFileStorage(base_dir=legacy_disk)
+    # fallback: 상대경로 data/uploads (로컬 개발/임시 — 영속·백업 보장 안 됨)
     logger.warning(
-        "[storage] /data/uploads not found — falling back to local data/uploads. "
-        "On Render, ensure Persistent Disk is created and mounted."
+        "[storage] UPLOAD_DIR unset and /data/uploads not found — "
+        "falling back to relative data/uploads (dev/ephemeral)."
     )
     return LocalFileStorage()
 

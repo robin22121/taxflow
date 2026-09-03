@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     @property
     def async_database_url(self) -> str:
-        """Render provides postgres:// but SQLAlchemy needs postgresql+asyncpg://."""
+        """일부 매니지드 DB는 postgres:// 스킴을 주는데 SQLAlchemy는 postgresql+asyncpg://가 필요."""
         url = self.database_url
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql+asyncpg://", 1)
@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     # ── 웹훅 인증 ──────────────────────────────────────────
     kakao_webhook_secret: str = ""  # 카카오 오픈빌더 스킬 서버 시크릿 키
     sendgrid_webhook_secret: str = ""  # SendGrid Inbound Parse Basic Auth password
+
+    # ── 파일 업로드 저장 ────────────────────────────────────
+    # UPLOAD_DIR 설정 시 로컬 파일 저장 경로로 사용.
+    # 미설정 시 관례 경로(/data/uploads) → 없으면 상대경로 data/uploads로 fallback.
+    upload_dir: str = ""
 
     # ── NCP Object Storage ────────────────────────────────
     ncp_object_storage_endpoint: str = "https://kr.object.ncloudstorage.com"

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 
 
-# 앱 로거를 INFO로 설정 — 채널 발송 진단(stub/aligo/sendgrid)이 Render Logs에 보이도록
+# 앱 로거를 INFO로 설정 — 채널 발송 진단(stub/aligo/sendgrid)이 서버 로그에 보이도록
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -57,11 +57,12 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz/storage")
     async def healthz_storage() -> dict:
-        """Storage diagnostic — Render Shell이나 브라우저에서 디스크 상태 확인용."""
+        """Storage diagnostic — 서버 셸이나 브라우저에서 디스크 상태 확인용."""
         from pathlib import Path
         import os
 
-        render_disk = Path("/data/uploads")
+        s = get_settings()
+        upload_disk = Path(s.upload_dir) if s.upload_dir else Path("/data/uploads")
         local_disk = Path("data/uploads")
 
         def _dir_info(p: Path) -> dict:
@@ -87,7 +88,7 @@ def create_app() -> FastAPI:
         return {
             "active_storage": storage.name,
             "active_base": str(getattr(storage, "base", "n/a")),
-            "render_disk_mount": _dir_info(render_disk),
+            "upload_dir_mount": _dir_info(upload_disk),
             "local_fallback": _dir_info(local_disk),
             "cwd": os.getcwd(),
         }

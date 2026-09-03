@@ -3,7 +3,7 @@
 거래처(Client)·직원(Employee) 마스터 레코드는 보존하고,
 급여내역(PayrollEntry)·소통세션(CollectionSession)·소통이벤트(CollectionEvent)만 삭제한다.
 
-Render Shell에서 실행::
+서버 셸에서 실행::
 
     # 1) 먼저 dry-run으로 삭제 대상 건수만 확인 (실제 삭제 안 함)
     python -m app.scripts.reset_office_data 2798102355 11F878

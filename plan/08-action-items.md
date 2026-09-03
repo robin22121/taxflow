@@ -24,10 +24,11 @@
   - Claude API 송신 데이터 마스킹 정책 검토
 - [ ] **SmartA 자동화 정책 확인** — ⚠️ **미완료** (외부 확인)
   - 약관에서 자동화 관련 조항 점검
-- [ ] **NHN Cloud 계정 셋업 + KR1/KR2 리전 확보** — ⚠️ **미완료** (현재 Render+Vercel 운영, 2026-06-05 NHN Cloud 채택 결정. 결정 맥락은 [`10-privacy-security.md` §3](10-privacy-security.md))
-  - NHN Cloud Instance + Docker Compose · RDB for PostgreSQL · Object Storage · Secure Key Manager 활성화
-  - NHN Cloud Notification(자체 알림톡) 또는 기존 Aligo 유지 — 카카오비즈니스 채널/발신프로필 인증은 클라우드와 무관, 그대로 진행
-  - 카카오비즈니스 알림톡 채널·템플릿 등록 시작 (심사 기간 고려)
+- [x] **NHN Cloud 백엔드·DB 이관** — ✅ **완료** (2026-08-31, homi 인계 KR1. 배포 현황은 [`11-nhn-cloud-deploy.md`](11-nhn-cloud-deploy.md), 결정 맥락은 [`10-privacy-security.md` §3](10-privacy-security.md))
+  - vm-node(Ubuntu 24.04) + systemd·uvicorn·nginx · RDS for PostgreSQL 17 · Let's Encrypt(`api.easyonechon.co.kr`) 구동. 프론트는 Vercel 유지
+  - Object Storage·Secure Key Manager·Redis는 미도입(업로드=vm-node 로컬 디스크, RRN 키=vm-node `.env`) — 향후 하드닝 과제
+  - 기존 Aligo 유지(발신 허용 IP 등록 대기), 이메일 Resend — 카카오비즈니스 채널/발신프로필 인증은 클라우드와 무관
+  - 카카오비즈니스 알림톡 채널·템플릿 등록 시작 (심사 기간 고려) — ⚠️ 미완료
 
 ---
 
@@ -77,7 +78,7 @@
   - 특정 월 발송: `POST /clients/{id}/invite?filing_id=` 쿼리 지원
   - 발송 이력 보기: `CollectionEvent` 조회 API + 거래처 상세에서 채널별 성공 이력 표시
   - 재발송 확인: `invite_sent=true`인 거래처에는 모달로 "이미 발송됨, 재발송하시겠습니까?" 확인
-- [ ] NKS 클러스터 + GitHub Actions → Container Registry 배포 파이프라인 — ⚠️ **미완료** (현재 Render+Vercel 자동배포로 대체)
+- [ ] GitHub Actions → NHN Container Registry(NCR) 자동배포 파이프라인 — ⚠️ **미완료** (현재 vm-node에 `tar`+SSH 수동 배포로 운영. NKS 클러스터는 트래픽 증가 시 검토)
 
 ---
 

@@ -2,13 +2,13 @@
 
 > 작성 기준일: 2026-08-31
 > 대상 인프라: homi 인계 NHN Cloud KR1 (`homi/easyone`)
-> 목적: 현재 Render(백엔드+DB)+Vercel(프론트) 라이브를 NHN Cloud 인프라 한 세트로 풀배포
+> 목적: Render(백엔드+DB)+Vercel(프론트) 라이브를 NHN Cloud로 이관 — **2026-08-31 백엔드·DB 이관 완료**(상세 현황은 아래 §실행 현황)
 
 ---
 
 ## 0. 현황 요약 (계획의 전제)
 
-### 현 라이브 토폴로지 (`render.yaml` 기준)
+### 이관 전 라이브 토폴로지 (`render.yaml` 기준, 현재 폐기 예정)
 | 구성 | 위치 | 비고 |
 |------|------|------|
 | 백엔드 FastAPI | Render web (starter, singapore) | `alembic upgrade head` 빌드, uvicorn, `/healthz`, 업로드 `/data/uploads` 1GB 디스크 |

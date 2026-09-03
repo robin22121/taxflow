@@ -251,7 +251,7 @@ A열에 "합계" 텍스트, F~X열 각각 합산값 (천단위 콤마 포함)
 
 카카오톡 알림톡   ───┐
 카카오 챗봇      ───┤
-엑셀/이미지 업로드 ──┼──→  FastAPI Webhook (NCP)  ──→   Gemini Flash 2.5
+엑셀/이미지 업로드 ──┼──→  FastAPI Webhook (NHN Cloud) ──→ Gemini Flash 2.5
 이메일           ───┤      Cloud Functions로                + Claude Vision (OCR)
 개별 보안 URL    ───┘      이벤트 라우팅                          │
                                                                  ▼
@@ -271,21 +271,23 @@ Next.js 15 + TypeScript ──→  엑셀 다운로드 → 세무사가 SmartA �
                               (세무사 PC 로컬에서 공동인증서 사용)
 ```
 
-### 4.2 인프라 (NCP 메인)
+### 4.2 인프라 (NHN Cloud 메인)
+
+> 아래는 목표 아키텍처. **현 운영(2026-08-31 이관 완료)** 은 단일 vm-node + systemd·uvicorn·nginx + RDS for PostgreSQL 17 + Let's Encrypt로 단순화(Object Storage·Redis·NKS 미도입). 실배포 상세는 `plan/11-nhn-cloud-deploy.md`.
 
 | 영역 | 선택 | 이유 |
 |------|------|------|
-| 클라우드 | **Naver Cloud Platform (메인)** | CSAP 인증, 원화 결제, 한국어 지원 |
-| 리전 | KR-1 (춘천) / KR-2 (가산) Multi-AZ | 세무 데이터 국내 처리 의무 |
-| 컨테이너 | NCP Kubernetes Service (NKS) | 표준 K8s, 향후 멀티클라우드 대비 |
-| 컨테이너 레지스트리 | NCP Container Registry | NKS와 네이티브 통합 |
-| DB | Cloud DB for PostgreSQL (Multi-AZ) | 자동 백업·복제, 한국어 기술지원 |
-| 캐시·큐 | Cloud DB for Redis | Celery 작업 큐, 세션 캐시 |
-| 파일 저장 | NCP Object Storage + KMS | S3 호환 API, 통화녹음·엑셀 저장 |
-| CDN | NCP Global Edge | 대시보드 정적 자산 가속 |
-| 시크릿 관리 | NCP Secret Manager | API 키, DB 자격증명 |
-| 모니터링 | Cloud Insight + Sentry | 인프라 + 애플리케이션 양면 감시 |
-| 로그 | Cloud Log Analytics | 감사 로그 장기 보존 |
+| 클라우드 | **NHN Cloud (메인)** | CSAP 인증, 원화 결제, 한국어 지원, 1인 운영 콘솔 편의 |
+| 리전 | KR1 (판교) / KR2 (평촌) Multi-AZ | 세무 데이터 국내 처리 의무 |
+| 컨테이너 | NHN Kubernetes Service (NKS) | 표준 K8s, 향후 멀티클라우드 대비 (현 운영은 단일 vm-node + systemd) |
+| 컨테이너 레지스트리 | NHN Container Registry (NCR) | NKS와 네이티브 통합 |
+| DB | NHN Cloud RDS for PostgreSQL (Multi-AZ) | 자동 백업·복제, 한국어 기술지원 |
+| 캐시·큐 | NHN Cloud Redis | Celery 작업 큐, 세션 캐시 (현 운영 미도입) |
+| 파일 저장 | NHN Cloud Object Storage + Secure Key Manager | S3 호환 API, 통화녹음·엑셀 저장 |
+| CDN | NHN Cloud CDN | 대시보드 정적 자산 가속 |
+| 시크릿 관리 | NHN Cloud Secure Key Manager | API 키, DB 자격증명 |
+| 모니터링 | NHN Cloud Monitoring + Sentry | 인프라 + 애플리케이션 양면 감시 |
+| 로그 | NHN Cloud Log & Crash Search | 감사 로그 장기 보존 |
 
 ### 4.3 Backend (Core API)
 
@@ -305,8 +307,8 @@ Next.js 15 + TypeScript ──→  엑셀 다운로드 → 세무사가 SmartA �
 | OCR (엑셀 사진) | **Claude Sonnet 4.5 비전** | — | LLM 통합으로 파이프라인 단순화 |
 | 임베딩·검색 | **pgvector** | — | "저번달이랑 똑같아요" 매칭 |
 
-#### Claude API와 NCP의 호환성
-- Claude API는 외부 SaaS이지만 **데이터 송수신만 발생**, 저장은 모두 NCP 내부.
+#### Claude API와 NHN Cloud의 호환성
+- Claude API는 외부 SaaS이지만 **데이터 송수신만 발생**, 저장은 모두 NHN Cloud 내부.
 - **민감정보(주민번호 등)는 Claude API에 절대 전달하지 않음** → 마스킹 후 처리.
 
 ### 4.5 메시징 채널
@@ -315,7 +317,7 @@ Next.js 15 + TypeScript ──→  엑셀 다운로드 → 세무사가 SmartA �
 |------|------|------|
 | 카카오 알림톡 | **NHN Cloud Notification** 또는 카카오비즈니스 API | NHN Cloud는 통합 편의성 |
 | 카카오 챗봇 (양방향) | 카카오 i 오픈빌더 | 표준 |
-| 이메일 | **NCP Cloud Outbound Mailer** | 한국 IP, 스팸 필터 우회 유리 |
+| 이메일 | **NHN Cloud Email** 또는 Resend | 한국 IP·스팸 필터 우회 (현 운영은 Resend) |
 | SMS 백업 | Aligo 또는 NHN Cloud SMS | 알림톡 실패 시 fallback |
 
 ### 4.6 다채널 수집 전략 분석 (v2.1 — 전략 재편)
@@ -389,7 +391,7 @@ URL 폼 ────────┼──→  _ingest_message()  ──→  AI �
 | 상태 관리 | Zustand + TanStack Query |
 | 테이블 | TanStack Table |
 | 차트 | Recharts |
-| 호스팅 | NKS 또는 NCP App Engine |
+| 호스팅 | Vercel (현 운영) 또는 NHN NKS |
 
 ### 4.8 거래처 입력 미니 앱
 - 모바일 우선 페이지 (Next.js 동일 코드베이스)
@@ -407,13 +409,13 @@ URL 폼 ────────┼──→  _ingest_message()  ──→  AI �
   - 공동인증서 로컬 사용 지원
 
 ### 4.10 보안·컴플라이언스
-- 주민번호 별도 암호화 DB (AES-256-GCM + NCP KMS)
+- 주민번호 별도 암호화 (AES-256-GCM + NHN Cloud Secure Key Manager)
 - Claude API에 주민번호 비전송 (마스킹 후 송신)
 - 멀티테넌시 (세무사사무소별 row-level security)
-- 전수 감사 로그 (Cloud Log Analytics 장기 보존)
+- 전수 감사 로그 (NHN Cloud Log & Crash Search 장기 보존)
 - 세무사 2FA 필수
 - 장기: **ISMS-P 인증 + CSAP 등급 확보** (세무법인 영업 시 필수)
-- CI/CD: GitHub Actions → NCP Container Registry → NKS
+- CI/CD: GitHub Actions → NHN Container Registry(NCR) → NKS
 
 ### 4.11 기존 데이터 확보 전략 분석
 
@@ -480,7 +482,7 @@ Phase 4에서 AI 컬럼 매핑을 범용화하면 지원 가능.
 | SmartA 급여대장 엑셀 양식 변경 | 중간 | 양식 변경 모니터링 + 빠른 패치 (분기당 1회 이내) |
 | SmartA가 자동화 정책 강화 | 중간 | 급여대장 엑셀은 공식 기능이므로 영향 최소 |
 | 세무 신고 오류 시 책임 | 매우 높음 | 모든 신고는 세무사 최종 승인, 보험 가입, 책임 분담 명시 |
-| 개인정보 유출 | 매우 높음 | ISMS-P + CSAP, NCP KMS 분리 암호화, Claude API 주민번호 비전송, 모의해킹, 사이버보험 |
+| 개인정보 유출 | 매우 높음 | ISMS-P + CSAP, NHN Cloud Secure Key Manager 분리 암호화, Claude API 주민번호 비전송, 모의해킹, 사이버보험 |
 | 카카오 정책 변경 | 중간 | SMS·이메일 다채널 백업 |
 | 블랙피그AI의 1단계 진입 | 중간 | 빠른 시장 점유, 세무사 네트워크 lock-in |
 | 더존이 공식 API 출시 | 낮음 | 출시 시 신속히 통합 → 더 안정적인 경로 추가 |
@@ -496,8 +498,8 @@ Phase 4에서 AI 컬럼 매핑을 범용화하면 지원 가능.
 3. **차별화 포인트**: **1단계 (고객 소통·자료 수집) AI 자동화**에 집중
 4. **2단계 구현**: Phase 1에서는 세무사가 엑셀 업로드 (반자동), Phase 2에서 데스크톱 에이전트로 진화
 5. **공동인증서 처리**: 클라우드 서버 X → **세무사 PC 로컬에서 처리**
-6. **클라우드 인프라**: **NCP (Naver Cloud Platform) 메인** (CSAP·국내 리전·한국어 지원)
-7. **민감정보 처리**: Claude API에 주민번호 비전송 — 마스킹 후 LLM 호출, 주민번호는 NCP KMS로 NCP 내부에서만 복호화
+6. **클라우드 인프라**: **NHN Cloud 메인** (CSAP·국내 리전·한국어 지원). 2026-08-31 백엔드·DB 이관 완료 — 상세는 `plan/10-privacy-security.md` §3
+7. **민감정보 처리**: Claude API에 주민번호 비전송 — 마스킹 후 LLM 호출, 주민번호는 NHN Cloud 내부에서만 복호화(향후 Secure Key Manager)
 8. **기존 데이터 확보**: **SmartA 급여대장 엑셀 임포트 1순위** — 세무사가 SmartA에서 급여대장 엑셀을 내보내서 업로드. 하나의 파일에 직원 마스터 + 급여 이력 동시 확보. AI 컬럼 매핑으로 자유 양식도 지원.
 9. **회신 수집 채널**: **"거래처가 우리에게 보내게 만드는" 전략**. 카카오톡 1순위 → 전용 이메일 초대장 2순위 → 자동 전달 가이드 3순위 → URL 폼 4순위(폴백). 모든 채널이 단일 `_ingest_message()` 파이프라인으로 합류.
 10. **샘플 데이터 전략**: 리얼리스틱 샘플 데이터(거래처 7곳, 직원 45명, 4개월 이력)로 전체 파이프라인 검증. 8가지 시나리오 커버.
