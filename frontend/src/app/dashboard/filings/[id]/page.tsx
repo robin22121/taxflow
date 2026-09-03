@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -20,6 +21,7 @@ import {
 } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
+import { useHeaderSlots } from "@/components/header-slot";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -42,6 +44,7 @@ export default function FilingDetailPage({
   const [bulkPassword, setBulkPassword] = useState("");
   const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const headerSlots = useHeaderSlots();
 
   const allEntries = entries ?? [];
   const sessions = data?.sessions ?? [];
@@ -170,9 +173,10 @@ export default function FilingDetailPage({
   }
 
   return (
-    <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 48px)" }}>
-      {/* Toolbar — deadline + 자료요청/다운로드 actions */}
-      <div className="flex flex-col md:flex-row md:items-center md:h-[60px] gap-2 md:gap-4 px-3 md:px-5 py-2 md:py-0 border-b border-gray-200 bg-white shrink-0">
+    <div className="-m-6 flex flex-col" style={{ height: "calc(100dvh - 60px)" }}>
+      {/* 헤더 정보 슬롯 — 마감/신고기한 (레이아웃 헤더로 포털) */}
+      {headerSlots.info && createPortal(
+        <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
         {/* Mobile menu + title row */}
         <div className="flex md:hidden items-center gap-2 min-w-0">
           <button onClick={() => setShowSidebar((v) => !v)} className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" aria-label="거래처 목록">
@@ -202,33 +206,34 @@ export default function FilingDetailPage({
             </div>
           </Link>
         </div>
+        </div>,
+        headerSlots.info,
+      )}
 
-        {/* 자료요청 group */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
-            {sendInvite.isPending ? "발송중..." : "자료요청 (전체)"}
-          </Button>
-          <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1">
-            {requestCollection.isPending ? "발송중..." : "자료요청 (선택)"}
-          </Button>
-        </div>
+      {/* 자료요청 group — 다른 영역으로 이동 예정, 임시 숨김 */}
+      <div className="hidden">
+        <Button variant="secondary" onClick={() => setShowBulkConfirm(true)} disabled={sendInvite.isPending} className="!text-[12px] !px-2.5 !py-1">
+          {sendInvite.isPending ? "발송중..." : "자료요청 (전체)"}
+        </Button>
+        <Button variant="secondary" onClick={() => { if (selectedSession) setShowSelectedRequestConfirm(true); else alert("업체를 선택해주세요."); }} disabled={requestCollection.isPending} className="!text-[12px] !px-2.5 !py-1">
+          {requestCollection.isPending ? "발송중..." : "자료요청 (선택)"}
+        </Button>
+      </div>
 
-        {/* Review mode indicator (when active) */}
-        {reviewOnly && (
-          <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
-            확인필요만 보기 ✕
-          </button>
-        )}
-
-        {/* Spacer */}
-        <div className="hidden md:block flex-1" />
-
-        {/* Download group */}
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+      {/* 헤더 액션 슬롯 — 통합 다운로드 / 급여명세서 (레이아웃 헤더로 포털) */}
+      {headerSlots.actions && createPortal(
+        <>
+          {/* Review mode indicator (when active) */}
+          {reviewOnly && (
+            <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
+              확인필요만 보기 ✕
+            </button>
+          )}
           <Button variant="primary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
           <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
-        </div>
-      </div>
+        </>,
+        headerSlots.actions,
+      )}
 
       {/* Body */}
       {reviewOnly ? (
