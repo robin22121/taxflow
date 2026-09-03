@@ -421,10 +421,14 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
           {filtered.map((s) => (
-            <SessionItem key={s.id} session={s} entries={entries} active={s.id === activeSession} onClick={() => { setActiveSession(s.id); setShowSidebar(false); }} />
+            <div key={s.id}>
+              <SessionItem session={s} entries={entries} active={s.id === activeSession} onClick={() => { setActiveSession(s.id); setShowSidebar(false); }} />
+              {s.id === activeSession && selectedSession && (
+                <ClientInfoPanel session={selectedSession} entries={selectedEntries} />
+              )}
+            </div>
           ))}
         </div>
-        {selectedSession && <ClientInfoPanel session={selectedSession} entries={selectedEntries} />}
       </div>
 
       {/* CENTER — 3 tabs + content */}
@@ -512,7 +516,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   );
 }
 
-/* ═══ 선택 거래처 정보 (좌측 목록 하단) ═══ */
+/* ═══ 선택 거래처 정보 (선택한 행 아래에 펼침) ═══ */
 
 function ClientInfoPanel({ session, entries }: { session: CollectionSession; entries: PayrollEntry[] }) {
   const { data: clients } = useClients();
@@ -521,9 +525,8 @@ function ClientInfoPanel({ session, entries }: { session: CollectionSession; ent
   const email = c?.contact_email || c?.collect_email;
 
   return (
-    <div className="shrink-0 border-t border-gray-200 bg-gray-50/70 px-3 py-2.5 space-y-1.5">
+    <div className="mt-1 mb-1 ml-2 rounded-lg border border-gray-200 border-l-2 border-l-blue-400 bg-gray-50/80 px-2.5 py-2 space-y-1.5">
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[13px] font-semibold text-gray-900 truncate">{session.client_name}</span>
         <span className="text-[11px] text-gray-500 tabular-nums">{entries.length}명</span>
         {entries.length > 0 && (
           <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 tabular-nums">
