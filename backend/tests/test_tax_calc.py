@@ -1,7 +1,8 @@
 """Tax calc smoke tests.
 
 These verify the *direction* of the calculation and the deterministic non-WAGE
-formulas exactly. WAGE is approximate so we only assert ranges.
+formulas exactly. WAGE 세액 자체는 간이세액표 원문 기준이라
+``test_wage_tax_table.py`` 에서 정확값으로 검증하고, 여기서는 범위만 본다.
 """
 
 from app.models.payroll import IncomeType

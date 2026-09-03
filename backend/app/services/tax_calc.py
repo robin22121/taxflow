@@ -3,12 +3,8 @@
 Scope: estimate the income tax and local income tax to withhold per payroll line.
 Local tax (지방소득세) is always 10% of income tax, rounded down to the nearest 10 KRW.
 
-NOTE — production accuracy:
-    The 근로소득(WAGE) calculation here uses a piecewise approximation calibrated
-    to the NTS 근로소득간이세액표 (100% column, 부양가족수 1) within ~3% error.
-    Before billing real customers we MUST replace ``_wage_table_lookup`` with the
-    official table (load NTS Excel, lookup by 과세소득 bracket × 부양가족수 × %column).
-    See: https://www.nts.go.kr/  →  국세정보  →  세무자료실  →  근로소득간이세액표
+근로소득(WAGE)은 소득세법 시행령 [별표2] 근로소득간이세액표 원문을 그대로 조회한다
+(``app.services.wage_tax_table``). 그 밖의 소득구분은 아래 근사 세율을 쓴다.
 """
 
 from __future__ import annotations
@@ -16,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.models.payroll import IncomeType
+from app.services.wage_tax_table import lookup_wage_tax
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,85 +35,8 @@ def _local_tax(income_tax: int) -> int:
 
 
 def _wage_table_lookup(taxable_monthly: int, dependents: int) -> int:
-    """간이세액표 100% 컬럼 근사.
-
-    Logic: apply yearly 근로소득공제 + 인적공제 + 표준세액공제 then progressive brackets,
-    then divide by 12. Within ~3% of the official table for monthly 과세소득 1.5M~10M KRW.
-    """
-    if taxable_monthly <= 0:
-        return 0
-
-    # 부양가족수 — 본인 포함 (간이세액표 컬럼 기준)
-    dependents = max(1, dependents)
-    annual_taxable = taxable_monthly * 12
-
-    # 근로소득공제 (간이 근사: 5단계 한도)
-    if annual_taxable <= 5_000_000:
-        earned_deduction = annual_taxable * 0.7
-    elif annual_taxable <= 15_000_000:
-        earned_deduction = 3_500_000 + (annual_taxable - 5_000_000) * 0.4
-    elif annual_taxable <= 45_000_000:
-        earned_deduction = 7_500_000 + (annual_taxable - 15_000_000) * 0.15
-    elif annual_taxable <= 100_000_000:
-        earned_deduction = 12_000_000 + (annual_taxable - 45_000_000) * 0.05
-    else:
-        earned_deduction = 14_750_000 + (annual_taxable - 100_000_000) * 0.02
-    earned_deduction = min(earned_deduction, 20_000_000)
-
-    # 인적공제: 1명당 150만원
-    personal_deduction = dependents * 1_500_000
-
-    # 표준세액공제(13만원)는 산출세액에서 차감 — 단순화를 위해 과세표준 단계에서 100만원 가산
-    base = annual_taxable - earned_deduction - personal_deduction
-    base = max(0, base)
-
-    # 종합소득세 누진세율 (2024 기준)
-    brackets: list[tuple[int, float, int]] = [
-        (14_000_000, 0.06, 0),
-        (50_000_000, 0.15, 14_000_000 * 0.06 - 14_000_000 * 0.06),  # cumulative below
-        (88_000_000, 0.24, 0),
-        (150_000_000, 0.35, 0),
-        (300_000_000, 0.38, 0),
-        (500_000_000, 0.40, 0),
-        (1_000_000_000, 0.42, 0),
-        (10**12, 0.45, 0),
-    ]
-    # cumulative pre-bracket tax
-    cum: list[float] = []
-    running = 0.0
-    prev_top = 0
-    rates = [b[1] for b in brackets]
-    tops = [b[0] for b in brackets]
-    for i, top in enumerate(tops):
-        cum.append(running)
-        running += (top - prev_top) * rates[i]
-        prev_top = top
-
-    annual_tax = 0.0
-    prev_top = 0
-    for top, rate, _ in brackets:
-        if base <= top:
-            # cumulative tax of brackets below this one + (base - prev_top) * rate
-            idx = tops.index(top)
-            annual_tax = cum[idx] + (base - prev_top) * rate
-            break
-        prev_top = top
-
-    # 근로소득세액공제: 산출세액의 55%(작은 구간) ~ 30%(큰 구간), 한도 50/66/74만원
-    if annual_tax <= 1_300_000:
-        credit = annual_tax * 0.55
-    else:
-        credit = 715_000 + (annual_tax - 1_300_000) * 0.30
-    if annual_taxable <= 33_000_000:
-        credit = min(credit, 740_000)
-    elif annual_taxable <= 70_000_000:
-        credit = min(credit, max(660_000, 740_000 - (annual_taxable - 33_000_000) * 0.008))
-    else:
-        credit = min(credit, max(500_000, 660_000 - (annual_taxable - 70_000_000) * 0.005))
-
-    annual_tax_after_credit = max(0.0, annual_tax - credit)
-    monthly_tax = annual_tax_after_credit / 12
-    return _round_down_10(monthly_tax)
+    """간이세액표(100% 컬럼) 조회 — 소득세법 시행령 [별표2] 원문 기준."""
+    return lookup_wage_tax(taxable_monthly, dependents)
 
 
 # ---------------------------------------------------------------------------
