@@ -19,9 +19,11 @@ export default function LoginPage() {
     setErr(null);
     setLoading(true);
     try {
+      // 사업자번호는 하이픈을 빼고 보내고, 관리자 계정(이메일 형식)은 그대로 보낸다.
+      const loginId = email.includes("@") ? email.trim() : email.replace(/[^0-9]/g, "");
       const res = await api<TokenPair>("/api/v1/auth/login", {
         method: "POST",
-        json: { email, password },
+        json: { email: loginId, password },
       });
       setTokens(res.access_token, res.refresh_token);
       const me = await api<CurrentUser>("/api/v1/auth/me");
@@ -56,8 +58,9 @@ export default function LoginPage() {
               <Input
                 type="text"
                 value={email}
-                onChange={(e) => setEmail(e.target.value.replace(/[^0-9]/g, ""))}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="0000000000"
+                autoComplete="username"
                 required
               />
             </div>

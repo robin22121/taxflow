@@ -549,6 +549,30 @@ async def get_dashboard(
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
 
+    # 자료요청/메일발송 전이라도 모든 거래처가 목록에 나타나도록,
+    # 세션이 없는 거래처는 PENDING 세션을 생성한다(발송은 하지 않음).
+    clients = (
+        await db.execute(
+            select(Client).where(Client.tax_office_id == user.tax_office_id)
+        )
+    ).scalars().all()
+    existing_client_ids = set(
+        (
+            await db.execute(
+                select(CollectionSession.client_id).where(
+                    CollectionSession.monthly_filing_id == filing_id
+                )
+            )
+        ).scalars().all()
+    )
+    created = False
+    for client in clients:
+        if client.id not in existing_client_ids:
+            await _get_or_create_session(db, filing, client, ttl_days=14)
+            created = True
+    if created:
+        await db.commit()
+
     sessions = (
         await db.execute(
             select(CollectionSession)
