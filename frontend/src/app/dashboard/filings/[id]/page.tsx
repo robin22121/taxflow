@@ -13,6 +13,7 @@ import {
   useFilingDashboard,
   useFilingEntries,
   useInsuranceSummary,
+  usePreviewCarryForward,
   usePreviewMessage,
   usePreviewUpload,
   useRequestCollection,
@@ -577,13 +578,14 @@ function PayrollInputBar({
 }) {
   const previewMessage = usePreviewMessage();
   const previewUpload = usePreviewUpload();
+  const previewCarryForward = usePreviewCarryForward();
   const fileRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [senderName, setSenderName] = useState("");
   const [channel, setChannel] = useState("kakao");
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
 
-  const busy = previewMessage.isPending || previewUpload.isPending;
+  const busy = previewMessage.isPending || previewUpload.isPending || previewCarryForward.isPending;
   const sender = senderName.trim() || "직접입력";
 
   function runText() {
@@ -595,6 +597,24 @@ function PayrollInputBar({
           onPreview(data, { text, channel, sender_name: sender, received_date: receivedDate, attachments: null });
           setText("");
         },
+        onError: (e) => alert((e as Error).message),
+      },
+    );
+  }
+
+  function runCarryForward() {
+    if (busy) return;
+    previewCarryForward.mutate(
+      { sessionId: session.id },
+      {
+        onSuccess: (data) =>
+          onPreview(data, {
+            text: data.source_text,
+            channel: data.channel,
+            sender_name: senderName.trim() || "전월자료",
+            received_date: receivedDate,
+            attachments: null,
+          }),
         onError: (e) => alert((e as Error).message),
       },
     );
@@ -631,8 +651,9 @@ function PayrollInputBar({
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
           {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
         </Button>
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled title="준비중 — 다음 업데이트에서 활성화">
-          전월자료 불러오기
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={runCarryForward}
+          title="전월 급여자료를 이번 달 후보로 불러옵니다">
+          {previewCarryForward.isPending ? "불러오는 중..." : "전월자료 불러오기"}
         </Button>
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestAll} disabled={requestAllPending}>
           {requestAllPending ? "발송중..." : "자료요청 (전체)"}

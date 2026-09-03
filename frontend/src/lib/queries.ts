@@ -392,6 +392,17 @@ export function usePreviewUpload() {
   });
 }
 
+/** 전월 급여자료를 이번 달 후보로 불러온다 (AI 미사용, 저장 안 함). */
+export function usePreviewCarryForward() {
+  return useMutation({
+    mutationFn: (vars: { sessionId: string }) =>
+      api<CollectPreview>(`/api/v1/collect/sessions/${vars.sessionId}/carry-forward/preview`, {
+        method: "POST",
+        json: {},
+      }),
+  });
+}
+
 /** 검토·수정한 항목을 실제로 반영한다. */
 export function useCommitEntries(filingId: string) {
   const qc = useQueryClient();

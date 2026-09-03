@@ -266,6 +266,70 @@ async def preview_upload(
     )
 
 
+@router.post("/sessions/{session_id}/carry-forward/preview", response_model=CollectPreviewOut)
+async def preview_carry_forward(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectPreviewOut:
+    """전월 급여자료를 이번 달 후보로 불러온다. AI를 쓰지 않고 DB에도 쓰지 않는다."""
+    session = await _load_session(db, session_id, user)
+    client, filing = session.client, session.monthly_filing
+    prev_period = _prev_period(filing.period)
+
+    employees, prev_entries = await _build_context(db, client, filing)
+    if not prev_entries:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"{prev_period} 급여자료가 없습니다"
+        )
+
+    current_entries = await _load_current_entries(db, client, filing)
+    active_ids = {e.id for e in employees}
+    emp_names = {e.id: e.name for e in employees}
+
+    rows: list[ParsedEntryPreview] = []
+    resigned = 0
+    for pe in prev_entries:
+        # 퇴사 처리된 직원은 이번 달로 넘기지 않는다
+        if pe.employee_id and pe.employee_id not in active_ids:
+            resigned += 1
+            continue
+        cand = PayrollEntryCandidate(
+            raw_name=pe.raw_name,
+            employee_id=pe.employee_id,
+            income_type=pe.income_type,
+            total_amount=pe.total_amount,
+            non_taxable=pe.non_taxable or 0,
+            meal_amount=pe.meal_amount or 0,
+            car_amount=pe.car_amount or 0,
+            childcare_amount=pe.childcare_amount or 0,
+            match_status=MatchStatus.MATCHED if pe.employee_id else MatchStatus.AMBIGUOUS,
+            prev_amount=pe.total_amount,
+        )
+        rows.append(
+            _preview_row(
+                cand,
+                emp_names.get(pe.employee_id) if pe.employee_id else None,
+                current_entries.get(_entry_key(pe.employee_id, pe.raw_name)),
+            )
+        )
+
+    if not rows:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"{prev_period} 인원이 모두 퇴사 처리되어 불러올 항목이 없습니다"
+        )
+
+    text = f"전월({prev_period}) 자료 불러오기 — {len(rows)}건"
+    if resigned:
+        text += f" (퇴사자 {resigned}명 제외)"
+    return CollectPreviewOut(
+        session_id=session.id,
+        source_text=text,
+        channel="carry_forward",
+        entries=rows,
+    )
+
+
 @router.post("/sessions/{session_id}/messages/commit", response_model=CollectMessageOut)
 async def commit_message(
     session_id: str,
