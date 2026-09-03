@@ -106,7 +106,7 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
     logger.info("사무소 가입 접수(승인대기): %s (%s) code=%s", payload.office_name, payload.business_number, short_code)
 
-    # 승인 게이트: 가입 시점에는 토큰을 발급하지 않는다 (서버 관리자 승인 후 로그인 가능).
+    # 가입 시점에는 토큰을 발급하지 않는다 (가입 후 로그인 화면에서 로그인).
     return RegisterResponse(office_id=office.id, short_code=short_code)
 
 
@@ -118,17 +118,11 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다")
 
-    # 승인 게이트 — 서버 관리자는 사무소가 없으므로 검사 생략
+    # 승인 대기 게이트는 해제 — 가입만 하면 로그인 가능. 거부된 사무소만 차단한다.
     if not user.is_superadmin:
         office = await db.get(TaxOffice, user.tax_office_id) if user.tax_office_id else None
-        approval = office.approval_status if office else None
-        if approval == OfficeApprovalStatus.REJECTED:
+        if office and office.approval_status == OfficeApprovalStatus.REJECTED:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "가입이 거부되었습니다. 사무소로 문의해 주세요.")
-        if approval != OfficeApprovalStatus.APPROVED:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                "서버 관리자 승인 대기 중입니다. 승인 후 이용할 수 있습니다.",
-            )
 
     return TokenPair(
         access_token=create_access_token(user.id, tax_office_id=user.tax_office_id),
