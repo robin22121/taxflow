@@ -340,6 +340,10 @@ export type ParsedEntryPreview = {
   prev_amount: number | null;
   needs_followup: boolean;
   anomaly_notes: Record<string, unknown> | null;
+  /** 이번 달에 이미 있는 항목이면 "update" — 새로 만들지 않고 그 항목을 고친다. */
+  mode: "create" | "update";
+  entry_id: string | null;
+  existing_amount: number | null;
 };
 
 export type CollectPreview = {

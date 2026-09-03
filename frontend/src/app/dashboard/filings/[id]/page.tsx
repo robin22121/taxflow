@@ -632,7 +632,7 @@ function PayrollInputBar({
           {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
         </Button>
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled title="준비중 — 다음 업데이트에서 활성화">
-          전달자료 불러오기
+          전월자료 불러오기
         </Button>
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestAll} disabled={requestAllPending}>
           {requestAllPending ? "발송중..." : "자료요청 (전체)"}
@@ -695,6 +695,7 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
 
   const included = rows.filter((r) => r.include).map((r) => r.entry);
   const total = included.reduce((s, e) => s + e.total_amount, 0);
+  const updateCount = rows.filter((r) => r.entry.mode === "update").length;
 
   function patch(idx: number, p: Partial<ParsedEntryPreview>) {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, entry: { ...r.entry, ...p } } : r)));
@@ -733,6 +734,7 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
         <div className="space-y-2.5">
           <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
             <Badge tone="info">인식 {rows.length}건</Badge>
+            {updateCount > 0 && <Badge tone="info">기존 수정 {updateCount}건</Badge>}
             {preview.new_hire_suspected > 0 && <Badge tone="warning">신규 의심 {preview.new_hire_suspected}</Badge>}
             {preview.resignation_suspected > 0 && <Badge tone="warning">퇴사 의심 {preview.resignation_suspected}</Badge>}
             {preview.ambiguous > 0 && <Badge tone="warning">모호 {preview.ambiguous}</Badge>}
@@ -755,7 +757,7 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
                 <tr className="text-left text-[10.5px] uppercase tracking-wider text-gray-500">
                   <th className="px-2 py-1.5 w-10">반영</th>
                   <th className="px-2 py-1.5">이름</th>
-                  <th className="px-2 py-1.5 w-20">매칭</th>
+                  <th className="px-2 py-1.5 w-20">구분</th>
                   <th className="px-2 py-1.5 w-20">소득구분</th>
                   <th className="px-2 py-1.5 w-28 text-right">총지급액</th>
                   <th className="px-2 py-1.5 w-24 text-right">전월</th>
@@ -774,12 +776,18 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
                       )}
                     </td>
                     <td className="px-2 py-1.5">
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                        entry.match_status === "MATCHED" ? "bg-green-50 text-green-600 border border-green-100"
-                          : "bg-amber-50 text-amber-700 border border-amber-100"
-                      }`}>
-                        {matchStatusLabel(entry.match_status)}
-                      </span>
+                      {entry.mode === "update" ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
+                          수정
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          entry.match_status === "MATCHED" ? "bg-green-50 text-green-600 border border-green-100"
+                            : "bg-amber-50 text-amber-700 border border-amber-100"
+                        }`}>
+                          {matchStatusLabel(entry.match_status)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-2 py-1.5">
                       <select value={entry.income_type} onChange={(e) => patch(i, { income_type: e.target.value })}
@@ -793,6 +801,11 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
                       <input type="number" min={0} value={entry.total_amount}
                         onChange={(e) => patch(i, { total_amount: Math.max(0, Number(e.target.value) || 0) })}
                         className="w-full rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px] text-right tabular-nums" />
+                      {entry.mode === "update" && entry.existing_amount != null && entry.existing_amount !== entry.total_amount && (
+                        <div className="mt-0.5 text-right text-[10px] text-gray-400 tabular-nums">
+                          {formatKrw(entry.existing_amount)} →
+                        </div>
+                      )}
                     </td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-500">
                       {entry.prev_amount != null ? formatKrw(entry.prev_amount) : "—"}
@@ -809,6 +822,7 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
           </div>
           <p className="text-[11px] text-gray-400">
             비과세·4대보험·소득세는 거래처 설정값으로 자동 계산됩니다. 반영 후 표에서 수정할 수 있습니다.
+            {updateCount > 0 && " 기존 항목을 수정하면 금액이 바뀌므로 승인 상태는 해제됩니다."}
           </p>
         </div>
       )}
@@ -1277,7 +1291,6 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
             {summaryMode === "wht" && (
               <WhtSubTabBar value={whtSubTab} onChange={setWhtSubTab} entries={entries} />
             )}
-            {summaryMode && <SummaryCards mode={summaryMode} entries={displayEntries} />}
             {summaryMode === "received" && <ReceivedActionRow />}
             {displayEntries.length > 0 ? (
               <table className="w-full text-[12px]">
@@ -1327,70 +1340,12 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   );
 }
 
-/* ═══ Summary Cards (받은 자료 / 원천세관리 누계) ═══ */
-
-function SummaryCards({ mode, entries }: { mode: "received" | "wht"; entries: PayrollEntry[] }) {
-  const grossTotal = entries.reduce((acc, e) => acc + (e.total_amount ?? 0), 0);
-  const approvedCount = entries.filter((e) => e.approved).length;
-  const pendingCount = entries.length - approvedCount;
-  const reviewCount = entries.filter((e) => {
-    if (e.approved) return false;
-    if (e.match_status === "UNCONFIRMED" || e.match_status === "AMBIGUOUS") return true;
-    return !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0);
-  }).length;
-  const incomeTaxTotal = entries.reduce((acc, e) => acc + (e.income_tax ?? 0), 0);
-  const localTaxTotal = entries.reduce((acc, e) => acc + (e.local_tax ?? 0), 0);
-
-  if (mode === "received") {
-    return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-3 md:px-4 pt-3 pb-1">
-        <SumCard label="총 직원" value={`${entries.length}`} unit="명" />
-        <SumCard label="검토 대상" value={`${reviewCount}`} unit="건" tone={reviewCount > 0 ? "warning" : "neutral"} />
-        <SumCard label="승인 완료" value={`${approvedCount}`} unit={`/ ${entries.length}`} tone={approvedCount === entries.length && entries.length > 0 ? "success" : "neutral"} />
-        <SumCard label="총지급액 합계" value={formatKrw(grossTotal)} tone="accent" />
-      </div>
-    );
-  }
-
-  // mode === "wht"
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-3 md:px-4 pt-3 pb-1">
-      <SumCard label="근로소득 원천세" value={formatKrw(incomeTaxTotal)} sub="소득세 합계" />
-      <SumCard label="지방소득세" value={formatKrw(localTaxTotal)} sub="소득세의 10%" />
-      <SumCard label="납부 대상" value={formatKrw(incomeTaxTotal + localTaxTotal)} sub="합계 납부세액" tone="accent" />
-      <SumCard label="신고 인원" value={`${entries.length}`} unit="명" sub={`승인 ${approvedCount} · 검토 ${pendingCount}`} />
-    </div>
-  );
-}
-
-function SumCard({ label, value, unit, sub, tone = "neutral" }: {
-  label: string; value: string; unit?: string; sub?: string;
-  tone?: "neutral" | "accent" | "warning" | "success";
-}) {
-  const valueColor =
-    tone === "accent" ? "text-blue-700"
-    : tone === "warning" ? "text-amber-700"
-    : tone === "success" ? "text-green-700"
-    : "text-gray-900";
-  return (
-    <div className="border border-gray-200 rounded-lg px-3 py-2 bg-white">
-      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-gray-500">{label}</div>
-      <div className="flex items-baseline gap-1 mt-1">
-        <span className={`font-mono tabular-nums text-[17px] font-bold tracking-tight ${valueColor}`}>{value}</span>
-        {unit && <span className="text-[11.5px] text-gray-500">{unit}</span>}
-      </div>
-      {sub && <div className="text-[10.5px] text-gray-400 mt-0.5 truncate">{sub}</div>}
-    </div>
-  );
-}
-
 /* ═══ 받은 자료 Action Row (백엔드 미지원 — 준비중) ═══ */
 
 function ReceivedActionRow() {
   const tip = "준비중 — 다음 업데이트에서 활성화";
   return (
     <div className="flex items-center gap-1.5 px-3 md:px-4 pt-2.5 pb-1.5 flex-wrap">
-      <DisabledActionButton title={tip}>전월자료 불러오기</DisabledActionButton>
       <DisabledActionButton title={tip}>직원 추가</DisabledActionButton>
       <DisabledActionButton title={tip}>신규지정</DisabledActionButton>
       <DisabledActionButton title={tip} danger>퇴사처리</DisabledActionButton>

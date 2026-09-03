@@ -113,6 +113,7 @@ class CollectMessageOut(BaseModel):
     ambiguous: int
     needs_followup: int
     unconfirmed: int = 0  # 전월 대비 미언급 직원 — 계속근무/퇴사 확인 필요
+    updated: int = 0  # 기존 항목 수정 건수
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +137,10 @@ class ParsedEntryPreview(BaseModel):
     prev_amount: int | None = None
     needs_followup: bool = False
     anomaly_notes: dict | None = None
+    # 이번 달에 이미 있는 항목이면 'update' — 새로 만들지 않고 그 항목을 고친다.
+    mode: str = "create"
+    entry_id: str | None = None
+    existing_amount: int | None = None
 
 
 class CollectPreviewOut(BaseModel):
