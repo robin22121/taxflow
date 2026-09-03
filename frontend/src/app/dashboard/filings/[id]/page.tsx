@@ -423,6 +423,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
             <SessionItem key={s.id} session={s} entries={entries} active={s.id === activeSession} onClick={() => { setActiveSession(s.id); setShowSidebar(false); }} />
           ))}
         </div>
+        {selectedSession && <ClientInfoPanel session={selectedSession} entries={selectedEntries} />}
       </div>
 
       {/* CENTER — 3 tabs + content */}
@@ -506,6 +507,47 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
           onClose={() => setPreview(null)}
         />
       )}
+    </div>
+  );
+}
+
+/* ═══ 선택 거래처 정보 (좌측 목록 하단) ═══ */
+
+function ClientInfoPanel({ session, entries }: { session: CollectionSession; entries: PayrollEntry[] }) {
+  const { data: clients } = useClients();
+  const c = clients?.find((x) => x.id === session.client_id);
+  const approved = entries.filter((e) => e.approved).length;
+  const email = c?.contact_email || c?.collect_email;
+
+  return (
+    <div className="shrink-0 border-t border-gray-200 bg-gray-50/70 px-3 py-2.5 space-y-1.5">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[13px] font-semibold text-gray-900 truncate">{session.client_name}</span>
+        <span className="text-[11px] text-gray-500 tabular-nums">{entries.length}명</span>
+        {entries.length > 0 && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 tabular-nums">
+            {approved}/{entries.length} 승인
+          </span>
+        )}
+      </div>
+      {c && (
+        <dl className="space-y-0.5 text-[11px]">
+          {c.business_number && <InfoRow label="사업자" value={c.business_number} />}
+          {c.representative && <InfoRow label="대표" value={c.representative} />}
+          {c.contact_phone && <InfoRow label="연락처" value={c.contact_phone} />}
+          {email && <InfoRow label="이메일" value={email} />}
+          {c.is_corporation !== undefined && <InfoRow label="구분" value={c.is_corporation ? "법인" : "개인"} />}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-1.5">
+      <dt className="w-[38px] shrink-0 text-gray-400">{label}</dt>
+      <dd className="min-w-0 truncate font-medium text-gray-700" title={value}>{value}</dd>
     </div>
   );
 }
@@ -1114,7 +1156,6 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
-  const { data: clients } = useClients();
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1123,7 +1164,6 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const tab = forcedTab ?? internalTab;
   const setTab = forcedTab ? () => {} : setInternalTab;
   const showInternalTabBar = forcedTab === undefined;
-  const clientDetail = clients?.find((c) => c.id === session.client_id);
 
   // 원천세관리 탭에서는 income_type별 서브탭으로 entries 필터링 (더존 메뉴 분리 미러링)
   const displayEntries = summaryMode === "wht" ? entries.filter((e) => matchesWhtSubTab(e, whtSubTab)) : entries;
@@ -1193,62 +1233,41 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
 
   return (
     <>
-      <div className="px-4 py-3 border-b border-gray-100 shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">AI 추출 결과</span>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[15px] font-semibold">{session.client_name} · {displayEntries.length}명</span>
-              {displayEntries.length > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
-                  {displayEntries.filter((e) => e.approved).length}/{displayEntries.length} 승인
-                </span>
-              )}
+      {/* 거래처 정보는 좌측 목록 하단(ClientInfoPanel)으로 이동 — 여기는 선택 시 액션만 */}
+      {(selected.size > 0 || showInternalTabBar) && (
+        <div className="px-4 py-2 border-b border-gray-100 shrink-0">
+          {selected.size > 0 && (
+            <div className="flex gap-1.5">
+              <Button variant="primary" className="text-xs px-3 py-1.5"
+                onClick={() => {
+                  selected.forEach((id) => {
+                    const entry = entries.find((e) => e.id === id);
+                    if (entry && !entry.approved) update.mutate({ id, patch: { approved: true } });
+                  });
+                  setSelected(new Set());
+                }}
+                disabled={update.isPending}>
+                {update.isPending ? "승인중..." : selected.size === 1 ? "승인" : `일괄 승인 (${selected.size})`}
+              </Button>
+              <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
+                {remove.isPending ? "삭제중..." : selected.size === 1 ? "삭제" : `일괄 삭제 (${selected.size})`}
+              </Button>
             </div>
-          </div>
-          <div className="flex gap-1.5">
-            {selected.size > 0 && (
-              <>
-                <Button variant="primary" className="text-xs px-3 py-1.5"
-                  onClick={() => {
-                    selected.forEach((id) => {
-                      const entry = entries.find((e) => e.id === id);
-                      if (entry && !entry.approved) update.mutate({ id, patch: { approved: true } });
-                    });
-                    setSelected(new Set());
-                  }}
-                  disabled={update.isPending}>
-                  {update.isPending ? "승인중..." : selected.size === 1 ? "승인" : `일괄 승인 (${selected.size})`}
-                </Button>
-                <Button variant="danger" className="text-xs px-3 py-1.5" onClick={bulkDelete} disabled={remove.isPending}>
-                  {remove.isPending ? "삭제중..." : selected.size === 1 ? "삭제" : `일괄 삭제 (${selected.size})`}
-                </Button>
-              </>
-            )}
-          </div>
+          )}
+          {showInternalTabBar && (
+            <div className={`flex gap-1 ${selected.size > 0 ? "mt-2.5" : ""}`}>
+              <button onClick={() => setTab("wht")}
+                className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                원천세 관리
+              </button>
+              <button onClick={() => setTab("insurance")}
+                className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                4대보험 관리
+              </button>
+            </div>
+          )}
         </div>
-        {clientDetail && (
-          <div className="flex items-center gap-3 mt-2 text-[11px] text-gray-500 overflow-x-auto">
-            {clientDetail.business_number && <span>사업자 <strong className="text-gray-700">{clientDetail.business_number}</strong></span>}
-            {clientDetail.representative && <><span className="text-gray-300">|</span><span>대표 <strong className="text-gray-700">{clientDetail.representative}</strong></span></>}
-            {clientDetail.contact_phone && <><span className="text-gray-300">|</span><span><strong className="text-gray-700">{clientDetail.contact_phone}</strong></span></>}
-            {clientDetail.contact_email && <><span className="text-gray-300">|</span><span><strong className="text-gray-700">{clientDetail.contact_email}</strong></span></>}
-            {clientDetail.is_corporation !== undefined && <><span className="text-gray-300">|</span><span>{clientDetail.is_corporation ? "법인" : "개인"}</span></>}
-          </div>
-        )}
-        {showInternalTabBar && (
-          <div className="flex gap-1 mt-2.5">
-            <button onClick={() => setTab("wht")}
-              className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "wht" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-              원천세 관리
-            </button>
-            <button onClick={() => setTab("insurance")}
-              className={`px-3 py-1.5 text-[12px] font-semibold rounded-md transition-colors ${tab === "insurance" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-              4대보험 관리
-            </button>
-          </div>
-        )}
-      </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {tab === "insurance" ? (
