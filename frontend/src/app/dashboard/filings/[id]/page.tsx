@@ -583,7 +583,7 @@ function PayrollInputBar({
   const fileRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [senderName, setSenderName] = useState("");
-  const [channel, setChannel] = useState("kakao");
+  const [channel, setChannel] = useState("manual");
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
 
   const busy = previewMessage.isPending || previewUpload.isPending || previewCarryForward.isPending;
