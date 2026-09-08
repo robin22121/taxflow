@@ -29,7 +29,7 @@ from app.schemas.clients import (
     PayrollDefaultOut,
     PayrollDefaultUpdate,
 )
-from app.services.crypto import encrypt_rrn, mask_rrn
+from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
 from app.services.invite import get_or_create_session, send_invite_to_client
 from app.services.tax_calc import (
     DEFAULT_EI_RATE,
@@ -447,7 +447,7 @@ async def create_employee(
     if not client or client.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     rrn_encrypted = encrypt_rrn(payload.rrn) if payload.rrn else None
-    rrn_last4 = mask_rrn(payload.rrn).split("-")[-1][:4] if payload.rrn else None
+    rrn_last4 = _rrn_last4(payload.rrn) if payload.rrn else None
     emp = Employee(
         client_id=client_id,
         name=payload.name,
