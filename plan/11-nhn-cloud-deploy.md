@@ -212,10 +212,14 @@ Phase 6  보안 하드닝·백업·E2E
 
 ### 남은 작업 (사용자 입력/접근 필요)
 - **Aligo 허용 IP 등록**: 콘솔에 `133.186.134.144` 추가 → 문자 발송 활성화. (현재 `-101 IP 인증오류`)
-- **`xlwt` 설치 (배포 차단 항목)**: 사업소득 SmartA 양식(.xls) 생성에 필요한 신규 의존성.
-  vm-node에 설치하지 않은 채 코드를 배포하면 `app/api/filings.py` import 단계에서 **백엔드가 기동하지 않는다.**
-  코드 배포와 반드시 함께 진행할 것. `requirements.txt`·`pyproject.toml`에는 반영 완료
-  (→ [`04-excel-outputs.md`](04-excel-outputs.md) 4-3)
+- ~~**`xlwt` 설치 (배포 차단 항목)**~~ ✅ **2026-09-08 완료** — `/opt/taxflow/venv/bin/pip install 'xlwt>=1.3'`,
+  `xlwt 1.3.0` import 검증. 서비스 재시작은 하지 않음(코드 미배포 상태라 불필요).
+  사업소득 SmartA 양식(.xls) 생성용 의존성으로, 미설치 상태로 코드를 배포하면
+  `app/api/filings.py` import 단계에서 백엔드가 기동하지 않는다 (→ [`04-excel-outputs.md`](04-excel-outputs.md) 4-3)
+
+> ⚠️ **경로 정정**: 운영 venv는 `/opt/taxflow/venv`다 (`.venv` 아님).
+> systemd 유닛 `ExecStart=/opt/taxflow/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000`,
+> `WorkingDirectory=/opt/taxflow/backend`, `EnvironmentFile=/opt/taxflow/.env`, `User=ubuntu`.
 - **Phase 6 보안**: SSH 22 소스 제한, RDS 자동백업/`pg_dump` 크론. (선택, 권장)
 - **Render 폐기**: 브라우저 실로그인 최종 확인 후.
 
