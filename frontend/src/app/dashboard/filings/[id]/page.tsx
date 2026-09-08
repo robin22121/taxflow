@@ -560,7 +560,7 @@ function PayrollInputBar({
   const fileRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [senderName, setSenderName] = useState("");
-  const [channel, setChannel] = useState("kakao");
+  const [channel, setChannel] = useState("manual");
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
 
   const busy = previewMessage.isPending || previewUpload.isPending || previewCarryForward.isPending;
@@ -765,7 +765,7 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ entry, include }, i) => (
+                {rows.map(({ entry, include }, i) => [
                   <tr key={`${entry.raw_name}-${i}`} className={`border-b border-gray-100 last:border-0 ${include ? "" : "opacity-40"}`}>
                     <td className="px-2 py-1.5">
                       <input type="checkbox" checked={include} onChange={(e) => setInclude(i, e.target.checked)} />
@@ -811,8 +811,43 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
                     <td className="px-2 py-1.5 text-right tabular-nums text-gray-500">
                       {entry.prev_amount != null ? formatKrw(entry.prev_amount) : "—"}
                     </td>
-                  </tr>
-                ))}
+                  </tr>,
+                  entry.match_status === "NEW_HIRE_SUSPECTED" && entry.mode !== "update" && (
+                    <tr key={`${entry.raw_name}-${i}-new`} className={`border-b border-gray-100 last:border-0 ${include ? "" : "opacity-40"}`}>
+                      <td />
+                      <td colSpan={5} className="px-2 pb-2">
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2">
+                          <div className="mb-1.5 text-[11px] text-amber-800">
+                            신규 입사자로 등록합니다 — 주민번호를 입력하면 직원 마스터에 함께 저장됩니다. 비워두면 주민번호 미수집 상태로 등록됩니다.
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <input
+                              value={entry.new_employee?.rrn ?? ""}
+                              onChange={(e) => patch(i, { new_employee: { ...entry.new_employee, rrn: e.target.value } })}
+                              placeholder="주민번호 000000-0000000"
+                              maxLength={14}
+                              inputMode="numeric"
+                              autoComplete="off"
+                              className="w-44 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px] tabular-nums"
+                            />
+                            <input
+                              type="date"
+                              value={entry.new_employee?.hired_at ?? ""}
+                              onChange={(e) => patch(i, { new_employee: { ...entry.new_employee, hired_at: e.target.value || null } })}
+                              className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px]"
+                            />
+                            <input
+                              value={entry.new_employee?.employee_code ?? ""}
+                              onChange={(e) => patch(i, { new_employee: { ...entry.new_employee, employee_code: e.target.value } })}
+                              placeholder="사번(선택)"
+                              className="w-28 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px]"
+                            />
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ),
+                ])}
               </tbody>
             </table>
           </div>

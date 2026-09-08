@@ -344,6 +344,15 @@ export type ParsedEntryPreview = {
   mode: "create" | "update";
   entry_id: string | null;
   existing_amount: number | null;
+  /** 신규 입사자를 이 항목과 함께 직원 마스터에 등록할 때만 채운다. */
+  new_employee?: NewEmployeeInput | null;
+};
+
+/** 검토 화면에서 신규 입사자를 그 자리에 등록할 때 보내는 인적사항. */
+export type NewEmployeeInput = {
+  rrn?: string | null;
+  hired_at?: string | null;
+  employee_code?: string | null;
 };
 
 export type CollectPreview = {
@@ -357,6 +366,10 @@ export type CollectPreview = {
   resignation_suspected: number;
   ambiguous: number;
   unconfirmed: number;
+  new_hire_followups?: Record<string, unknown>[];
+  resignation_followups?: Record<string, unknown>[];
+  ambiguous_followups?: Record<string, unknown>[];
+  unconfirmed_followups?: Record<string, unknown>[];
 };
 
 /** 텍스트를 AI로 읽어 항목만 미리 받아온다 (저장 안 함). */

@@ -127,6 +127,20 @@ class CollectMessageOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class NewEmployeeIn(BaseModel):
+    """검토 화면에서 신규 입사자를 그 자리에서 등록할 때 함께 보내는 인적사항.
+
+    주민번호는 평문으로 올라오지만 커밋 핸들러가 받자마자 암호화해 저장한다.
+    """
+
+    rrn: str | None = None
+    hired_at: date | None = None
+    employee_code: str | None = None
+    department: str | None = None
+    position: str | None = None
+    job_type: str | None = None
+
+
 class ParsedEntryPreview(BaseModel):
     """AI가 읽어낸 급여 항목 1건. 사용자가 검토·수정한 뒤 그대로 commit에 되돌려 보낸다."""
 
@@ -147,6 +161,8 @@ class ParsedEntryPreview(BaseModel):
     mode: str = "create"
     entry_id: str | None = None
     existing_amount: int | None = None
+    # 신규 입사자를 이 항목과 함께 직원 마스터에 등록할 때만 채워 보낸다.
+    new_employee: NewEmployeeIn | None = None
 
 
 class CollectPreviewOut(BaseModel):
@@ -160,6 +176,11 @@ class CollectPreviewOut(BaseModel):
     resignation_suspected: int = 0
     ambiguous: int = 0
     unconfirmed: int = 0
+    # 개수만으로는 화면에서 "누구를" 물어야 할지 알 수 없어 목록도 함께 내려준다.
+    new_hire_followups: list[dict] = []
+    resignation_followups: list[dict] = []
+    ambiguous_followups: list[dict] = []
+    unconfirmed_followups: list[dict] = []
 
 
 class CollectCommitIn(BaseModel):
