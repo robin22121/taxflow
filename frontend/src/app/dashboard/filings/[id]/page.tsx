@@ -50,6 +50,8 @@ export default function FilingDetailPage({
   const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showCertificate, setShowCertificate] = useState(false);
+  const [showUnifiedPicker, setShowUnifiedPicker] = useState(false);
+  const [unifiedClientIds, setUnifiedClientIds] = useState<string[]>([]);
   const headerSlots = useHeaderSlots();
 
   const allEntries = entries ?? [];
@@ -108,40 +110,23 @@ export default function FilingDetailPage({
     }
   }
 
-  // 통합 다운로드: 무조건 전체 거래처 신고자료. 미수신/미확인/의심 시 경고.
-  // 급여대장 + 4대보험(3시트) + 사업소득 SmartA 양식을 ZIP 하나로 받는다.
+  // 통합 다운로드: 거래처를 골라 ZIP 하나로 받는다.
+  // ZIP 안은 거래처별 폴더 — 한 파일에 섞으면 SmartA·위하고T 업로드 시 다른 회사 직원이 함께 등록됨.
   // (파일을 따로 내려받으면 브라우저의 다중 다운로드 차단에 걸려 조용히 유실됨)
-  async function downloadUnified() {
-    const unreceived = sessions.filter(
-      (s) => s.status === "PENDING" || s.status === "SENT",
-    );
-    const anomalySessions = sessions.filter((s) => s.has_anomalies);
-    const suspectEntries = allEntries.filter(
-      (e) =>
-        e.match_status === "UNCONFIRMED" ||
-        e.match_status === "AMBIGUOUS" ||
-        (e.anomaly_notes &&
-          Object.keys(e.anomaly_notes).length > 0 &&
-          !e.approved),
-    );
-    const probs: string[] = [];
-    if (unreceived.length)
-      probs.push(
-        `미수신 거래처 ${unreceived.length}곳: ${unreceived.map((s) => s.client_name).join(", ")}`,
-      );
-    if (anomalySessions.length)
-      probs.push(`이상치/확인필요 거래처 ${anomalySessions.length}곳`);
-    if (suspectEntries.length)
-      probs.push(`미확인·의심 항목 ${suspectEntries.length}건`);
-    if (probs.length > 0) {
-      const ok = window.confirm(
-        `⚠️ 미해결 사항이 있습니다:\n\n- ${probs.join("\n- ")}\n\n` +
-          "그래도 전체 거래처의 신고자료(원천세 + 4대보험)를 다운로드하시겠습니까?",
-      );
-      if (!ok) return;
-    }
+  function openUnifiedPicker() {
+    // 자료가 들어온 거래처를 기본 선택
+    const withEntries = sessions.filter((s) => s.entry_count > 0).map((s) => s.client_id);
+    setUnifiedClientIds(withEntries.length > 0 ? withEntries : sessions.map((s) => s.client_id));
+    setShowUnifiedPicker(true);
+  }
+
+  async function runUnifiedDownload() {
+    if (unifiedClientIds.length === 0) return;
+    setShowUnifiedPicker(false);
     try {
-      const blob = await apiBlob(`/api/v1/filings/${id}/unified-download`);
+      const blob = await apiBlob(
+        `/api/v1/filings/${id}/unified-download?client_ids=${encodeURIComponent(unifiedClientIds.join(","))}`,
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -202,7 +187,7 @@ export default function FilingDetailPage({
               확인필요만 보기 ✕
             </button>
           )}
-          <Button variant="primary" onClick={downloadUnified} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
+          <Button variant="primary" onClick={openUnifiedPicker} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
           <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
           <Button variant="ghost" onClick={() => setShowCertificate(true)} className="!text-[12px] !px-2.5 !py-1">증명원 발급</Button>
         </>,
@@ -248,6 +233,67 @@ export default function FilingDetailPage({
           <label className="block text-[12px] font-medium text-gray-600 mb-1">비밀번호 확인</label>
           <input type="password" value={bulkPassword} onChange={(e) => setBulkPassword(e.target.value)} placeholder="비밀번호를 입력하세요"
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500" />
+        </Modal>
+      )}
+
+      {showUnifiedPicker && (
+        <Modal open={true} onClose={() => setShowUnifiedPicker(false)} size="lg"
+          title="통합 다운로드 — 거래처 선택"
+          footer={<>
+            <Button variant="ghost" onClick={() => setShowUnifiedPicker(false)}>취소</Button>
+            <Button disabled={unifiedClientIds.length === 0} onClick={runUnifiedDownload}>
+              {unifiedClientIds.length}곳 다운로드
+            </Button>
+          </>}>
+          <p className="text-[13px] text-gray-700 mb-3">
+            선택한 거래처의 <strong>급여대장 · 4대보험 · 사업소득(SmartA)</strong>을 ZIP 하나로 받습니다.
+            ZIP 안은 거래처별 폴더로 나뉩니다.
+          </p>
+
+          <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-1">
+            <button type="button"
+              onClick={() => setUnifiedClientIds(
+                unifiedClientIds.length === sessions.length ? [] : sessions.map((s) => s.client_id),
+              )}
+              className="text-[12px] font-medium text-blue-600 hover:text-blue-700">
+              {unifiedClientIds.length === sessions.length ? "전체 해제" : "전체 선택"}
+            </button>
+            <span className="text-[12px] text-gray-500">전체 {sessions.length}곳</span>
+          </div>
+
+          <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-100">
+            {sessions.map((s) => {
+              const checked = unifiedClientIds.includes(s.client_id);
+              const unreceived = s.status === "PENDING" || s.status === "SENT";
+              return (
+                <label key={s.client_id}
+                  className="flex items-center gap-2.5 py-2 cursor-pointer hover:bg-gray-50 px-1">
+                  <input type="checkbox" checked={checked}
+                    onChange={() => setUnifiedClientIds(
+                      checked
+                        ? unifiedClientIds.filter((c) => c !== s.client_id)
+                        : [...unifiedClientIds, s.client_id],
+                    )}
+                    className="h-3.5 w-3.5 accent-blue-600" />
+                  <span className="flex-1 text-[13px] text-gray-900">{s.client_name}</span>
+                  {s.entry_count > 0 && (
+                    <span className="text-[11px] text-gray-500">{s.entry_count}건</span>
+                  )}
+                  {unreceived && <Badge tone="warning">미수신</Badge>}
+                  {s.has_anomalies && <Badge tone="danger">확인필요</Badge>}
+                </label>
+              );
+            })}
+          </div>
+
+          {sessions.some(
+            (s) => unifiedClientIds.includes(s.client_id)
+              && (s.status === "PENDING" || s.status === "SENT" || s.has_anomalies),
+          ) && (
+            <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+              ⚠️ 선택 항목에 미수신·확인필요 거래처가 있습니다. 자료가 비었거나 검증 전 상태로 받게 됩니다.
+            </p>
+          )}
         </Modal>
       )}
 

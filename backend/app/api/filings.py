@@ -1,5 +1,6 @@
 """Monthly filing endpoints — create, request collection, dashboard, excel download."""
 
+import re
 import zipfile
 from datetime import UTC, datetime as _dt
 from io import BytesIO
@@ -960,6 +961,19 @@ async def _business_entries_for_filing(
     )
 
 
+def _unique_folder(business_name: str, used: set[str]) -> str:
+    """ZIP 내부 폴더명. 경로 구분자·제어문자를 걷어내고 중복은 접미사로 구분한다."""
+    base = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", business_name or "").strip() or "거래처"
+    base = base[:60]
+    name = base
+    suffix = 2
+    while name in used:
+        name = f"{base}_{suffix}"
+        suffix += 1
+    used.add(name)
+    return name
+
+
 async def _payroll_entries_for_filing(
     filing_id: str, db: AsyncSession, client_id: str | None = None
 ) -> list[PayrollEntry]:
@@ -1086,48 +1100,88 @@ async def download_insurance_combined(
 async def download_unified(
     filing_id: str,
     client_id: str | None = None,
+    client_ids: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """통합 다운로드 — 급여대장 + 4대보험 + 사업소득(SmartA) ZIP 묶음.
+    """통합 다운로드 — 거래처별 폴더로 급여대장 + 4대보험 + 사업소득(SmartA)을 ZIP으로 묶는다.
+
+    거래처를 한 파일에 섞으면 SmartA·위하고T 업로드 시 다른 회사 직원이 함께
+    등록되므로 항상 거래처 단위로 파일을 분리한다.
+
+    Args:
+        client_id: 단일 거래처.
+        client_ids: 쉼표 구분 다중 거래처. 지정 시 client_id보다 우선.
+        둘 다 없으면 해당 신고기간의 전체 거래처를 담는다.
 
     브라우저가 다중 자동 다운로드를 차단하므로 단일 ZIP으로 내려준다.
-    사업소득 항목이 없으면 해당 파일은 포함하지 않는다.
+    사업소득 항목이 없는 거래처는 해당 파일을 포함하지 않는다.
     """
     filing = await db.get(MonthlyFiling, filing_id)
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
 
-    payroll_entries = await _payroll_entries_for_filing(filing_id, db, client_id)
-    if not payroll_entries:
-        raise HTTPException(status.HTTP_409_CONFLICT, "엔트리가 없습니다.")
-
-    client = await db.get(Client, payroll_entries[0].client_id)
-    client_name = client.business_name if client else ""
-
-    wage_entries = await _wage_entries_for_filing(filing_id, db, client_id)
-    business_entries = await _business_entries_for_filing(filing_id, db, client_id)
+    if client_ids:
+        requested = [c.strip() for c in client_ids.split(",") if c.strip()]
+    elif client_id:
+        requested = [client_id]
+    else:
+        requested = list(
+            (
+                await db.execute(
+                    select(PayrollEntry.client_id)
+                    .where(PayrollEntry.monthly_filing_id == filing_id)
+                    .distinct()
+                )
+            )
+            .scalars()
+            .all()
+        )
+    if not requested:
+        raise HTTPException(status.HTTP_409_CONFLICT, "거래처가 없습니다.")
 
     period = filing.period
     buf = BytesIO()
+    used_folders: set[str] = set()
+    written = 0
+
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(
-            f"급여대장_{period}.xlsx",
-            generate_payroll_excel(payroll_entries, period=period, client_name=client_name),
-        )
-        zf.writestr(
-            f"4대보험_통합_{period}.xlsx",
-            generate_combined_insurance_report(wage_entries, period=period),
-        )
-        if business_entries:
+        for target_id in requested:
+            client = await db.get(Client, target_id)
+            if not client or client.tax_office_id != user.tax_office_id:
+                continue
+
+            payroll_entries = await _payroll_entries_for_filing(filing_id, db, target_id)
+            if not payroll_entries:
+                continue
+
+            folder = _unique_folder(client.business_name, used_folders)
             zf.writestr(
-                f"사업소득_지급명세서_{period}.xls",
-                generate_smarta_business_xls(business_entries, period=period),
+                f"{folder}/급여대장_{period}.xlsx",
+                generate_payroll_excel(
+                    payroll_entries, period=period, client_name=client.business_name
+                ),
             )
+            zf.writestr(
+                f"{folder}/4대보험_통합_{period}.xlsx",
+                generate_combined_insurance_report(
+                    await _wage_entries_for_filing(filing_id, db, target_id), period=period
+                ),
+            )
+            business_entries = await _business_entries_for_filing(filing_id, db, target_id)
+            if business_entries:
+                zf.writestr(
+                    f"{folder}/사업소득_지급명세서_{period}.xls",
+                    generate_smarta_business_xls(business_entries, period=period),
+                )
+            written += 1
+
+    if not written:
+        raise HTTPException(status.HTTP_409_CONFLICT, "엔트리가 없습니다.")
 
     from urllib.parse import quote
 
-    korean_name = f"{client_name or '통합신고자료'}-{period}.zip"
+    korean_name = f"통합신고자료-{period}.zip"
     ascii_fallback = f"unified_{period}.zip"
     return Response(
         content=buf.getvalue(),
