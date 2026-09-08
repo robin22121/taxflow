@@ -55,6 +55,9 @@ class EmployeeCreate(BaseModel):
     name: str
     rrn: str | None = None  # 평문 — 백엔드가 받자마자 암호화 후 폐기
     employee_code: str | None = None
+    department: str | None = None  # 부서 (급여대장 C열)
+    position: str | None = None    # 직급 (급여대장 D열)
+    job_type: str | None = None    # 직종 (급여대장 E열)
     hired_at: date | None = None
     business_type_code: str | None = None  # 사업소득 업종코드 (940xxx)
 
@@ -63,6 +66,9 @@ class EmployeeOut(BaseModel):
     id: str
     name: str
     employee_code: str | None
+    department: str | None = None
+    position: str | None = None
+    job_type: str | None = None
     hired_at: date | None
     resigned_at: date | None
     rrn_last4: str | None
