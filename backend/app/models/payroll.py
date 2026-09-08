@@ -70,6 +70,10 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
     longterm_care: Mapped[int] = mapped_column(Integer, default=0)       # 장기요양보험료
     income_tax: Mapped[int] = mapped_column(Integer, default=0)
     local_tax: Mapped[int] = mapped_column(Integer, default=0)
+    # 기타 공제 (위하고T 급여대장 양식용)
+    student_loan: Mapped[int] = mapped_column(Integer, default=0)          # 학자금상환액
+    settlement_insurance: Mapped[int] = mapped_column(Integer, default=0)  # 정산보험료 (건강보험 연말정산분 등)
+    rent_support: Mapped[int] = mapped_column(Integer, default=0)          # 월세지원금
     payment_date: Mapped[date | None] = mapped_column(Date)
     dependents: Mapped[int] = mapped_column(Integer, default=1)  # 부양가족수 (간이세액표용)
 

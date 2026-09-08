@@ -15,10 +15,14 @@ from app.services.payroll_excel import PayrollExcelError, generate_payroll_excel
 
 def _entry(name, *, code="1", bonus=0, meal=200_000, car=200_000, childcare=0,
            income_tax=22_740, local_tax=2_270, nps=91_440, hi=74_440,
-           ltc=9_640, ei=0, total=2_500_000):
+           ltc=9_640, ei=0, total=2_500_000, student_loan=0,
+           settlement_insurance=0, rent_support=0,
+           department="", position="", job_type=""):
     return SimpleNamespace(
         raw_name=name,
-        employee=SimpleNamespace(name=name, employee_code=code),
+        employee=SimpleNamespace(name=name, employee_code=code,
+                                 department=department, position=position,
+                                 job_type=job_type),
         payment_date=date(2025, 11, 25),
         bonus_amount=bonus,
         meal_amount=meal,
@@ -30,6 +34,9 @@ def _entry(name, *, code="1", bonus=0, meal=200_000, car=200_000, childcare=0,
         health_insurance=hi,
         longterm_care=ltc,
         employment_insurance=ei,
+        student_loan=student_loan,
+        settlement_insurance=settlement_insurance,
+        rent_support=rent_support,
         total_amount=total,
     )
 
@@ -62,8 +69,7 @@ def test_data_row_amounts():
     ws = _sheet([_entry("백재봉")])
 
     row = [ws.cell(3, c).value for c in range(1, 23)]
-    # 부서·직급·직종은 Employee에 대응 필드가 없어 빈 칸
-    assert row[:5] == ["1", "백재봉", None, None, None]
+    assert row[:5] == ["1", "백재봉", None, None, None]  # 부서·직급·직종 미입력
     # 기본급 = 2,500,000 − 상여 0 − 식대 200,000 − 자가운전 200,000
     assert row[5:11] == [2_100_000, 0, 200_000, 200_000, 0, 2_500_000]
     # 공제: 4대보험 + 세금 + 학자금/정산보험료/월세지원금(0) + 공제액계
@@ -100,3 +106,20 @@ def test_empty_and_bad_period_raise():
         generate_payroll_excel([], "2025-11")
     with pytest.raises(PayrollExcelError):
         generate_payroll_excel([_entry("백재봉")], "2025/11")
+
+
+def test_new_deduction_and_employee_columns_are_filled():
+    """학자금상환액·정산보험료·월세지원금과 부서·직급·직종이 실제로 반영된다."""
+    ws = _sheet([_entry("석란", code="4", total=3_000_000, nps=113_220, hi=92_170,
+                        ei=23_400, ltc=11_930, income_tax=39_690, local_tax=3_960,
+                        student_loan=50_000, settlement_insurance=120_000,
+                        rent_support=30_000,
+                        department="총무부", position="총무과장", job_type="사무직")])
+
+    row = [ws.cell(3, c).value for c in range(1, 23)]
+    assert row[2:5] == ["총무부", "총무과장", "사무직"]      # C·D·E
+    assert row[17:20] == [50_000, 120_000, 30_000]           # R·S·T
+    expected_deduction = (113_220 + 92_170 + 23_400 + 11_930 + 39_690 + 3_960
+                          + 50_000 + 120_000 + 30_000)
+    assert row[20] == expected_deduction                     # U: 공제액계
+    assert row[21] == 3_000_000 - expected_deduction         # V: 차인지급액

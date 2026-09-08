@@ -28,6 +28,10 @@ class Employee(Base, IdMixin, TimestampMixin):
     rrn_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     rrn_last4: Mapped[str | None] = mapped_column(String(4))  # 마스킹 표시용
     employee_code: Mapped[str | None] = mapped_column(String(40))
+    # 급여대장 표기용 (위하고T 양식 C·D·E열)
+    department: Mapped[str | None] = mapped_column(String(50))   # 부서
+    position: Mapped[str | None] = mapped_column(String(50))     # 직급
+    job_type: Mapped[str | None] = mapped_column(String(50))     # 직종
     wehago_employee_id: Mapped[str | None] = mapped_column(String(40))
     business_type_code: Mapped[str | None] = mapped_column(String(10))  # 사업소득 업종코드 (940100~940929)
     hired_at: Mapped[date | None] = mapped_column(Date)

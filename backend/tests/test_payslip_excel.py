@@ -15,7 +15,8 @@ def _entry(name, *, code="E001", client="(주)에이상사", salary=3_000_000,
            ltc=13_770, ei=27_000, total=3_200_000):
     return SimpleNamespace(
         raw_name=name,
-        employee=SimpleNamespace(name=name, employee_code=code),
+        employee=SimpleNamespace(name=name, employee_code=code,
+                                 department="", position="", job_type=""),
         client=SimpleNamespace(business_name=client),
         payment_date=date(2026, 4, 25),
         salary_amount=salary,
@@ -30,6 +31,9 @@ def _entry(name, *, code="E001", client="(주)에이상사", salary=3_000_000,
         health_insurance=hi,
         longterm_care=ltc,
         employment_insurance=ei,
+        student_loan=0,
+        settlement_insurance=0,
+        rent_support=0,
         total_amount=total,
     )
 

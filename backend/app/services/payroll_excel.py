@@ -9,7 +9,6 @@
   Row 3~: data rows
   Last row: 합계 (A~E 병합, 금액은 계산된 값)
 
-학자금상환액·정산보험료·월세지원금은 PayrollEntry에 대응 필드가 없어 0으로 채운다.
 """
 
 from __future__ import annotations
@@ -89,7 +88,6 @@ def payroll_breakdown(entry: PayrollEntry) -> dict[str, int]:
     """PayrollEntry를 위하고T 급여대장 항목으로 분해한다.
 
     급여대장 엑셀·급여명세서·대시보드가 같은 값을 보이도록 이 함수 하나만 쓴다.
-    학자금상환액·정산보험료·월세지원금은 대응 필드가 없어 항상 0.
     """
     income_tax, local_tax = _ensure_taxes(entry)
 
@@ -105,9 +103,9 @@ def payroll_breakdown(entry: PayrollEntry) -> dict[str, int]:
     health_insurance = entry.health_insurance or 0
     employment_insurance = entry.employment_insurance or 0
     longterm_care = entry.longterm_care or 0
-    student_loan = 0
-    settlement_insurance = 0
-    rent_support = 0
+    student_loan = entry.student_loan or 0
+    settlement_insurance = entry.settlement_insurance or 0
+    rent_support = entry.rent_support or 0
 
     deduction_total = (
         national_pension + health_insurance + employment_insurance + longterm_care
@@ -180,9 +178,9 @@ def _data_row(entry: PayrollEntry, idx: int) -> list:
     return [
         emp_code,                    # A: 사원코드
         emp_name,                    # B: 사원명
-        "",                          # C: 부서 (Employee에 대응 필드 없음)
-        "",                          # D: 직급 (동일)
-        "",                          # E: 직종 (동일)
+        (emp.department if emp else None) or "",   # C: 부서
+        (emp.position if emp else None) or "",      # D: 직급
+        (emp.job_type if emp else None) or "",      # E: 직종
         *(b[h] for h in ITEM_HEADERS),   # F~U: 수당·공제 항목
         b["차인지급액"],              # V: 차인지급액
     ]

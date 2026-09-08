@@ -259,6 +259,9 @@ export type PayrollEntry = {
   longterm_care: number;
   income_tax: number;
   local_tax: number;
+  student_loan: number;
+  settlement_insurance: number;
+  rent_support: number;
   payment_date: string | null;
   match_status: string;
   prev_amount: number | null;

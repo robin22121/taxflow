@@ -454,6 +454,9 @@ async def create_employee(
         rrn_encrypted=rrn_encrypted,
         rrn_last4=rrn_last4,
         employee_code=payload.employee_code,
+        department=payload.department,
+        position=payload.position,
+        job_type=payload.job_type,
         hired_at=payload.hired_at,
         status=EmploymentStatus.ACTIVE if payload.rrn else EmploymentStatus.PENDING,
     )

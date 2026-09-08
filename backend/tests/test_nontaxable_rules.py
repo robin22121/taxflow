@@ -17,7 +17,8 @@ _BASE_COL = 5  # F: 기본급
 
 def _entry(*, total, bonus=0, meal=0, car=0, childcare=0, non_tax=0):
     return SimpleNamespace(
-        employee=SimpleNamespace(name="김철수", employee_code="E001"),
+        employee=SimpleNamespace(name="김철수", employee_code="E001",
+                                 department="", position="", job_type=""),
         raw_name="김철수",
         total_amount=total,
         bonus_amount=bonus,
@@ -32,6 +33,9 @@ def _entry(*, total, bonus=0, meal=0, car=0, childcare=0, non_tax=0):
         health_insurance=0,
         employment_insurance=0,
         longterm_care=0,
+        student_loan=0,
+        settlement_insurance=0,
+        rent_support=0,
     )
 
 
