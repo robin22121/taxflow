@@ -1,6 +1,8 @@
 """Monthly filing endpoints — create, request collection, dashboard, excel download."""
 
+import zipfile
 from datetime import UTC, datetime as _dt
+from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
@@ -48,6 +50,7 @@ from app.services.simple_statement_excel import (
     generate_wage_statement,
 )
 from app.services.payroll_excel import generate_payroll_excel
+from app.services.smarta_business_xls import generate_smarta_business_xls
 from app.services.wehago_excel import generate_wehago_excel
 
 router = APIRouter()
@@ -810,24 +813,7 @@ async def download_payroll_excel(
     if not filing or filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
 
-    filters = [
-        PayrollEntry.monthly_filing_id == filing_id,
-    ]
-    if client_id:
-        filters.append(PayrollEntry.client_id == client_id)
-
-    all_entries = (
-        await db.execute(
-            select(PayrollEntry)
-            .where(*filters)
-            .options(selectinload(PayrollEntry.employee))
-        )
-    ).scalars().all()
-
-    # 승인된 항목 우선, 없으면 전체 항목으로 fallback
-    entries = [e for e in all_entries if e.approved]
-    if not entries:
-        entries = list(all_entries)
+    entries = await _payroll_entries_for_filing(filing_id, db, client_id)
     if not entries:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -951,6 +937,51 @@ async def _wage_entries_for_filing(
     )
 
 
+async def _business_entries_for_filing(
+    filing_id: str, db: AsyncSession, client_id: str | None = None
+) -> list[PayrollEntry]:
+    filters = [
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.income_type == "BUSINESS",
+        PayrollEntry.employee_id.isnot(None),
+    ]
+    if client_id:
+        filters.append(PayrollEntry.client_id == client_id)
+    return list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(*filters)
+                .options(selectinload(PayrollEntry.employee))
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def _payroll_entries_for_filing(
+    filing_id: str, db: AsyncSession, client_id: str | None = None
+) -> list[PayrollEntry]:
+    """급여대장용 엔트리. 승인된 항목 우선, 없으면 전체로 fallback."""
+    filters = [PayrollEntry.monthly_filing_id == filing_id]
+    if client_id:
+        filters.append(PayrollEntry.client_id == client_id)
+    all_entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(*filters)
+                .options(selectinload(PayrollEntry.employee))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    approved = [e for e in all_entries if e.approved]
+    return approved or all_entries
+
+
 @router.get("/{filing_id}/insurance-acquisition")
 async def download_insurance_acquisition(
     filing_id: str,
@@ -1046,6 +1077,65 @@ async def download_insurance_combined(
         headers={
             "Content-Disposition": (
                 f'attachment; filename="insurance_combined_{filing.period}.xlsx"'
+            ),
+        },
+    )
+
+
+@router.get("/{filing_id}/unified-download")
+async def download_unified(
+    filing_id: str,
+    client_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """통합 다운로드 — 급여대장 + 4대보험 + 사업소득(SmartA) ZIP 묶음.
+
+    브라우저가 다중 자동 다운로드를 차단하므로 단일 ZIP으로 내려준다.
+    사업소득 항목이 없으면 해당 파일은 포함하지 않는다.
+    """
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    payroll_entries = await _payroll_entries_for_filing(filing_id, db, client_id)
+    if not payroll_entries:
+        raise HTTPException(status.HTTP_409_CONFLICT, "엔트리가 없습니다.")
+
+    client = await db.get(Client, payroll_entries[0].client_id)
+    client_name = client.business_name if client else ""
+
+    wage_entries = await _wage_entries_for_filing(filing_id, db, client_id)
+    business_entries = await _business_entries_for_filing(filing_id, db, client_id)
+
+    period = filing.period
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            f"급여대장_{period}.xlsx",
+            generate_payroll_excel(payroll_entries, period=period, client_name=client_name),
+        )
+        zf.writestr(
+            f"4대보험_통합_{period}.xlsx",
+            generate_combined_insurance_report(wage_entries, period=period),
+        )
+        if business_entries:
+            zf.writestr(
+                f"사업소득_지급명세서_{period}.xls",
+                generate_smarta_business_xls(business_entries, period=period),
+            )
+
+    from urllib.parse import quote
+
+    korean_name = f"{client_name or '통합신고자료'}-{period}.zip"
+    ascii_fallback = f"unified_{period}.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_fallback}"; '
+                f"filename*=UTF-8''{quote(korean_name)}"
             ),
         },
     )

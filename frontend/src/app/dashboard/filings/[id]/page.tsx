@@ -92,41 +92,6 @@ export default function FilingDetailPage({
   const deadlineDate = new Date(month === 12 ? year + 1 : year, month === 12 ? 0 : month, deadlineDay);
   const daysLeft = Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
-  async function downloadExcel() {
-    try {
-      const blob = await apiBlob(`/api/v1/filings/${id}/payroll-excel`);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `급여대장_${filing.period}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  }
-
-  async function downloadInsurance(
-    kind: "acquisition" | "loss" | "change" | "combined",
-    label: string,
-  ) {
-    try {
-      const blob = await apiBlob(`/api/v1/filings/${id}/insurance-${kind}`);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `4대보험_${label}_${filing.period}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  }
-
   async function downloadPayslips() {
     try {
       const blob = await apiBlob(`/api/v1/filings/${id}/payslips`);
@@ -144,7 +109,8 @@ export default function FilingDetailPage({
   }
 
   // 통합 다운로드: 무조건 전체 거래처 신고자료. 미수신/미확인/의심 시 경고.
-  // 원천세 = 일괄신고 단일 파일, 4대보험 = 단일 파일(3시트 분리).
+  // 급여대장 + 4대보험(3시트) + 사업소득 SmartA 양식을 ZIP 하나로 받는다.
+  // (파일을 따로 내려받으면 브라우저의 다중 다운로드 차단에 걸려 조용히 유실됨)
   async function downloadUnified() {
     const unreceived = sessions.filter(
       (s) => s.status === "PENDING" || s.status === "SENT",
@@ -174,8 +140,19 @@ export default function FilingDetailPage({
       );
       if (!ok) return;
     }
-    await downloadExcel(); // 원천세 일괄신고 — 단일 파일
-    await downloadInsurance("combined", "통합"); // 4대보험 — 단일 파일(3시트 분리)
+    try {
+      const blob = await apiBlob(`/api/v1/filings/${id}/unified-download`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `통합신고자료_${filing.period}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message);
+    }
   }
 
   return (
