@@ -359,9 +359,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
   const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("received");
-  const [commOpen, setCommOpen] = useState(false);
-  // 한 번이라도 연 뒤에만 마운트 — 닫힌 상태에서 타임라인/첨부를 불러오지 않는다.
-  const [commMounted, setCommMounted] = useState(false);
+  const [commOpen, setCommOpen] = useState(true);
   const [preview, setPreview] = useState<{ data: CollectPreview; meta: PreviewMeta } | null>(null);
 
   const isReview = (s: CollectionSession) => {
@@ -467,8 +465,9 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
             {/* 급여자료 입력 바 */}
             <PayrollInputBar
               session={selectedSession}
+              showComm={mainTab === "received"}
               commOpen={commOpen}
-              onToggleComm={() => { setCommMounted(true); setCommOpen((v) => !v); }}
+              onToggleComm={() => setCommOpen((v) => !v)}
               onRequestAll={onRequestAll}
               requestAllPending={requestAllPending}
               onRequestSelected={onRequestSelected}
@@ -481,8 +480,8 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         )}
       </div>
 
-      {/* RIGHT — 고객소통내역 (기본 숨김, 슬라이드 개폐) */}
-      {selectedSession && (
+      {/* RIGHT — 고객소통내역 (받은 자료 탭 전용, 기본 열림, 슬라이드 개폐) */}
+      {selectedSession && mainTab === "received" && (
         <>
           {commOpen && (
             <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setCommOpen(false)} />
@@ -494,11 +493,9 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 : "translate-x-full w-[min(92vw,380px)] lg:translate-x-0 lg:w-0 lg:border-l-0"
             }`}
           >
-            {commMounted && (
-              <CenterPane key={`${selectedSession.id}-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                onClose={() => setCommOpen(false)} />
-            )}
+            <CenterPane key={`${selectedSession.id}-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+              highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+              onClose={() => setCommOpen(false)} />
           </div>
         </>
       )}
@@ -567,10 +564,11 @@ type PreviewMeta = {
 };
 
 function PayrollInputBar({
-  session, commOpen, onToggleComm, onRequestAll, requestAllPending,
+  session, showComm, commOpen, onToggleComm, onRequestAll, requestAllPending,
   onRequestSelected, requestSelectedPending, onPreview,
 }: {
   session: CollectionSession;
+  showComm: boolean;
   commOpen: boolean;
   onToggleComm: () => void;
   onRequestAll: () => void;
@@ -665,9 +663,11 @@ function PayrollInputBar({
           {requestSelectedPending ? "발송중..." : "자료요청 (선택)"}
         </Button>
         <div className="flex-1" />
-        <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
-          고객소통내역 {commOpen ? "▶" : "◀"}
-        </Button>
+        {showComm && (
+          <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
+            고객소통내역 {commOpen ? "▶" : "◀"}
+          </Button>
+        )}
       </div>
 
       {/* 2줄 — 직접입력 */}
