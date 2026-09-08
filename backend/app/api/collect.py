@@ -32,9 +32,11 @@ from app.schemas.filings import (
     CollectMessageIn,
     CollectMessageOut,
     CollectPreviewOut,
+    NewEmployeeIn,
     ParsedEntryPreview,
 )
 from app.services.ai_parser import parse_payroll_message
+from app.services.crypto import encrypt_rrn, normalize_rrn, rrn_last4
 from app.services.file_intake import intake_file
 from app.services.matching import (
     EmployeeMaster,
@@ -186,6 +188,10 @@ def _to_preview(
         resignation_suspected=len(matching.resignation_followups),
         ambiguous=len(matching.ambiguous_followups),
         unconfirmed=len(matching.unconfirmed_followups),
+        new_hire_followups=matching.new_hire_followups,
+        resignation_followups=matching.resignation_followups,
+        ambiguous_followups=matching.ambiguous_followups,
+        unconfirmed_followups=matching.unconfirmed_followups,
     )
 
 
@@ -330,6 +336,43 @@ async def preview_carry_forward(
     )
 
 
+async def _create_employee_from_review(
+    db: AsyncSession, client: Client, name: str, payload: NewEmployeeIn
+) -> Employee:
+    """검토 화면에서 입력한 신규 입사자를 직원 마스터에 등록한다.
+
+    주민번호는 형식 확인 후 바로 암호화해 담고, 평문은 남기지 않는다.
+    주민번호 없이 등록하면 PENDING(주민번호 미수집) 상태가 된다.
+    """
+    rrn_encrypted = None
+    last4 = None
+    if payload.rrn:
+        try:
+            digits = normalize_rrn(payload.rrn)
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"{name}: {exc}"
+            ) from exc
+        rrn_encrypted = encrypt_rrn(digits)
+        last4 = rrn_last4(digits)
+
+    emp = Employee(
+        client_id=client.id,
+        name=name,
+        rrn_encrypted=rrn_encrypted,
+        rrn_last4=last4,
+        employee_code=payload.employee_code,
+        department=payload.department,
+        position=payload.position,
+        job_type=payload.job_type,
+        hired_at=payload.hired_at,
+        status=EmploymentStatus.ACTIVE if rrn_encrypted else EmploymentStatus.PENDING,
+    )
+    db.add(emp)
+    await db.flush()
+    return emp
+
+
 @router.post("/sessions/{session_id}/messages/commit", response_model=CollectMessageOut)
 async def commit_message(
     session_id: str,
@@ -358,6 +401,17 @@ async def commit_message(
         except ValueError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"알 수 없는 구분값: {exc}") from exc
         employee_id = item.employee_id if item.employee_id in valid_emp_ids else None
+        if employee_id is None and item.new_employee is not None:
+            # 검토 화면에서 신규 입사자를 그 자리에 등록한 경우 — 직원 마스터를
+            # 먼저 만들고 이 항목을 거기에 붙인다. 커밋과 같은 트랜잭션이라
+            # 저장이 실패하면 직원도 함께 롤백된다.
+            new_emp = await _create_employee_from_review(
+                db, client, item.raw_name, item.new_employee
+            )
+            employee_id = new_emp.id
+            valid_emp_ids.add(new_emp.id)
+            employees.append(new_emp)
+            match_status = MatchStatus.MATCHED
         cand = PayrollEntryCandidate(
             raw_name=item.raw_name,
             employee_id=employee_id,
