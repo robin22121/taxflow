@@ -48,9 +48,22 @@ def test_sheet_per_employee_and_net_pay():
     flat = list(ws.values)
     # 제목
     assert ws["A1"].value == "임 금 명 세 서"
-    # 실수령액 = 지급계 - 공제계 (85000+8500+135000+106350+13770+27000=375620)
-    net_row = next(r for r in flat if r and r[0] == "실수령액")
+    # 차인지급액 = 지급액계 - 공제액계 (85000+8500+135000+106350+13770+27000=375620)
+    net_row = next(r for r in flat if r and r[0] == "차인지급액")
     assert net_row[1] == 3_200_000 - 375_620
+
+    # 항목명·순서는 위하고T 급여대장과 동일
+    labels = [r[0] for r in flat if r and r[0]]
+    assert labels[labels.index("수당"):labels.index("공제")] == [
+        "수당", "기본급", "상여", "식대", "자가운전", "육아", "지급액계",
+    ]
+    assert labels[labels.index("공제"):labels.index("차인지급액")] == [
+        "공제", "국민연금", "건강보험", "고용보험", "장기요양보험료",
+        "소득세", "지방소득세", "학자금상환액", "정산보험료", "월세지원금", "공제액계",
+    ]
+    # 기본급 = 총지급액 − 상여 − 비과세수당(식대 200,000)
+    basic_row = next(r for r in flat if r and r[0] == "기본급")
+    assert basic_row[1] == 3_200_000 - 200_000
 
 
 def test_duplicate_names_get_unique_sheets():

@@ -11,7 +11,7 @@ from app.models.payroll import IncomeType
 from app.services.payroll_excel import _data_row
 
 _GROSS_COL = 10  # K: 지급액계
-_NET_COL = 23  # X: 차인지급액
+_NET_COL = 21  # V: 차인지급액
 _BASE_COL = 5  # F: 기본급
 
 

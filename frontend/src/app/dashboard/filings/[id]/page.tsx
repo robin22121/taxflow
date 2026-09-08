@@ -2043,10 +2043,10 @@ function V3Spreadsheet({
       <div className={`${V3_GRID} bg-gray-50 border-b border-gray-200 text-[10.5px] font-bold uppercase tracking-wider text-gray-500`}>
         <div className="px-3.5 py-2 border-r border-gray-200">(+) 총지급</div>
         <div className="px-3.5 py-2 border-r border-gray-200">
-          {isWage ? "지급내역" : "비과세 미적용"}
+          {isWage ? "수당" : "비과세 미적용"}
         </div>
-        <div className="px-3.5 py-2 border-r border-gray-200">(−) 4대보험</div>
-        <div className="px-3.5 py-2 border-r border-gray-200">(−) 세금</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">(−) 공제 · 4대보험</div>
+        <div className="px-3.5 py-2 border-r border-gray-200">(−) 공제 · 세금</div>
         <div className="px-3.5 py-2">메모</div>
       </div>
 
@@ -2063,14 +2063,14 @@ function V3Spreadsheet({
         {/* 2: 지급항목 multi — 상용근로만. 일용·사업 등은 비과세 미적용 */}
         {isWage ? (
           <V3MultiCell
-            title="지급항목"
-            sum={`내 ${paySum.toLocaleString("ko-KR")}`}
+            title="수당"
+            sum={`지급액계 ${paySum.toLocaleString("ko-KR")}`}
             rows={[
               ["기본급", v3Derived(basicPay)],
               ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount)],
               ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount)],
               ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount)],
-              ["육아수당", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount)],
+              ["육아", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount)],
             ]}
           />
         ) : (
@@ -2084,13 +2084,13 @@ function V3Spreadsheet({
 
         {/* 3: 4대보험 */}
         <V3MultiCell
-          title="공제"
+          title="4대보험"
           sum={insSum.toLocaleString("ko-KR")}
           rows={[
             ["국민연금", v3Num("national_pension", np, !!fieldChanges?.national_pension)],
             ["건강보험", v3Num("health_insurance", hi, !!fieldChanges?.health_insurance)],
             ["고용보험", v3Num("employment_insurance", ei, !!fieldChanges?.employment_insurance)],
-            ["장기요양", v3Num("longterm_care", ltc, !!fieldChanges?.longterm_care)],
+            ["장기요양보험료", v3Num("longterm_care", ltc, !!fieldChanges?.longterm_care)],
           ]}
         />
 
@@ -2131,20 +2131,20 @@ function V3Spreadsheet({
       <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-b from-gray-50 to-stone-100 border-t border-gray-300">
         <div className="flex gap-7 text-[12px]">
           <div className="flex items-baseline gap-2">
-            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-gray-500">지급</span>
+            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-gray-500">지급액계</span>
             <span className="font-mono tabular-nums font-semibold text-[13.5px] text-gray-900">
               ₩ {gross.toLocaleString("ko-KR")}
             </span>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-gray-500">공제</span>
+            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-gray-500">공제액계</span>
             <span className="font-mono tabular-nums font-semibold text-[13.5px] text-red-600">
               − ₩ {deduct.toLocaleString("ko-KR")}
             </span>
           </div>
         </div>
         <div className="flex items-baseline gap-2.5">
-          <span className="text-[11px] uppercase tracking-widest font-bold text-gray-500">실지급액</span>
+          <span className="text-[11px] uppercase tracking-widest font-bold text-gray-500">차인지급액</span>
           <span className="font-mono tabular-nums font-bold text-[19px] text-blue-700">
             ₩ {net.toLocaleString("ko-KR")}
           </span>

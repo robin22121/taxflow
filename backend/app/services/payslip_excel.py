@@ -1,7 +1,8 @@
 """급여(임금)명세서 엑셀 생성 — 근로기준법 제48조.
 
-직원 1명당 시트 1개. 임금 구성항목(기본급·상여·비과세수당) / 공제내역
-(소득세·지방소득세·4대보험) / 실수령액을 세로 명세서 형식으로 출력.
+직원 1명당 시트 1개. 항목 구성·명칭·금액은 위하고T 급여대장(payroll_excel)과
+동일하며(`payroll_breakdown` 공유), 수당 / 공제 / 차인지급액을 세로 명세서
+형식으로 출력한다.
 
 기존 PayrollEntry 컬럼만 사용 — 스키마 변경 없음.
 RRN은 명세서에 싣지 않음(성명 + 사번으로 식별, PII 노출 최소화).
@@ -18,6 +19,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.models.payroll import PayrollEntry
+from app.services.payroll_excel import payroll_breakdown
 
 _INVALID_SHEET = re.compile(r"[\[\]:*?/\\]")
 
@@ -40,10 +42,12 @@ def _safe_sheet_title(name: str, used: set[str]) -> str:
     return title
 
 
-def _basic_pay(entry: PayrollEntry) -> int:
-    if entry.salary_amount is not None:
-        return entry.salary_amount
-    return max(entry.total_amount - (entry.bonus_amount or 0) - entry.non_taxable, 0)
+#: 위하고T 급여대장과 동일한 항목·순서 (payroll_excel.ITEM_HEADERS 기준)
+_PAY_ITEMS = ["기본급", "상여", "식대", "자가운전", "육아"]
+_DEDUCTION_ITEMS = [
+    "국민연금", "건강보험", "고용보험", "장기요양보험료",
+    "소득세", "지방소득세", "학자금상환액", "정산보험료", "월세지원금",
+]
 
 
 def _write_payslip(ws: Worksheet, entry: PayrollEntry, period: str) -> None:
@@ -72,29 +76,11 @@ def _write_payslip(ws: Worksheet, entry: PayrollEntry, period: str) -> None:
         ws.cell(row=r, column=1).font = _BOLD
         ws.cell(row=r, column=3).font = _BOLD
 
-    meal = entry.meal_amount
-    car = entry.car_amount
-    childcare = entry.childcare_amount
-    other_nontax = max(entry.non_taxable - meal - car - childcare, 0)
-
-    pay_items = [
-        ("기본급", _basic_pay(entry)),
-        ("상여", entry.bonus_amount or 0),
-        ("식대(비과세)", meal),
-        ("자가운전보조금(비과세)", car),
-        ("육아수당(비과세)", childcare),
-        ("기타 비과세", other_nontax),
-    ]
-    deductions = [
-        ("소득세", entry.income_tax),
-        ("지방소득세", entry.local_tax),
-        ("국민연금", entry.national_pension),
-        ("건강보험", entry.health_insurance),
-        ("장기요양보험", entry.longterm_care),
-        ("고용보험", entry.employment_insurance),
-    ]
-    deduction_total = sum(v for _, v in deductions)
-    net = entry.total_amount - deduction_total
+    b = payroll_breakdown(entry)
+    pay_items = [(label, b[label]) for label in _PAY_ITEMS]
+    deductions = [(label, b[label]) for label in _DEDUCTION_ITEMS]
+    deduction_total = b["공제액계"]
+    net = b["차인지급액"]
 
     def _section(header: str) -> None:
         row = ws.max_row + 1
@@ -106,24 +92,24 @@ def _write_payslip(ws: Worksheet, entry: PayrollEntry, period: str) -> None:
         c.alignment = _CENTER
 
     ws.append([])
-    _section("지급 항목")
+    _section("수당")
     for label, amount in pay_items:
         ws.append([label, amount, "", ""])
         ws.cell(row=ws.max_row, column=2).number_format = "#,##0"
         ws.cell(row=ws.max_row, column=2).alignment = _RIGHT
-    ws.append(["지급액 계", entry.total_amount, "", ""])
+    ws.append(["지급액계", b["지급액계"], "", ""])
     ws.cell(row=ws.max_row, column=1).font = _BOLD
     ws.cell(row=ws.max_row, column=2).font = _BOLD
     ws.cell(row=ws.max_row, column=2).number_format = "#,##0"
     ws.cell(row=ws.max_row, column=2).alignment = _RIGHT
 
     ws.append([])
-    _section("공제 항목")
+    _section("공제")
     for label, amount in deductions:
         ws.append([label, amount, "", ""])
         ws.cell(row=ws.max_row, column=2).number_format = "#,##0"
         ws.cell(row=ws.max_row, column=2).alignment = _RIGHT
-    ws.append(["공제액 계", deduction_total, "", ""])
+    ws.append(["공제액계", deduction_total, "", ""])
     ws.cell(row=ws.max_row, column=1).font = _BOLD
     ws.cell(row=ws.max_row, column=2).font = _BOLD
     ws.cell(row=ws.max_row, column=2).number_format = "#,##0"
@@ -131,7 +117,7 @@ def _write_payslip(ws: Worksheet, entry: PayrollEntry, period: str) -> None:
 
     ws.append([])
     row = ws.max_row + 1
-    ws.append(["실수령액", net, "", ""])
+    ws.append(["차인지급액", net, "", ""])
     ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=4)
     ws.cell(row=row, column=1).font = _BOLD_WHITE
     ws.cell(row=row, column=1).fill = _TITLE_FILL
