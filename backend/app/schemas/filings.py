@@ -67,6 +67,9 @@ class PayrollEntryOut(BaseModel):
     longterm_care: int = 0
     income_tax: int
     local_tax: int
+    student_loan: int = 0
+    settlement_insurance: int = 0
+    rent_support: int = 0
     payment_date: date | None
     match_status: str
     prev_amount: int | None
@@ -93,6 +96,9 @@ class PayrollEntryUpdate(BaseModel):
     longterm_care: int | None = None
     income_tax: int | None = None
     local_tax: int | None = None
+    student_loan: int | None = None
+    settlement_insurance: int | None = None
+    rent_support: int | None = None
     payment_date: date | None = None
     employee_id: str | None = None
     approved: bool | None = None
