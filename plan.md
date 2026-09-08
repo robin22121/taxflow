@@ -19,6 +19,7 @@
 | [`plan/08-action-items.md`](plan/08-action-items.md) | 액션 아이템 + 백로그 (진행 상태) |
 | [`plan/09-design.md`](plan/09-design.md) | 디자인 와이어프레임 구현 A/B/C |
 | [`plan/10-privacy-security.md`](plan/10-privacy-security.md) | 개인정보(주민번호) 보안 + 추후 결정·심화 검토 |
+| [`plan/12-owner-portal.md`](plan/12-owner-portal.md) | 사업주 포털 (거래처 사장님용 무료 화면) — B2C 피벗 기각 근거·인증 모델 |
 
 ---
 
@@ -59,5 +60,6 @@
 7. **회신 수집**: "거래처 → 세무사 직원 → 이지원천" 카톡 1순위 → 이메일 → URL 폼, 단일 `_ingest_message()` 합류
 8. **AI 프로바이더**: Gemini Flash 2.5 메인 / Claude Sonnet 폴백
 9. **4대보험**: Phase 1에서 엑셀 3종(자격취득/상실/보수월액변경) + 별도 사이드바 메뉴, EDI 자동신고는 Phase 2~3
+10. **사업주 포털**: 개인사업자 직접 과금(B2C 피벗)은 기각 — 세무사법·유닛이코노믹스·채널 자기잠식. 대신 거래처 사장님용 **무료 화면을 세무사 상품에 번들**. 인증은 **OTP 없이 30일 수명 알림톡 링크**만 (2026-09-08 결정). 상세는 [`plan/12-owner-portal.md`](plan/12-owner-portal.md)
 
 근거 분석은 `research.md`, 세부 결정 맥락은 각 분할 문서 참고.
