@@ -37,6 +37,9 @@ async def test_gate_absent_when_pin_not_issued(http: AsyncClient, auth_headers: 
     status_r = await http.get(f"/api/v1/clients/{client_id}/portal-pin", headers=auth_headers)
     assert status_r.json()["is_set"] is False
 
+    # 화면이 게이트를 아예 그리지 않도록 공개 응답이 알려준다.
+    assert (await http.get(f"/api/v1/public/r/{token}")).json()["has_pin"] is False
+
     assert (await http.post(f"/api/v1/public/r/{token}/unlock", json={"pin": "123456"})).status_code == 404
     assert (await http.get(f"/api/v1/public/r/{token}/payroll")).status_code == 401
 
@@ -48,6 +51,7 @@ async def test_correct_pin_opens_payroll(http: AsyncClient, auth_headers: dict):
     token = await _portal_token(http, auth_headers, client_id)
     pin = await _issue_pin(http, auth_headers, client_id)
 
+    assert (await http.get(f"/api/v1/public/r/{token}")).json()["has_pin"] is True
     assert (await http.get(f"/api/v1/public/r/{token}/payroll")).status_code == 401
 
     unlocked = await http.post(f"/api/v1/public/r/{token}/unlock", json={"pin": pin})

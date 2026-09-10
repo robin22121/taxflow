@@ -43,6 +43,8 @@ class CollectionSessionPublic(BaseModel):
     accepts_text: bool = True
     # 상설 링크인데 지금 열린 신고가 없으면 False — 화면은 "보내실 자료 없음"으로 안내한다.
     accepting: bool = True
+    # PIN 미발급 거래처는 화면이 게이트 자체를 그리지 않는다 (§4.3.3).
+    has_pin: bool = False
 
 
 class PublicSubmitIn(BaseModel):
@@ -93,6 +95,7 @@ async def resolve_session(token_str: str, db: AsyncSession = Depends(get_db)) ->
         client_name=link.client.business_name,
         period=link.filing.period if link.filing else "",
         accepting=link.filing is not None,
+        has_pin=pin_is_set(link.client),
     )
 
 

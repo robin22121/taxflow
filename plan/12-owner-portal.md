@@ -433,9 +433,13 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
 | **3** | 보관함 — `ClientFilingResult` + 세무사 PDF 수동 업로드 + 예상 납부세액 | 낮음 | 1단계 |
 | **4** | 보관함 자동 적재 — RPA가 `ClientFilingResult`에 직접 기입 | Phase 2 종속 | Phase 2 RPA 산출물 |
 
-**구현 상태 (2026-09-10)** — 1단계 백엔드와 2단계 PIN 게이트 백엔드는 구현·검증 완료
-(`app/services/portal.py`, `tests/test_portal_link.py`, `tests/test_portal_pin.py`).
-남은 것은 **프론트엔드 화면**(홈·게이트 UI)과 3단계 보관함이다.
+**구현 상태 (2026-09-10)** — 1·2단계는 백엔드·프론트 모두 구현·검증 완료
+(`app/services/portal.py`, `frontend/src/app/r/[token]/page.tsx`,
+`tests/test_portal_link.py`, `tests/test_portal_pin.py`).
+
+- 상설 링크 해석, 열린 신고 없음 안내, PIN 게이트(입력·잠금·열람 통보), 게이트 뒤 급여 상세 표 — 완료
+- grant는 `sessionStorage`에만 두고 `X-Portal-Grant` 헤더로 보낸다. 사장님이 "닫기"로 직접 잠글 수 있다
+- 남은 것: **입·퇴사 등록 버튼**(2단계 나머지)과 **보관함**(`ClientFilingResult`, 3·4단계)
 
 **1단계는 사실상 기존 자산의 수명 연장이다.** 베타 사무소 한 곳에 1단계만 붙여
 **사장님 재방문율**을 측정하는 것이 이 방향의 유일한 검증이다. 재방문이 나오지 않으면
