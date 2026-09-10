@@ -8,6 +8,11 @@ from app.models.collection import (
     CollectionSessionStatus,
 )
 from app.models.employee import Employee, EmploymentStatus
+from app.models.employee_change import (
+    ChangeRequestStatus,
+    ChangeType,
+    EmployeeChangeRequest,
+)
 from app.models.kakao_binding import KakaoUserBinding
 from app.models.kakao_pending import KakaoPendingMessage
 from app.models.monthly_filing import MonthlyFiling, MonthlyFilingStatus
@@ -21,6 +26,8 @@ __all__ = [
     "BUSINESS_TYPE_CODES",
     "BetaSignup",
     "BusinessTypeCode",
+    "ChangeRequestStatus",
+    "ChangeType",
     "Client",
     "ClientPayrollDefault",
     "CollectionEvent",
@@ -28,6 +35,7 @@ __all__ = [
     "CollectionSessionStatus",
     "CustomerClass",
     "Employee",
+    "EmployeeChangeRequest",
     "EmploymentStatus",
     "IncomeType",
     "KakaoUserBinding",

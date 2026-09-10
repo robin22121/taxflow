@@ -12,6 +12,7 @@ type SessionInfo = {
   has_pin: boolean;
 };
 type PayrollRow = { name: string; total_amount: number; prev_amount: number | null };
+type RosterEntry = { id: string; name: string };
 type SubmitResult = {
   matched: number;
   new_hire_suspected: number;
@@ -39,6 +40,16 @@ export default function PublicCollectPage({
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinBusy, setPinBusy] = useState(false);
   const [payroll, setPayroll] = useState<PayrollRow[] | null>(null);
+  // 입·퇴사 등록 — 신고월과 무관하게 항상 열어둔다 (§5.2). 4대보험 자격취득은 입사일 +14일이다.
+  const [changeMode, setChangeMode] = useState<"none" | "hire" | "resign">("none");
+  const [hireName, setHireName] = useState("");
+  const [hireDate, setHireDate] = useState("");
+  const [resignId, setResignId] = useState("");
+  const [resignDate, setResignDate] = useState("");
+  const [roster, setRoster] = useState<RosterEntry[] | null>(null);
+  const [changeBusy, setChangeBusy] = useState(false);
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [changeDone, setChangeDone] = useState<string | null>(null);
 
   // grant는 sessionStorage에만 둔다 — 탭을 닫으면 사라지고 장기 쿠키를 남기지 않는다 (§4.1)
   const grantKey = `taxflow_portal_grant_${token}`;
@@ -121,6 +132,47 @@ export default function PublicCollectPage({
       setPinError((e as Error).message);
     } finally {
       setPinBusy(false);
+    }
+  }
+
+  async function openResign() {
+    setChangeError(null);
+    setChangeMode("resign");
+    if (roster) return;
+    try {
+      setRoster(await api<RosterEntry[]>(`/api/v1/public/r/${token}/employees`));
+    } catch (e) {
+      setChangeError((e as Error).message);
+    }
+  }
+
+  async function submitChange() {
+    setChangeBusy(true);
+    setChangeError(null);
+    try {
+      const body =
+        changeMode === "hire"
+          ? { change_type: "HIRE", name: hireName.trim(), hired_at: hireDate || null }
+          : { change_type: "RESIGN", employee_id: resignId, resigned_at: resignDate || null };
+      const res = await api<{ name: string }>(`/api/v1/public/r/${token}/employee-change`, {
+        method: "POST",
+        json: body,
+      });
+      setChangeDone(
+        changeMode === "hire"
+          ? `${res.name} 님 입사를 세무사 사무소에 알렸어요.`
+          : `${res.name} 님 퇴사를 세무사 사무소에 알렸어요.`,
+      );
+      setChangeMode("none");
+      setHireName("");
+      setHireDate("");
+      setResignId("");
+      setResignDate("");
+      setRoster(null);
+    } catch (e) {
+      setChangeError((e as Error).message);
+    } finally {
+      setChangeBusy(false);
     }
   }
 
@@ -327,6 +379,111 @@ export default function PublicCollectPage({
             </div>
           </div>
         )}
+
+        {/* 입·퇴사 등록 — 자료 수집 기간이 아니어도 항상 열려 있다 (§5.2) */}
+        <div className="pl-10 mb-3">
+          {changeDone ? (
+            <div className="max-w-[78%] bg-white border border-gray-200 rounded-[14px] p-3 shadow-sm">
+              <div className="text-[12.5px] font-bold text-gray-900 mb-0.5">✅ 전달했어요</div>
+              <div className="text-[11px] text-gray-500 leading-snug">{changeDone}</div>
+              <button
+                onClick={() => setChangeDone(null)}
+                className="mt-2 text-[11.5px] text-blue-600 underline"
+              >
+                더 알려주기
+              </button>
+            </div>
+          ) : changeMode === "none" ? (
+            <div className="flex flex-col gap-2 max-w-[78%]">
+              <button
+                onClick={() => { setChangeError(null); setChangeMode("hire"); }}
+                className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[12.5px] font-semibold text-gray-700 text-left hover:border-gray-300 transition-colors"
+              >
+                ＋ 새 직원이 들어왔어요
+              </button>
+              <button
+                onClick={openResign}
+                className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[12.5px] font-semibold text-gray-700 text-left hover:border-gray-300 transition-colors"
+              >
+                － 그만둔 직원이 있어요
+              </button>
+            </div>
+          ) : (
+            <div className="max-w-[82%] bg-white border border-gray-200 rounded-[14px] p-3 shadow-sm space-y-2">
+              <div className="text-[12.5px] font-bold text-gray-900">
+                {changeMode === "hire" ? "새 직원 등록" : "퇴사 알리기"}
+              </div>
+
+              {changeMode === "hire" ? (
+                <>
+                  <input
+                    value={hireName}
+                    onChange={(e) => setHireName(e.target.value)}
+                    placeholder="직원 이름"
+                    className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-blue-500"
+                    autoFocus
+                  />
+                  <label className="block">
+                    <span className="text-[11px] text-gray-500">입사일</span>
+                    <input
+                      type="date"
+                      value={hireDate}
+                      onChange={(e) => setHireDate(e.target.value)}
+                      className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-blue-500"
+                    />
+                  </label>
+                  <div className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2.5 py-2 leading-snug">
+                    주민등록번호는 여기 적지 마세요. 필요하면 세무사 사무소에서 따로 요청드려요.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <select
+                    value={resignId}
+                    onChange={(e) => setResignId(e.target.value)}
+                    className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-blue-500"
+                  >
+                    <option value="">그만둔 직원을 골라주세요</option>
+                    {(roster ?? []).map((r) => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                  <label className="block">
+                    <span className="text-[11px] text-gray-500">마지막 근무일</span>
+                    <input
+                      type="date"
+                      value={resignDate}
+                      onChange={(e) => setResignDate(e.target.value)}
+                      className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-blue-500"
+                    />
+                  </label>
+                </>
+              )}
+
+              {changeError && (
+                <div className="text-[11.5px] text-red-600 leading-snug">{changeError}</div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setChangeMode("none"); setChangeError(null); }}
+                  className="flex-1 py-2 rounded-xl border border-gray-300 text-[12.5px] text-gray-700 hover:bg-gray-50"
+                >
+                  취소
+                </button>
+                <Button
+                  onClick={submitChange}
+                  disabled={
+                    changeBusy ||
+                    (changeMode === "hire" ? !hireName.trim() : !resignId)
+                  }
+                >
+                  {changeBusy ? "전달 중..." : "알리기"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* PIN 게이트 — 금액이 걸린 화면만 자물쇠 뒤 (§4.3.1) */}
         {session.has_pin && (

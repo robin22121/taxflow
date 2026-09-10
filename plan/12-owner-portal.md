@@ -333,7 +333,7 @@
         ├── client_id
         ├── 유형: HIRE / RESIGN / INFO_CHANGE
         ├── 대상: employee_id (퇴사·변경) 또는 name만 (신규)
-        ├── 입력값: 이름, 입사일/퇴사일, 소득구분(근로/사업/일용)
+        ├── 입력값: 이름, 입사일/퇴사일 (+ 자유 메모)
         ├── 제출자: submitted_via = OWNER_PORTAL
         ├── 상태: PENDING / APPROVED / REJECTED
         └── 승인 시 → Employee 생성 또는 resign_date 기입
@@ -353,9 +353,16 @@
    이 게이트가 있어야 [`06-insurance.md`](06-insurance.md)의 자격취득 신고서 엑셀이
    신뢰할 수 있는 데이터로 생성된다.
 
-> **2026-09-10 코드 확인 결과** — `Employee`에 `hired_at`·`resigned_at`이 실재하므로
-> §5.1의 전제는 맞다(`backend/app/models/employee.py:37-38`). `EmployeeChangeRequest`는
-> 코드베이스에 존재하지 않아 신설이 맞다.
+> **2026-09-10 구현 완료** — `Employee`에 `hired_at`·`resigned_at`이 실재해
+> §5.1의 전제가 맞았고(`backend/app/models/employee.py:37-38`), `EmployeeChangeRequest`를
+> 신설했다(`app/models/employee_change.py`, 마이그레이션 `d3e4f5a6b7c8`).
+>
+> **소득구분(근로/사업/일용)은 포털 폼에서 뺐다.** 사장님이 판단할 수 있는 항목이 아니고
+> (같은 사람을 3.3% 사업소득으로 볼지 근로소득으로 볼지는 세무 판단이다), `Employee`에
+> 저장할 필드도 없다. 세무사가 승인 시점에 정하는 편이 정확하다. 대신 자유 메모 필드를 두어
+> "주 3일만 나와요" 같은 맥락을 사장님이 남길 수 있게 했다.
+>
+> 유형은 `HIRE`/`RESIGN` 둘만 구현했다. `INFO_CHANGE`는 대응하는 화면이 없어 넣지 않았다.
 
 ### 5.3 신설 — 상설 링크 토큰과 PIN
 
@@ -439,7 +446,11 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
 
 - 상설 링크 해석, 열린 신고 없음 안내, PIN 게이트(입력·잠금·열람 통보), 게이트 뒤 급여 상세 표 — 완료
 - grant는 `sessionStorage`에만 두고 `X-Portal-Grant` 헤더로 보낸다. 사장님이 "닫기"로 직접 잠글 수 있다
-- 남은 것: **입·퇴사 등록 버튼**(2단계 나머지)과 **보관함**(`ClientFilingResult`, 3·4단계)
+- **입·퇴사 등록 버튼 2개 + 세무사 승인 창구** — 완료
+  (`app/api/employee_changes.py`, `tests/test_employee_change.py`).
+  입·퇴사는 신고월과 무관하므로 자료 수집 기간이 아니어도 버튼이 항상 열려 있다
+- 남은 것: **보관함**(`ClientFilingResult` + 접수증·납부서, §5.4 / 3·4단계)와
+  세무사 대시보드의 승인 UI(백엔드 API는 준비됨)
 
 **1단계는 사실상 기존 자산의 수명 연장이다.** 베타 사무소 한 곳에 1단계만 붙여
 **사장님 재방문율**을 측정하는 것이 이 방향의 유일한 검증이다. 재방문이 나오지 않으면

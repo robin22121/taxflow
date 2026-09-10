@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
@@ -16,7 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.collect import _ingest_message
 from app.core.deps import get_db
-from app.models import Employee, EmploymentStatus, PayrollEntry
+from app.models import (
+    ChangeType,
+    Employee,
+    EmployeeChangeRequest,
+    EmploymentStatus,
+    PayrollEntry,
+)
 from app.schemas.filings import CollectMessageOut
 from app.services.crypto import encrypt_rrn, mask_rrn
 from app.services.file_intake import intake_file
@@ -64,6 +71,27 @@ class GatedPayrollRow(BaseModel):
     name: str
     total_amount: int
     prev_amount: int | None
+
+
+class PortalEmployee(BaseModel):
+    id: str
+    name: str
+
+
+class EmployeeChangeIn(BaseModel):
+    change_type: Literal["HIRE", "RESIGN"]
+    name: str | None = Field(default=None, max_length=100)
+    employee_id: str | None = None
+    hired_at: date | None = None
+    resigned_at: date | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class EmployeeChangeOut(BaseModel):
+    id: str
+    change_type: str
+    name: str
+    status: str
 
 
 class SecureRrnSubmitIn(BaseModel):
@@ -232,6 +260,84 @@ async def gated_payroll(
         )
         for row in rows
     ]
+
+
+@router.get("/r/{token_str}/employees", response_model=list[PortalEmployee])
+async def portal_employees(
+    token_str: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[PortalEmployee]:
+    """퇴사 통보용 직원 명단. 이름만 나가고 금액은 게이트 뒤에 있다 (§3.2)."""
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    rows = (
+        await db.execute(
+            select(Employee)
+            .where(
+                Employee.client_id == link.client.id,
+                Employee.status == EmploymentStatus.ACTIVE,
+            )
+            .order_by(Employee.name)
+        )
+    ).scalars().all()
+    return [PortalEmployee(id=row.id, name=row.name) for row in rows]
+
+
+@router.post(
+    "/r/{token_str}/employee-change",
+    response_model=EmployeeChangeOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_employee_change(
+    token_str: str,
+    payload: EmployeeChangeIn,
+    db: AsyncSession = Depends(get_db),
+) -> EmployeeChangeOut:
+    """입·퇴사 통보 — 세무사가 승인해야 직원 마스터에 반영된다 (§5.2).
+
+    주민번호는 받지 않는다. 통보의 목적은 4대보험 신고 기한(입사일 +14일)을
+    놓치지 않는 것이고, 주민번호는 별도 보안 입력 경로로 분리돼 있다.
+    """
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+
+    if payload.change_type == "HIRE":
+        name = (payload.name or "").strip()
+        if not name:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "직원 이름을 입력해 주세요")
+        request = EmployeeChangeRequest(
+            client_id=link.client.id,
+            change_type=ChangeType.HIRE,
+            name=name,
+            hired_at=payload.hired_at,
+            note=payload.note,
+        )
+    else:
+        if not payload.employee_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "그만둔 직원을 선택해 주세요")
+        employee = await db.get(Employee, payload.employee_id)
+        if not employee or employee.client_id != link.client.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "직원을 찾을 수 없습니다")
+        request = EmployeeChangeRequest(
+            client_id=link.client.id,
+            change_type=ChangeType.RESIGN,
+            employee_id=employee.id,
+            name=employee.name,
+            resigned_at=payload.resigned_at,
+            note=payload.note,
+        )
+
+    db.add(request)
+    await db.commit()
+    await db.refresh(request)
+    return EmployeeChangeOut(
+        id=request.id,
+        change_type=request.change_type.value,
+        name=request.name,
+        status=request.status.value,
+    )
 
 
 @router.post("/secure/{token_str}/rrn")
