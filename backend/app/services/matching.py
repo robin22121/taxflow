@@ -43,10 +43,17 @@ class PayrollEntryCandidate:
     employee_id: str | None
     income_type: IncomeType
     total_amount: int
-    non_taxable: int
-    meal_amount: int = 0
-    car_amount: int = 0
-    childcare_amount: int = 0
+    # ``None`` = 원시자료에 항목 없음(거래처 기본값·자체 계산으로 채움),
+    # ``0`` = 원시자료가 0원이라고 명시함(그대로 0).
+    non_taxable: int | None = None
+    meal_amount: int | None = None
+    car_amount: int | None = None
+    childcare_amount: int | None = None
+    # 회사가 이미 적용한 4대보험 실제 공제액. 있으면 재계산하지 않고 그대로 쓴다.
+    national_pension: int | None = None
+    health_insurance: int | None = None
+    employment_insurance: int | None = None
+    longterm_care: int | None = None
     match_status: MatchStatus = MatchStatus.AMBIGUOUS
     prev_amount: int | None = None
     anomaly_notes: dict[str, Any] = field(default_factory=dict)
@@ -61,6 +68,21 @@ class MatchingResult:
     resignation_followups: list[dict[str, Any]]
     ambiguous_followups: list[dict[str, Any]]
     unconfirmed_followups: list[dict[str, Any]] = field(default_factory=list)
+
+
+_SOURCE_PAY_ITEM_FIELDS = (
+    "non_taxable", "meal_amount", "car_amount", "childcare_amount",
+    "national_pension", "health_insurance", "employment_insurance", "longterm_care",
+)
+
+
+def _source_pay_items(parsed_item: Any) -> dict[str, int | None]:
+    """AI가 원시자료에서 읽은 지급·공제 항목을 그대로 옮긴다.
+
+    키가 없으면 ``None`` — 원시자료에 항목이 없었다는 뜻이므로, 뒤에서 거래처
+    기본값이나 자체 계산으로 채운다. ``0`` 은 "0원이라고 적혀 있음"이라 유지된다.
+    """
+    return {f: getattr(parsed_item, f, None) for f in _SOURCE_PAY_ITEM_FIELDS}
 
 
 def reconcile(
@@ -105,10 +127,7 @@ def reconcile(
                 employee_id=emp_id,
                 income_type=_to_income_type(m.income_type),
                 total_amount=m.amount,
-                non_taxable=m.non_taxable,
-                meal_amount=getattr(m, "meal_amount", 0),
-                car_amount=getattr(m, "car_amount", 0),
-                childcare_amount=getattr(m, "childcare_amount", 0),
+                **_source_pay_items(m),
                 match_status=status,
                 prev_amount=prev,
                 anomaly_notes=anomaly,
@@ -128,10 +147,7 @@ def reconcile(
                 employee_id=None,
                 income_type=_to_income_type(n.income_type),
                 total_amount=n.amount,
-                non_taxable=n.non_taxable,
-                meal_amount=getattr(n, "meal_amount", 0),
-                car_amount=getattr(n, "car_amount", 0),
-                childcare_amount=getattr(n, "childcare_amount", 0),
+                **_source_pay_items(n),
                 match_status=MatchStatus.NEW_HIRE_SUSPECTED,
                 anomaly_notes=nh_anomaly,
                 needs_followup=True,

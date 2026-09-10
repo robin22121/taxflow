@@ -332,10 +332,16 @@ export type ParsedEntryPreview = {
   employee_name: string | null;
   income_type: string;
   total_amount: number;
-  non_taxable: number;
-  meal_amount: number;
-  car_amount: number;
-  childcare_amount: number;
+  // null = 원시자료에 항목 없음(거래처 기본값·자체 계산으로 채움), 0 = 원시자료가 0원이라고 명시
+  non_taxable: number | null;
+  meal_amount: number | null;
+  car_amount: number | null;
+  childcare_amount: number | null;
+  // 회사가 이미 적용한 4대보험 실제 공제액 — 있으면 재계산하지 않는다
+  national_pension: number | null;
+  health_insurance: number | null;
+  employment_insurance: number | null;
+  longterm_care: number | null;
   match_status: string;
   prev_amount: number | null;
   needs_followup: boolean;
