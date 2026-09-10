@@ -11,22 +11,15 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.collect import _ingest_message
 from app.core.deps import get_db
-from app.models import (
-    Client,
-    CollectionSession,
-    Employee,
-    EmploymentStatus,
-    MonthlyFiling,
-)
+from app.models import Employee, EmploymentStatus
 from app.schemas.filings import CollectMessageOut
 from app.services.crypto import encrypt_rrn, mask_rrn
 from app.services.file_intake import intake_file
+from app.services.portal import ResolvedLink, resolve_public_link
 from app.services.secure_tokens import consume_token, get_active_token
 from app.services.storage import get_storage
 
@@ -37,6 +30,8 @@ class CollectionSessionPublic(BaseModel):
     client_name: str
     period: str
     accepts_text: bool = True
+    # 상설 링크인데 지금 열린 신고가 없으면 False — 화면은 "보내실 자료 없음"으로 안내한다.
+    accepting: bool = True
 
 
 class PublicSubmitIn(BaseModel):
@@ -50,23 +45,28 @@ class SecureRrnSubmitIn(BaseModel):
     employee_code: str | None = None
 
 
+async def _require_open_link(db: AsyncSession, token_str: str) -> ResolvedLink:
+    """제출 경로 — 링크가 유효하고 지금 자료를 받는 신고가 열려 있어야 한다."""
+    link = await resolve_public_link(db, token_str, create_session=True)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    if link.filing is None or link.session is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "지금은 보내실 자료가 없습니다. 담당 세무사에게 문의해 주세요.",
+        )
+    return link
+
+
 @router.get("/r/{token_str}", response_model=CollectionSessionPublic)
 async def resolve_session(token_str: str, db: AsyncSession = Depends(get_db)) -> CollectionSessionPublic:
-    session = (
-        await db.execute(
-            select(CollectionSession)
-            .where(CollectionSession.request_token == token_str)
-            .options(
-                selectinload(CollectionSession.client),
-                selectinload(CollectionSession.monthly_filing),
-            )
-        )
-    ).scalar_one_or_none()
-    if not session:
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
     return CollectionSessionPublic(
-        client_name=session.client.business_name,
-        period=session.monthly_filing.period,
+        client_name=link.client.business_name,
+        period=link.filing.period if link.filing else "",
+        accepting=link.filing is not None,
     )
 
 
@@ -76,23 +76,12 @@ async def public_submit_message(
     payload: PublicSubmitIn,
     db: AsyncSession = Depends(get_db),
 ) -> CollectMessageOut:
-    session = (
-        await db.execute(
-            select(CollectionSession)
-            .where(CollectionSession.request_token == token_str)
-            .options(
-                selectinload(CollectionSession.client),
-                selectinload(CollectionSession.monthly_filing),
-            )
-        )
-    ).scalar_one_or_none()
-    if not session:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    link = await _require_open_link(db, token_str)
     return await _ingest_message(
         db=db,
-        session=session,
-        client=session.client,
-        filing=session.monthly_filing,
+        session=link.session,
+        client=link.client,
+        filing=link.filing,
         text=payload.text,
         channel="public_url",
     )
@@ -105,18 +94,7 @@ async def public_upload_file(
     db: AsyncSession = Depends(get_db),
 ) -> CollectMessageOut:
     """공개 토큰으로 파일 업로드 — 음성·엑셀·CSV·이미지를 텍스트로 변환 후 파이프라인 실행."""
-    session = (
-        await db.execute(
-            select(CollectionSession)
-            .where(CollectionSession.request_token == token_str)
-            .options(
-                selectinload(CollectionSession.client),
-                selectinload(CollectionSession.monthly_filing),
-            )
-        )
-    ).scalar_one_or_none()
-    if not session:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    link = await _require_open_link(db, token_str)
 
     content = await file.read()
     if not content:
@@ -150,9 +128,9 @@ async def public_upload_file(
 
     return await _ingest_message(
         db=db,
-        session=session,
-        client=session.client,
-        filing=session.monthly_filing,
+        session=link.session,
+        client=link.client,
+        filing=link.filing,
         text=intake.text,
         channel=f"public_upload_{intake.kind}",
         images=images,
