@@ -149,10 +149,16 @@ class ParsedEntryPreview(BaseModel):
     employee_name: str | None = None  # 매칭된 직원 마스터의 이름 (표시용)
     income_type: str
     total_amount: int = Field(ge=0)
-    non_taxable: int = Field(default=0, ge=0)
-    meal_amount: int = Field(default=0, ge=0)
-    car_amount: int = Field(default=0, ge=0)
-    childcare_amount: int = Field(default=0, ge=0)
+    # None = 원시자료에 항목 없음(거래처 기본값·자체 계산으로 채움), 0 = 원시자료가 0원이라고 명시.
+    non_taxable: int | None = Field(default=None, ge=0)
+    meal_amount: int | None = Field(default=None, ge=0)
+    car_amount: int | None = Field(default=None, ge=0)
+    childcare_amount: int | None = Field(default=None, ge=0)
+    # 회사가 이미 적용한 4대보험 실제 공제액 — 있으면 재계산하지 않는다.
+    national_pension: int | None = Field(default=None, ge=0)
+    health_insurance: int | None = Field(default=None, ge=0)
+    employment_insurance: int | None = Field(default=None, ge=0)
+    longterm_care: int | None = Field(default=None, ge=0)
     match_status: str
     prev_amount: int | None = None
     needs_followup: bool = False

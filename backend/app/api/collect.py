@@ -47,6 +47,7 @@ from app.services.matching import (
 from app.services.payroll_defaults import load_payroll_defaults
 from app.services.storage import get_storage
 from app.services.tax_calc import (
+    SocialInsurance,
     calculate_withholding_tax,
     income_type_to_a_code,
 )
@@ -123,6 +124,11 @@ async def _load_current_entries(
     return {_entry_key(r.employee_id, r.raw_name): r for r in rows}
 
 
+def _non_negative(value: int | None) -> int | None:
+    """음수는 0으로 막되, None(원시자료에 항목 없음)은 그대로 둔다."""
+    return None if value is None else max(0, value)
+
+
 def _preview_row(
     cand: PayrollEntryCandidate,
     employee_name: str | None,
@@ -144,10 +150,15 @@ def _preview_row(
         employee_name=employee_name,
         income_type=cand.income_type.value,
         total_amount=amount,
-        non_taxable=max(0, cand.non_taxable),
-        meal_amount=max(0, cand.meal_amount),
-        car_amount=max(0, cand.car_amount),
-        childcare_amount=max(0, cand.childcare_amount),
+        # None(원시자료에 없음)은 그대로 넘겨 확정 저장 때 기본값·자체 계산이 적용되게 한다
+        non_taxable=_non_negative(cand.non_taxable),
+        meal_amount=_non_negative(cand.meal_amount),
+        car_amount=_non_negative(cand.car_amount),
+        childcare_amount=_non_negative(cand.childcare_amount),
+        national_pension=_non_negative(cand.national_pension),
+        health_insurance=_non_negative(cand.health_insurance),
+        employment_insurance=_non_negative(cand.employment_insurance),
+        longterm_care=_non_negative(cand.longterm_care),
         match_status=cand.match_status.value,
         prev_amount=cand.prev_amount,
         # 기존 항목이 없는데 증감만 온 경우 금액을 확정할 수 없으므로 확인 대상으로 표시
@@ -305,10 +316,15 @@ async def preview_carry_forward(
             employee_id=pe.employee_id,
             income_type=pe.income_type,
             total_amount=pe.total_amount,
+            # 전월 확정치는 그 자체가 원시자료 — 기본값으로 덮어쓰지 않도록 값을 그대로 넘긴다
             non_taxable=pe.non_taxable or 0,
             meal_amount=pe.meal_amount or 0,
             car_amount=pe.car_amount or 0,
             childcare_amount=pe.childcare_amount or 0,
+            national_pension=pe.national_pension,
+            health_insurance=pe.health_insurance,
+            employment_insurance=pe.employment_insurance,
+            longterm_care=pe.longterm_care,
             match_status=MatchStatus.MATCHED if pe.employee_id else MatchStatus.AMBIGUOUS,
             prev_amount=pe.total_amount,
         )
@@ -421,6 +437,10 @@ async def commit_message(
             meal_amount=item.meal_amount,
             car_amount=item.car_amount,
             childcare_amount=item.childcare_amount,
+            national_pension=item.national_pension,
+            health_insurance=item.health_insurance,
+            employment_insurance=item.employment_insurance,
+            longterm_care=item.longterm_care,
             match_status=match_status,
             prev_amount=item.prev_amount,
             anomaly_notes=item.anomaly_notes or {},
@@ -589,6 +609,11 @@ def _detect_field_anomalies(
         }
 
 
+def _pick(source_value: int | None, computed: int) -> int:
+    """원시자료 값이 있으면 그것을, 없으면 자체 계산값을 쓴다."""
+    return computed if source_value is None else source_value
+
+
 def _computed_fields(
     cand: PayrollEntryCandidate,
     client: Client,
@@ -608,13 +633,17 @@ def _computed_fields(
 
     # 비과세 지급항목 (plan.md 3.8):
     # 비과세는 상용근로(WAGE)에만 존재. 일용·사업·기타·퇴직소득은 비과세 0.
-    # 1순위 — AI가 원시파일에서 추출한 값 (0 초과면 채택)
-    # 2순위 — 거래처 세팅값 (없으면 시스템 비과세 한도)
+    # 1순위 — 원시자료에 적힌 값 (0원이라고 적혀 있으면 0 그대로)
+    # 2순위 — 원시자료에 항목 자체가 없을 때(None)만 거래처 세팅값
     if cand.income_type == IncomeType.WAGE:
-        meal = cand.meal_amount if cand.meal_amount > 0 else defaults.meal_default
-        car = cand.car_amount if cand.car_amount > 0 else defaults.car_default
-        childcare = cand.childcare_amount if cand.childcare_amount > 0 else defaults.childcare_default
-        non_taxable = max(cand.non_taxable, meal + car + childcare)
+        meal = cand.meal_amount if cand.meal_amount is not None else defaults.meal_default
+        car = cand.car_amount if cand.car_amount is not None else defaults.car_default
+        childcare = (
+            cand.childcare_amount
+            if cand.childcare_amount is not None
+            else defaults.childcare_default
+        )
+        non_taxable = max(cand.non_taxable or 0, meal + car + childcare)
         # 총지급액은 비과세를 이미 포함하므로, 비과세 합이 총지급액을 넘을 수 없음
         # (저액 급여자 음수 과세표준 방지). 초과 시 식대→자가운전→육아 순으로 축소.
         if non_taxable > cand.total_amount:
@@ -633,9 +662,17 @@ def _computed_fields(
     tax = calculate_withholding_tax(
         cand.income_type, taxable, dependents=1, business_type_code=biz_code,
     )
-    # 4대보험 (plan.md 3.8): 거래처 세팅(요율 오버라이드 + apply 플래그)으로 계산.
-    # TODO(ai_parser): AI가 원시파일에서 4대보험 금액을 추출하면 그 값을 1순위로 사용.
+    # 4대보험 (plan.md 3.8):
+    # 1순위 — 회사가 이미 적용한 실제 공제액 (급여대장·명세서에서 읽은 값)
+    # 2순위 — 거래처 세팅(요율 오버라이드 + apply 플래그)으로 자체 계산
+    # 항목별로 판단한다. 대표이사 고용보험 0원처럼 일부만 적혀 있어도 그 값을 존중.
     si = defaults.social_insurance(taxable, cand.income_type)
+    si = SocialInsurance(
+        national_pension=_pick(cand.national_pension, si.national_pension),
+        health_insurance=_pick(cand.health_insurance, si.health_insurance),
+        employment_insurance=_pick(cand.employment_insurance, si.employment_insurance),
+        longterm_care=_pick(cand.longterm_care, si.longterm_care),
+    )
 
     fields = {
         "a_code": a_code,

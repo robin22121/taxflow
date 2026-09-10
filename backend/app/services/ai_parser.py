@@ -27,15 +27,21 @@ logger = logging.getLogger(__name__)
 # --- Public schema ---------------------------------------------------------
 
 
+# 비과세·4대보험 금액은 ``None`` = 원시자료에 항목 자체가 없음(거래처 기본값·자체 계산으로 채움),
+# ``0`` = 원시자료가 0원이라고 명시함(그대로 0). 둘을 섞으면 급여대장에 없던 수당이 생긴다.
 @dataclass(slots=True)
 class MatchedEmployee:
     name: str
     employee_id: str
     amount: int
-    non_taxable: int = 0
-    meal_amount: int = 0
-    car_amount: int = 0
-    childcare_amount: int = 0
+    non_taxable: int | None = None
+    meal_amount: int | None = None
+    car_amount: int | None = None
+    childcare_amount: int | None = None
+    national_pension: int | None = None
+    health_insurance: int | None = None
+    employment_insurance: int | None = None
+    longterm_care: int | None = None
     income_type: str = "WAGE"
     change_from_prev: int | None = None
     change_reason: str | None = None
@@ -45,10 +51,14 @@ class MatchedEmployee:
 class NewHireSuspected:
     name: str
     amount: int
-    non_taxable: int = 0
-    meal_amount: int = 0
-    car_amount: int = 0
-    childcare_amount: int = 0
+    non_taxable: int | None = None
+    meal_amount: int | None = None
+    car_amount: int | None = None
+    childcare_amount: int | None = None
+    national_pension: int | None = None
+    health_insurance: int | None = None
+    employment_insurance: int | None = None
+    longterm_care: int | None = None
     income_type: str = "WAGE"
     needs_confirmation: bool = True
 
@@ -105,12 +115,21 @@ _SYSTEM_PROMPT = """당신은 한국 세무사사무소의 원천세 자료 정�
   * 비정상 데이터는 추출 후 ambiguous_items에도 추가하여 세무사가 확인할 수 있게 합니다.
   * 예: "유지태 1010101010" → new_hire_suspected에 name:"유지태", amount:1010101010 추출 + ambiguous_items에 {"raw_text":"유지태 1010101010","issue":"금액 비정상 (약 10.1억원)"} 추가
 - 데이터를 누락하는 것보다 비정상 플래그를 달고라도 추출하는 것이 훨씬 낫습니다.
-- 비과세소득이 명시되지 않으면 0.
-- 비과세 항목이 구체적으로 명시되면 분리해서 채웁니다:
+- **비과세·4대보험 항목은 "없음"과 "0원"을 반드시 구분합니다.**
+  * 원시자료에 그 항목이 **아예 언급되지 않았으면 해당 키를 넣지 마세요** (0을 넣지 마세요).
+  * 원시자료에 항목은 있는데 금액이 0이거나 빈칸이면 **0을 명시**합니다.
+  * 예: 카톡 "김철수 300만원" → 비과세 키 전부 생략. 급여대장에 육아 열이 있고 값이 0 → childcare_amount: 0.
+- 비과세 항목이 명시되면 분리해서 채웁니다:
   * "식대 20만원" → meal_amount: 200000 (한도 200000)
   * "자가운전보조금 20만원" / "차량유지비" → car_amount: 200000 (한도 200000)
   * "육아수당" / "보육수당" → childcare_amount (한도 200000, 6세 이하 자녀)
   * non_taxable 은 위 셋의 합과 일치시키거나, 분류 불가능한 비과세까지 포함한 총액.
+- 급여대장·급여명세서처럼 **공제 내역이 있으면 4대보험 실제 공제액을 그대로 추출**합니다
+  (회사가 이미 적용한 금액이 우선이며, 없을 때만 시스템이 계산합니다):
+  * "국민연금" → national_pension, "건강보험" → health_insurance
+  * "고용보험" → employment_insurance, "장기요양보험료" → longterm_care
+  * 공제 항목이 없는 자료(카톡 등)면 네 키를 모두 생략합니다.
+  * 대표이사처럼 고용보험이 0으로 적혀 있으면 0을 명시합니다 (적용 제외를 뜻함).
 - 소득구분이 명확하지 않으면 ``WAGE`` 로 둡니다.
 - 추측한 부분은 ``ambiguous_items`` 에 함께 표시합니다.
 - 직원 마스터에 없는 이름이 나오면 ``new_hire_suspected``.
@@ -130,10 +149,14 @@ _OUTPUT_SCHEMA = {
                     "name": {"type": "string"},
                     "employee_id": {"type": "string"},
                     "amount": {"type": "integer"},
-                    "non_taxable": {"type": "integer"},
-                    "meal_amount": {"type": "integer", "description": "식대 (한도 20만)"},
-                    "car_amount": {"type": "integer", "description": "자가운전보조금 (한도 20만)"},
-                    "childcare_amount": {"type": "integer", "description": "육아수당 (한도 20만)"},
+                    "non_taxable": {"type": "integer", "description": "원시자료에 없으면 키 생략"},
+                    "meal_amount": {"type": "integer", "description": "식대 (한도 20만). 원시자료에 없으면 키 생략"},
+                    "car_amount": {"type": "integer", "description": "자가운전보조금 (한도 20만). 없으면 키 생략"},
+                    "childcare_amount": {"type": "integer", "description": "육아수당 (한도 20만). 없으면 키 생략"},
+                    "national_pension": {"type": "integer", "description": "국민연금 실제 공제액. 없으면 키 생략"},
+                    "health_insurance": {"type": "integer", "description": "건강보험 실제 공제액. 없으면 키 생략"},
+                    "employment_insurance": {"type": "integer", "description": "고용보험 실제 공제액. 없으면 키 생략"},
+                    "longterm_care": {"type": "integer", "description": "장기요양보험료 실제 공제액. 없으면 키 생략"},
                     "income_type": {
                         "type": "string",
                         "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],
@@ -151,10 +174,14 @@ _OUTPUT_SCHEMA = {
                 "properties": {
                     "name": {"type": "string"},
                     "amount": {"type": "integer"},
-                    "non_taxable": {"type": "integer"},
-                    "meal_amount": {"type": "integer"},
-                    "car_amount": {"type": "integer"},
-                    "childcare_amount": {"type": "integer"},
+                    "non_taxable": {"type": "integer", "description": "원시자료에 없으면 키 생략"},
+                    "meal_amount": {"type": "integer", "description": "없으면 키 생략"},
+                    "car_amount": {"type": "integer", "description": "없으면 키 생략"},
+                    "childcare_amount": {"type": "integer", "description": "없으면 키 생략"},
+                    "national_pension": {"type": "integer", "description": "국민연금 실제 공제액. 없으면 키 생략"},
+                    "health_insurance": {"type": "integer", "description": "건강보험 실제 공제액. 없으면 키 생략"},
+                    "employment_insurance": {"type": "integer", "description": "고용보험 실제 공제액. 없으면 키 생략"},
+                    "longterm_care": {"type": "integer", "description": "장기요양보험료 실제 공제액. 없으면 키 생략"},
                     "income_type": {
                         "type": "string",
                         "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],

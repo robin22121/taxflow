@@ -19,9 +19,11 @@ from app.services.tax_calc import (
 class ResolvedPayrollDefaults:
     """ClientPayrollDefault → 적용에 필요한 값만 평탄화. 레코드가 없으면 시스템 기본값."""
 
+    # 식대·자가운전은 비과세 한도를 기본 적용, 육아수당은 6세 이하 자녀가 있어야
+    # 비과세라 거래처 편차가 커서 0. ClientPayrollDefault 컬럼 기본값과 동일하게 맞춘다.
     meal_default: int = 200_000
     car_default: int = 200_000
-    childcare_default: int = 200_000
+    childcare_default: int = 0
     apply_national_pension: bool = True
     apply_health_insurance: bool = True
     apply_employment_insurance: bool = True
