@@ -13,8 +13,20 @@ from app.services.payroll_defaults import ResolvedPayrollDefaults
 
 
 def _defaults() -> ResolvedPayrollDefaults:
-    """식대·자가운전·육아 각 20만원이 기본값인 거래처 설정."""
+    """시스템 기본 세팅 — 식대 20만, 자가운전 20만, 육아 0."""
     return ResolvedPayrollDefaults()
+
+
+def test_system_defaults_match_db_column_defaults():
+    """설정 행이 없을 때 쓰는 fallback이 DB 컬럼 기본값과 어긋나면 안 된다."""
+    from app.models.client_payroll_default import ClientPayrollDefault
+
+    d = ResolvedPayrollDefaults()
+    columns = ClientPayrollDefault.__table__.columns
+    assert (d.meal_default, d.car_default, d.childcare_default) == (200_000, 200_000, 0)
+    assert columns["meal_default"].default.arg == d.meal_default
+    assert columns["car_default"].default.arg == d.car_default
+    assert columns["childcare_default"].default.arg == d.childcare_default
 
 
 def _cand(**kwargs) -> PayrollEntryCandidate:
@@ -44,20 +56,24 @@ def test_zero_in_source_stays_zero():
 
 
 def test_missing_item_falls_back_to_client_default():
-    """카톡처럼 비과세 언급이 아예 없으면(None) 거래처 기본값을 쓴다."""
+    """카톡처럼 비과세 언급이 아예 없으면(None) 거래처 기본값을 쓴다.
+
+    육아수당 기본값은 0이므로 자동으로 붙지 않는다.
+    """
     fields, _tax, _si = _computed_fields(_cand(), _client(), _defaults(), None)
     assert fields["meal_amount"] == 200_000
     assert fields["car_amount"] == 200_000
-    assert fields["childcare_amount"] == 200_000
-    assert fields["non_taxable"] == 600_000
+    assert fields["childcare_amount"] == 0
+    assert fields["non_taxable"] == 400_000
 
 
 def test_partial_source_only_fills_missing_items():
     fields, _tax, _si = _computed_fields(
         _cand(meal_amount=100_000), _client(), _defaults(), None,
     )
-    assert fields["meal_amount"] == 100_000          # 원시자료 값
-    assert fields["childcare_amount"] == 200_000     # 언급 없음 → 기본값
+    assert fields["meal_amount"] == 100_000       # 원시자료 값
+    assert fields["car_amount"] == 200_000        # 언급 없음 → 기본값
+    assert fields["childcare_amount"] == 0        # 언급 없음 → 기본값 0
 
 
 # ── 4대보험 ────────────────────────────────────────────────
