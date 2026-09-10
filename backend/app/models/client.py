@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, ForeignKey, Index, LargeBinary, String
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models._base import Base, IdMixin, TimestampMixin
@@ -26,6 +28,9 @@ class Client(Base, IdMixin, TimestampMixin):
     is_corporation: Mapped[bool] = mapped_column(Boolean, default=False)  # 법인/개인 구분 (A01/A02)
     file_password: Mapped[bytes | None] = mapped_column(LargeBinary)  # 암호화 첨부파일 비밀번호 (AES 암호화 저장)
     invite_sent: Mapped[bool] = mapped_column(Boolean, default=False)  # 초대장 발송 여부
+    # 사업주 포털 PIN (plan/12-owner-portal.md §4.3.3) — None이면 게이트 뒤 구역을 노출하지 않는다
+    portal_pin_hash: Mapped[str | None] = mapped_column(String(128))
+    portal_pin_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     tax_office: Mapped[TaxOffice] = relationship()
 

@@ -2,8 +2,10 @@
 
 import io
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +33,11 @@ from app.schemas.clients import (
 )
 from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
 from app.services.invite import get_or_create_session, send_invite_to_client
+from app.services.portal import (
+    get_or_issue_portal_token,
+    portal_url,
+    rotate_portal_token,
+)
 from app.services.tax_calc import (
     DEFAULT_EI_RATE,
     DEFAULT_HI_RATE,
@@ -249,6 +256,44 @@ async def update_client(
     await db.commit()
     await db.refresh(client)
     return client
+
+
+class PortalLinkOut(BaseModel):
+    url: str
+    issued_at: datetime
+
+
+async def _client_or_404(db: AsyncSession, client_id: str, user: User) -> Client:
+    client = await db.get(Client, client_id)
+    if not client or client.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
+    return client
+
+
+@router.get("/{client_id}/portal-link", response_model=PortalLinkOut)
+async def get_portal_link(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PortalLinkOut:
+    """거래처 상설 링크 조회 — 없으면 발급한다 (plan/12-owner-portal.md §5.3)."""
+    client = await _client_or_404(db, client_id, user)
+    token = await get_or_issue_portal_token(db, client)
+    await db.commit()
+    return PortalLinkOut(url=portal_url(token), issued_at=token.created_at)
+
+
+@router.post("/{client_id}/portal-link/rotate", response_model=PortalLinkOut)
+async def rotate_portal_link(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PortalLinkOut:
+    """상설 링크 강제 무효화 후 재발급 — 폰 분실·유출 신고 시 (§4.5)."""
+    client = await _client_or_404(db, client_id, user)
+    token = await rotate_portal_token(db, client)
+    await db.commit()
+    return PortalLinkOut(url=portal_url(token), issued_at=token.created_at)
 
 
 @router.post("/{client_id}/invite", response_model=ClientInviteResult)
