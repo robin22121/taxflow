@@ -367,13 +367,21 @@
 - `purpose = "CLIENT_PORTAL"`, 거래처당 활성 토큰 1개. 만료 대신 rotate로 관리
 - 재발급 = 기존 토큰 `used=True` 처리 후 신규 발급 → 옛 링크는 즉시 죽는다
 
-`Client`에 추가할 필드 2개:
+`Client`에 추가할 필드 3개:
 
 ```
 Client
-  ├── portal_pin_hash      : str | None       ← PIN 해시. None이면 게이트 뒤 구역 숨김
-  └── portal_pin_locked_until : datetime | None  ← 5회 실패 시 24시간 잠금
+  ├── portal_pin_hash          : str | None       ← PIN 해시(argon2). None이면 게이트 뒤 구역 숨김
+  ├── portal_pin_locked_until  : datetime | None  ← 잠금 해제 시각
+  └── portal_pin_failed_count  : int              ← 연속 실패 횟수. 5회에서 잠금 후 0으로 리셋
 ```
+
+> 구현하며 정정 — 설계 시점에는 2개로 적었으나 **연속 실패 횟수를 담을 곳이 필요**해
+> `portal_pin_failed_count`를 더했다 (마이그레이션 `c2d3e4f5a6b7`).
+
+**게이트 통과 상태는 서버에 저장하지 않는다.** §4.1의 "장기 세션 쿠키 없음"을 지키기 위해
+통과 시 2시간짜리 JWT grant(`type=portal_grant`, `sub=client_id`)를 발급해 응답 본문으로만
+돌려주고, 화면은 이를 `X-Portal-Grant` 헤더로 되보낸다. 쿠키가 없으므로 탭을 닫으면 사라진다.
 
 **링크 해석 순서** — `backend/app/api/public_collect.py`의 세션 조회 3곳
 (`/r/{token}` GET·submit·upload)을 아래로 교체한다. 그 아래 파이프라인(`_ingest_message`)은
@@ -424,6 +432,10 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
 | **2** | **입·퇴사 등록 버튼 2개** + `EmployeeChangeRequest` + 세무사 승인 UI | 중간 | 1단계 |
 | **3** | 보관함 — `ClientFilingResult` + 세무사 PDF 수동 업로드 + 예상 납부세액 | 낮음 | 1단계 |
 | **4** | 보관함 자동 적재 — RPA가 `ClientFilingResult`에 직접 기입 | Phase 2 종속 | Phase 2 RPA 산출물 |
+
+**구현 상태 (2026-09-10)** — 1단계 백엔드와 2단계 PIN 게이트 백엔드는 구현·검증 완료
+(`app/services/portal.py`, `tests/test_portal_link.py`, `tests/test_portal_pin.py`).
+남은 것은 **프론트엔드 화면**(홈·게이트 UI)과 3단계 보관함이다.
 
 **1단계는 사실상 기존 자산의 수명 연장이다.** 베타 사무소 한 곳에 1단계만 붙여
 **사장님 재방문율**을 측정하는 것이 이 방향의 유일한 검증이다. 재방문이 나오지 않으면
