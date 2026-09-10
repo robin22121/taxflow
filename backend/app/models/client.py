@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, LargeBinary, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models._base import Base, IdMixin, TimestampMixin
@@ -31,6 +31,7 @@ class Client(Base, IdMixin, TimestampMixin):
     # 사업주 포털 PIN (plan/12-owner-portal.md §4.3.3) — None이면 게이트 뒤 구역을 노출하지 않는다
     portal_pin_hash: Mapped[str | None] = mapped_column(String(128))
     portal_pin_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    portal_pin_failed_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     tax_office: Mapped[TaxOffice] = relationship()
 

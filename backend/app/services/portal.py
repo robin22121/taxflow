@@ -7,14 +7,19 @@
 
 from __future__ import annotations
 
+import logging
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from jose import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.channels import MessageRecipient, get_sms_channel
 from app.config import get_settings
+from app.core.security import decode_token, hash_password, verify_password
 from app.models import (
     Client,
     CollectionSession,
@@ -24,6 +29,8 @@ from app.models import (
 )
 from app.services.invite import get_or_create_session
 from app.services.secure_tokens import issue_token
+
+logger = logging.getLogger(__name__)
 
 PORTAL_PURPOSE = "CLIENT_PORTAL"
 
@@ -164,3 +171,123 @@ async def resolve_public_link(
             )
         ).scalar_one_or_none()
     return ResolvedLink(client=client, filing=filing, session=open_session)
+
+
+# --- PIN 게이트 (§4.3.3) ---------------------------------------------------
+#
+# PIN은 본인확인이 아니라 민감 구역(직원별 급여액·급여명세서) 열람 통제다.
+# 신원은 §4.2대로 세무사에게서 상속받으므로 여기서 다시 확인하지 않는다.
+
+PIN_LENGTH = 6
+MAX_PIN_ATTEMPTS = 5
+PIN_LOCKOUT = timedelta(hours=24)
+# 게이트 통과 상태는 브라우저 세션 한정 — 장기 쿠키를 두지 않는다 (§4.1).
+GRANT_TTL = timedelta(hours=2)
+_GRANT_TYPE = "portal_grant"
+
+
+class PinLockedError(Exception):
+    """시도 제한에 걸린 상태. ``until``까지 잠긴다."""
+
+    def __init__(self, until: datetime) -> None:
+        super().__init__("PIN 입력이 잠겼습니다")
+        self.until = until
+
+
+def generate_pin() -> str:
+    return "".join(secrets.choice("0123456789") for _ in range(PIN_LENGTH))
+
+
+def pin_is_set(client: Client) -> bool:
+    return bool(client.portal_pin_hash)
+
+
+def pin_locked_until(client: Client) -> datetime | None:
+    """잠금이 유효하면 해제 시각을, 아니면 None을 돌려준다."""
+    until = client.portal_pin_locked_until
+    if until is None:
+        return None
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=UTC)
+    return until if until > datetime.now(UTC) else None
+
+
+async def set_portal_pin(db: AsyncSession, client: Client) -> str:
+    """새 PIN을 발급하고 평문을 1회만 돌려준다. 저장은 해시로만 한다."""
+    pin = generate_pin()
+    client.portal_pin_hash = hash_password(pin)
+    client.portal_pin_failed_count = 0
+    client.portal_pin_locked_until = None
+    await db.flush()
+    return pin
+
+
+async def verify_portal_pin(db: AsyncSession, client: Client, pin: str) -> bool:
+    """PIN을 검증하고 실패 횟수를 갱신한다. 잠금 중이면 PinLockedError."""
+    locked = pin_locked_until(client)
+    if locked:
+        raise PinLockedError(locked)
+    if not client.portal_pin_hash:
+        return False
+
+    if verify_password(pin, client.portal_pin_hash):
+        client.portal_pin_failed_count = 0
+        client.portal_pin_locked_until = None
+        await db.flush()
+        return True
+
+    client.portal_pin_failed_count = (client.portal_pin_failed_count or 0) + 1
+    if client.portal_pin_failed_count >= MAX_PIN_ATTEMPTS:
+        client.portal_pin_failed_count = 0
+        client.portal_pin_locked_until = datetime.now(UTC) + PIN_LOCKOUT
+    await db.flush()
+    return False
+
+
+def issue_grant(client_id: str) -> str:
+    settings = get_settings()
+    now = datetime.now(UTC)
+    return jwt.encode(
+        {
+            "sub": client_id,
+            "type": _GRANT_TYPE,
+            "iat": int(now.timestamp()),
+            "exp": int((now + GRANT_TTL).timestamp()),
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def grant_is_valid(token: str | None, client_id: str) -> bool:
+    if not token:
+        return False
+    try:
+        payload = decode_token(token)
+    except ValueError:
+        return False
+    return payload.get("type") == _GRANT_TYPE and payload.get("sub") == client_id
+
+
+async def notify_pin_unlock(client: Client) -> None:
+    """게이트 통과 시 사장님 번호로 열람 통보 (§4.3.3).
+
+    이 통보가 §4.4 사후 확인 수단의 실체다. 발송 실패가 열람 자체를 막지는 않는다.
+    """
+    if not client.contact_phone:
+        return
+    body = (
+        f"[이지원천] {client.business_name} 급여 상세가 방금 열람되었습니다. "
+        f"본인이 아니라면 담당 세무사에게 알려주세요."
+    )
+    try:
+        await get_sms_channel().send(
+            MessageRecipient(
+                name=client.business_name,
+                phone=client.contact_phone,
+                email=client.contact_email,
+            ),
+            body=body,
+        )
+    except Exception:
+        logger.warning("PIN 열람 통보 실패 client=%s", client.id, exc_info=True)

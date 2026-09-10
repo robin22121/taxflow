@@ -35,8 +35,11 @@ from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
 from app.services.invite import get_or_create_session, send_invite_to_client
 from app.services.portal import (
     get_or_issue_portal_token,
+    pin_is_set,
+    pin_locked_until,
     portal_url,
     rotate_portal_token,
+    set_portal_pin,
 )
 from app.services.tax_calc import (
     DEFAULT_EI_RATE,
@@ -294,6 +297,41 @@ async def rotate_portal_link(
     token = await rotate_portal_token(db, client)
     await db.commit()
     return PortalLinkOut(url=portal_url(token), issued_at=token.created_at)
+
+
+class PortalPinStatus(BaseModel):
+    is_set: bool
+    locked_until: datetime | None
+
+
+class PortalPinIssued(BaseModel):
+    pin: str
+
+
+@router.get("/{client_id}/portal-pin", response_model=PortalPinStatus)
+async def get_portal_pin_status(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PortalPinStatus:
+    client = await _client_or_404(db, client_id, user)
+    return PortalPinStatus(is_set=pin_is_set(client), locked_until=pin_locked_until(client))
+
+
+@router.post("/{client_id}/portal-pin", response_model=PortalPinIssued)
+async def issue_portal_pin(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PortalPinIssued:
+    """PIN 발급·재발급 — 평문은 이 응답에서 한 번만 보인다.
+
+    링크가 담긴 알림톡과 **다른 경로**로 전달해야 게이트가 의미를 갖는다 (§4.3.3).
+    """
+    client = await _client_or_404(db, client_id, user)
+    pin = await set_portal_pin(db, client)
+    await db.commit()
+    return PortalPinIssued(pin=pin)
 
 
 @router.post("/{client_id}/invite", response_model=ClientInviteResult)
