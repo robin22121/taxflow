@@ -5,7 +5,13 @@ import { use, useEffect, useState } from "react";
 import { api, apiUpload } from "@/lib/api";
 import { Button } from "@/components/ui";
 
-type SessionInfo = { client_name: string; period: string };
+type SessionInfo = {
+  client_name: string;
+  period: string;
+  accepting: boolean;
+  has_pin: boolean;
+};
+type PayrollRow = { name: string; total_amount: number; prev_amount: number | null };
 type SubmitResult = {
   matched: number;
   new_hire_suspected: number;
@@ -27,12 +33,35 @@ export default function PublicCollectPage({
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [mode, setMode] = useState<"idle" | "text" | "processing">("idle");
+  // PIN 게이트 — 금액이 걸린 것만 자물쇠 뒤에 둔다 (plan/12-owner-portal.md §4.3.1)
+  const [gate, setGate] = useState<"hidden" | "asking" | "open">("hidden");
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinBusy, setPinBusy] = useState(false);
+  const [payroll, setPayroll] = useState<PayrollRow[] | null>(null);
+
+  // grant는 sessionStorage에만 둔다 — 탭을 닫으면 사라지고 장기 쿠키를 남기지 않는다 (§4.1)
+  const grantKey = `taxflow_portal_grant_${token}`;
 
   useEffect(() => {
     api<SessionInfo>(`/api/v1/public/r/${token}`)
       .then(setSession)
       .catch((e) => setError((e as Error).message));
   }, [token]);
+
+  useEffect(() => {
+    if (!session?.has_pin) return;
+    const saved = sessionStorage.getItem(grantKey);
+    if (!saved) return;
+    api<PayrollRow[]>(`/api/v1/public/r/${token}/payroll`, {
+      headers: { "X-Portal-Grant": saved },
+    })
+      .then((rows) => {
+        setPayroll(rows);
+        setGate("open");
+      })
+      .catch(() => sessionStorage.removeItem(grantKey));
+  }, [session, token, grantKey]);
 
   async function submit() {
     if (!text.trim()) return;
@@ -72,6 +101,37 @@ export default function PublicCollectPage({
   }
 
 
+  async function unlock() {
+    if (pin.length < 4) return;
+    setPinBusy(true);
+    setPinError(null);
+    try {
+      const res = await api<{ grant: string }>(`/api/v1/public/r/${token}/unlock`, {
+        method: "POST",
+        json: { pin },
+      });
+      sessionStorage.setItem(grantKey, res.grant);
+      const rows = await api<PayrollRow[]>(`/api/v1/public/r/${token}/payroll`, {
+        headers: { "X-Portal-Grant": res.grant },
+      });
+      setPayroll(rows);
+      setGate("open");
+      setPin("");
+    } catch (e) {
+      setPinError((e as Error).message);
+    } finally {
+      setPinBusy(false);
+    }
+  }
+
+  function lockAgain() {
+    sessionStorage.removeItem(grantKey);
+    setPayroll(null);
+    setPin("");
+    setPinError(null);
+    setGate("hidden");
+  }
+
   if (error && !session) {
     return (
       <div className="min-h-dvh flex items-center justify-center p-4 bg-[#F7F7F9]">
@@ -99,8 +159,10 @@ export default function PublicCollectPage({
           <div className="min-w-0">
             <div className="text-[15px] font-bold tracking-tight text-gray-900 truncate">{session.client_name}</div>
             <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-              <span className="text-[11.5px] text-gray-500">{session.period} 자료 수집중</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${session.accepting ? "bg-green-500" : "bg-gray-300"}`} />
+              <span className="text-[11.5px] text-gray-500">
+                {session.accepting ? `${session.period} 자료 수집중` : "지금은 보낼 자료 없음"}
+              </span>
             </div>
           </div>
         </div>
@@ -127,16 +189,26 @@ export default function PublicCollectPage({
         </div>
 
         {/* Greeting bubbles (them) */}
-        <ChatBubbleThem>
-          안녕하세요 <b className="text-blue-600">{session.client_name}</b> 사장님,<br />
-          {session.period} 직원 급여 자료 부탁드려요 🙏
-        </ChatBubbleThem>
-        <ChatBubbleThem>
-          아래 <b>편한 방법</b>으로 보내주시면 돼요.
-        </ChatBubbleThem>
+        {!session.accepting ? (
+          <ChatBubbleThem>
+            안녕하세요 <b className="text-blue-600">{session.client_name}</b> 사장님,<br />
+            지금은 보내주실 자료가 없어요.<br />
+            다음 신고 기간이 되면 알림톡으로 알려드릴게요 🙏
+          </ChatBubbleThem>
+        ) : (
+          <>
+            <ChatBubbleThem>
+              안녕하세요 <b className="text-blue-600">{session.client_name}</b> 사장님,<br />
+              {session.period} 직원 급여 자료 부탁드려요 🙏
+            </ChatBubbleThem>
+            <ChatBubbleThem>
+              아래 <b>편한 방법</b>으로 보내주시면 돼요.
+            </ChatBubbleThem>
+          </>
+        )}
 
         {/* Quick actions */}
-        <div className="pl-10 space-y-2 mb-3">
+        <div className={`pl-10 space-y-2 mb-3 ${session.accepting ? "" : "hidden"}`}>
           <div className="flex gap-2 max-w-[78%]">
             <label className="flex-1 flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-gray-200 rounded-xl cursor-pointer hover:border-gray-300 transition-colors">
               <span className="text-lg">📷</span>
@@ -256,11 +328,101 @@ export default function PublicCollectPage({
           </div>
         )}
 
+        {/* PIN 게이트 — 금액이 걸린 화면만 자물쇠 뒤 (§4.3.1) */}
+        {session.has_pin && (
+          <div className="pl-10 mb-3">
+            {gate !== "open" ? (
+              <div className="max-w-[78%] bg-white border border-gray-200 rounded-[14px] p-3 shadow-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm">🔒</span>
+                  <span className="text-[12.5px] font-bold text-gray-900">급여 상세 보기</span>
+                </div>
+                <div className="text-[11px] text-gray-500 leading-snug mb-2.5">
+                  직원별 금액은 세무사 사무소에서 받으신 PIN을 넣어야 보여요.
+                </div>
+                {gate === "hidden" ? (
+                  <button
+                    onClick={() => setGate("asking")}
+                    className="w-full py-2 rounded-xl border border-gray-300 text-[12.5px] font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    PIN 입력하고 보기
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      inputMode="numeric"
+                      maxLength={8}
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                      placeholder="PIN 6자리"
+                      className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[14px] tracking-[0.3em] text-center text-gray-900 outline-none focus:border-blue-500"
+                      autoFocus
+                    />
+                    {pinError && (
+                      <div className="text-[11.5px] text-red-600 leading-snug">{pinError}</div>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setGate("hidden"); setPin(""); setPinError(null); }}
+                        className="flex-1 py-2 rounded-xl border border-gray-300 text-[12.5px] text-gray-700 hover:bg-gray-50"
+                      >
+                        취소
+                      </button>
+                      <Button onClick={unlock} disabled={pinBusy || pin.length < 4}>
+                        {pinBusy ? "확인 중..." : "확인"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="max-w-[88%] bg-white border border-gray-200 rounded-[14px] overflow-hidden shadow-sm">
+                <div className="px-3.5 py-2.5 border-b border-gray-200 flex items-center justify-between">
+                  <span className="text-[12.5px] font-bold text-gray-900">
+                    {session.period} 급여 상세
+                  </span>
+                  <button onClick={lockAgain} className="text-[11px] text-gray-500 underline">
+                    닫기
+                  </button>
+                </div>
+                {payroll && payroll.length > 0 ? (
+                  <table className="w-full text-[12.5px]">
+                    <thead>
+                      <tr className="text-[11px] text-gray-500">
+                        <th className="text-left px-3.5 py-1.5 font-medium">이름</th>
+                        <th className="text-right px-2 py-1.5 font-medium">전월</th>
+                        <th className="text-right px-3.5 py-1.5 font-medium">이번 달</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payroll.map((row, i) => (
+                        <tr key={i} className="border-t border-gray-100">
+                          <td className="px-3.5 py-2 text-gray-900">{row.name}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-gray-500">
+                            {row.prev_amount != null ? row.prev_amount.toLocaleString() : "—"}
+                          </td>
+                          <td className="px-3.5 py-2 text-right tabular-nums font-semibold text-gray-900">
+                            {row.total_amount.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="px-3.5 py-3 text-[12px] text-gray-500">
+                    아직 이번 달 자료가 없어요.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="h-2" />
       </div>
 
       {/* Bottom input bar */}
-      <div className="px-3 py-2 bg-white border-t border-gray-200 flex items-center gap-2 shrink-0">
+      <div className={`px-3 py-2 bg-white border-t border-gray-200 items-center gap-2 shrink-0 ${session.accepting ? "flex" : "hidden"}`}>
         <label className="w-9 h-9 rounded-full bg-gray-50 flex items-center justify-center text-gray-700 cursor-pointer shrink-0 hover:bg-gray-200 transition-colors">
           <span className="text-lg">+</span>
           <input type="file" className="hidden" accept="audio/*,.mp3,.m4a,.wav,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
