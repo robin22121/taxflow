@@ -127,6 +127,18 @@ class CollectMessageOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class ResignIn(BaseModel):
+    """선택한 급여항목의 직원을 퇴사 처리."""
+
+    entry_ids: list[str] = Field(min_length=1, max_length=200)
+    resigned_at: date
+
+
+class ResignResult(BaseModel):
+    resigned: list[str]  # 퇴사 처리된 직원명
+    skipped: list[str]   # 이미 퇴사했거나 직원 미매칭이라 건너뛴 항목
+
+
 class NewEmployeeIn(BaseModel):
     """검토 화면에서 신규 입사자를 그 자리에서 등록할 때 함께 보내는 인적사항.
 

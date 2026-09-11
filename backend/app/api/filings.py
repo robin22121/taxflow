@@ -18,6 +18,7 @@ from app.models import (
     CollectionSession,
     CollectionSessionStatus,
     Employee,
+    EmploymentStatus,
     MonthlyFiling,
     MonthlyFilingStatus,
     PayrollEntry,
@@ -31,6 +32,8 @@ from app.schemas.filings import (
     MonthlyFilingOut,
     PayrollEntryOut,
     PayrollEntryUpdate,
+    ResignIn,
+    ResignResult,
 )
 from app.services.confirmation import send_confirmation
 from app.services.invite import (
@@ -759,6 +762,56 @@ async def delete_entry(
     await db.delete(entry)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{filing_id}/entries/resign", response_model=ResignResult)
+async def resign_entry_employees(
+    filing_id: str,
+    payload: ResignIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ResignResult:
+    """선택한 급여항목의 직원을 퇴사 처리한다.
+
+    당월 급여항목은 지우지 않는다 — 퇴사한 달에도 급여는 지급되므로 신고 대상이다.
+    직원 마스터만 RESIGNED 로 바꿔 다음 달 전월자료 불러오기에서 빠지게 한다.
+    """
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.id.in_(payload.entry_ids),
+                )
+                .options(selectinload(PayrollEntry.employee))
+            )
+        ).scalars().all()
+    )
+    if not entries:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "대상 항목을 찾을 수 없습니다")
+
+    resigned: list[str] = []
+    skipped: list[str] = []
+    for entry in entries:
+        employee = entry.employee
+        if employee is None:
+            # 직원 마스터에 매칭되지 않은 항목 — 퇴사 처리할 대상이 없다
+            skipped.append(entry.raw_name)
+            continue
+        if employee.status is EmploymentStatus.RESIGNED:
+            skipped.append(employee.name)
+            continue
+        employee.status = EmploymentStatus.RESIGNED
+        employee.resigned_at = payload.resigned_at
+        resigned.append(employee.name)
+
+    await db.commit()
+    return ResignResult(resigned=resigned, skipped=skipped)
 
 
 @router.get("/{filing_id}/wehago-excel")

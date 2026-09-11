@@ -416,6 +416,9 @@ export type NewEmployeeInput = {
   rrn?: string | null;
   hired_at?: string | null;
   employee_code?: string | null;
+  department?: string | null;
+  position?: string | null;
+  job_type?: string | null;
 };
 
 export type CollectPreview = {
@@ -434,6 +437,19 @@ export type CollectPreview = {
   ambiguous_followups?: Record<string, unknown>[];
   unconfirmed_followups?: Record<string, unknown>[];
 };
+
+/** 선택한 급여항목의 직원을 퇴사 처리한다 (급여항목은 남긴다). */
+export function useResignEmployees(filingId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { entryIds: string[]; resigned_at: string }) =>
+      api<{ resigned: string[]; skipped: string[] }>(
+        `/api/v1/filings/${filingId}/entries/resign`,
+        { method: "POST", json: { entry_ids: vars.entryIds, resigned_at: vars.resigned_at } },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["filings", filingId] }),
+  });
+}
 
 /** 급여파일을 AI로 읽어 항목만 미리 받아온다 (저장 안 함). */
 export function usePreviewUpload() {
