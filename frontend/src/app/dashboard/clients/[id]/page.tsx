@@ -25,6 +25,7 @@ import {
   formatPhone,
   koreanPeriod,
   previousPeriod,
+  priorPeriod,
 } from "@/lib/format";
 import type {
   Client,
@@ -48,7 +49,11 @@ export default function ClientDetailPage({
 
   const empFileRef = useRef<HTMLInputElement>(null);
   const payFileRef = useRef<HTMLInputElement>(null);
-  const [payPeriod, setPayPeriod] = useState(previousPeriod);
+  // 진행 중인 신고는 직전 월분(previousPeriod)이고, "전월자료 불러오기"는
+  // 그보다 한 달 앞선 자료를 찾는다. 기본값을 거기에 맞춘다.
+  const [payPeriod, setPayPeriod] = useState(() =>
+    priorPeriod(previousPeriod()),
+  );
   const [empResult, setEmpResult] = useState<ImportEmployeeResult | null>(null);
   const [payResult, setPayResult] = useState<ImportPayrollResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,8 +187,9 @@ export default function ClientDetailPage({
             </p>
             <p className="text-xs text-gray-500">
               선택한 귀속년월의 급여자료로 저장됩니다. 신고 화면의 &ldquo;전월자료
-              불러오기&rdquo;는 진행 중인 신고월의 직전 월 자료를 찾으므로,
-              귀속년월을 맞춰 올려야 합니다.
+              불러오기&rdquo;는 진행 중인 신고월의 직전 월을 찾으므로,{" "}
+              {koreanPeriod(previousPeriod())} 신고를 준비 중이라면{" "}
+              {koreanPeriod(priorPeriod(previousPeriod()))} 자료가 필요합니다.
             </p>
             <div className="flex gap-2 items-end">
               <div>
