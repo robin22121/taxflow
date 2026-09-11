@@ -13,6 +13,18 @@ type SessionInfo = {
 };
 type PayrollRow = { name: string; total_amount: number; prev_amount: number | null };
 type RosterEntry = { id: string; name: string };
+type ArchiveRow = {
+  period: string;
+  estimated_tax: number;
+  settled_tax: number | null;
+  due_date: string | null;
+  virtual_account: string | null;
+  epayment_number: string | null;
+  has_receipt: boolean;
+  has_payment_slip: boolean;
+};
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 type SubmitResult = {
   matched: number;
   new_hire_suspected: number;
@@ -50,6 +62,8 @@ export default function PublicCollectPage({
   const [changeBusy, setChangeBusy] = useState(false);
   const [changeError, setChangeError] = useState<string | null>(null);
   const [changeDone, setChangeDone] = useState<string | null>(null);
+  // 보관함 — 얼마 내야 하나 / 접수증 있나 (§3.1)
+  const [archive, setArchive] = useState<ArchiveRow[]>([]);
 
   // grant는 sessionStorage에만 둔다 — 탭을 닫으면 사라지고 장기 쿠키를 남기지 않는다 (§4.1)
   const grantKey = `taxflow_portal_grant_${token}`;
@@ -58,6 +72,12 @@ export default function PublicCollectPage({
     api<SessionInfo>(`/api/v1/public/r/${token}`)
       .then(setSession)
       .catch((e) => setError((e as Error).message));
+  }, [token]);
+
+  useEffect(() => {
+    api<ArchiveRow[]>(`/api/v1/public/r/${token}/archive`)
+      .then(setArchive)
+      .catch(() => setArchive([]));
   }, [token]);
 
   useEffect(() => {
@@ -376,6 +396,62 @@ export default function PublicCollectPage({
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 보관함 — 얼마 내야 하나 / 접수증 (§3.1, §3.4) */}
+        {archive.length > 0 && (
+          <div className="pl-10 mb-3">
+            <div className="max-w-[88%] bg-white border border-gray-200 rounded-[14px] overflow-hidden shadow-sm">
+              <div className="px-3.5 py-2.5 border-b border-gray-200 text-[12.5px] font-bold text-gray-900">
+                원천세 납부 내역
+              </div>
+              {archive.map((row) => (
+                <div key={row.period} className="px-3.5 py-2.5 border-b border-gray-100 last:border-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[12.5px] font-semibold text-gray-900">
+                        {row.period.replace("-", "년 ")}월
+                      </div>
+                      <div className="text-[11px] text-gray-500">
+                        {row.settled_tax != null ? "납부" : "예상"}{" "}
+                        <span className="tabular-nums">
+                          {(row.settled_tax ?? row.estimated_tax).toLocaleString()}원
+                        </span>
+                        {row.due_date ? ` · ${row.due_date}까지` : ""}
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      {row.has_receipt && (
+                        <a
+                          href={`${API_BASE}/api/v1/public/r/${token}/archive/${row.period}/receipt`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 rounded-lg border border-gray-300 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          접수증
+                        </a>
+                      )}
+                      {row.has_payment_slip && (
+                        <a
+                          href={`${API_BASE}/api/v1/public/r/${token}/archive/${row.period}/payment-slip`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 rounded-lg border border-gray-300 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          납부서
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  {row.virtual_account && (
+                    <div className="mt-1.5 text-[11px] text-gray-700 bg-gray-50 rounded-lg px-2.5 py-1.5">
+                      가상계좌 <span className="font-medium">{row.virtual_account}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}

@@ -13,6 +13,7 @@ from app.models.employee_change import (
     ChangeType,
     EmployeeChangeRequest,
 )
+from app.models.filing_result import ClientFilingResult, FilingResultSource
 from app.models.kakao_binding import KakaoUserBinding
 from app.models.kakao_pending import KakaoPendingMessage
 from app.models.monthly_filing import MonthlyFiling, MonthlyFilingStatus
@@ -29,6 +30,7 @@ __all__ = [
     "ChangeRequestStatus",
     "ChangeType",
     "Client",
+    "ClientFilingResult",
     "ClientPayrollDefault",
     "CollectionEvent",
     "CollectionSession",
@@ -37,6 +39,7 @@ __all__ = [
     "Employee",
     "EmployeeChangeRequest",
     "EmploymentStatus",
+    "FilingResultSource",
     "IncomeType",
     "KakaoUserBinding",
     "KakaoPendingMessage",

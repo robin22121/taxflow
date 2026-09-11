@@ -412,8 +412,7 @@ token → SecureToken(purpose=CLIENT_PORTAL, used=False) → client
 ```
 ClientFilingResult   ← 신설, (client_id, period) 유니크
   ├── client_id / period
-  ├── 예상 납부세액   : PayrollEntry.income_tax + local_tax 합계로 산출
-  ├── 확정 납부세액   : 홈택스 실제 접수액
+  ├── 확정 납부세액   : 홈택스 실제 접수액 (settled_tax)
   ├── 가상계좌·전자납부번호 / 납부기한
   ├── 접수증 PDF / 납부서 PDF (파일 참조)
   └── source : MANUAL_UPLOAD / RPA
@@ -428,6 +427,11 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
 있으므로(`backend/app/models/payroll.py:71-72`) 합계만 내면 된다. 다만 가산세·조정으로
 홈택스 확정액과 달라질 수 있어 화면에는 반드시 **"예상"**으로 표기하고, 확정액이 들어오면
 대체한다.
+
+> **2026-09-11 구현 시 정정** — 예상 납부세액을 이 테이블의 **컬럼으로 두지 않았다.**
+> 저장해 두면 세무사가 급여를 수정한 뒤 stale 값이 남는다. 조회할 때마다
+> `PayrollEntry`에서 기간별로 합산한다(`app/services/portal.py: client_archive`).
+> 이 테이블에는 **홈택스에서 돌아온 사실**만 담긴다.
 
 ---
 
@@ -447,10 +451,15 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
 - 상설 링크 해석, 열린 신고 없음 안내, PIN 게이트(입력·잠금·열람 통보), 게이트 뒤 급여 상세 표 — 완료
 - grant는 `sessionStorage`에만 두고 `X-Portal-Grant` 헤더로 보낸다. 사장님이 "닫기"로 직접 잠글 수 있다
 - **입·퇴사 등록 버튼 2개 + 세무사 승인 창구** — 완료
-  (`app/api/employee_changes.py`, `tests/test_employee_change.py`).
-  입·퇴사는 신고월과 무관하므로 자료 수집 기간이 아니어도 버튼이 항상 열려 있다
-- 남은 것: **보관함**(`ClientFilingResult` + 접수증·납부서, §5.4 / 3·4단계)와
-  세무사 대시보드의 승인 UI(백엔드 API는 준비됨)
+  (`app/api/employee_changes.py`, `frontend/src/app/dashboard/employee-changes/page.tsx`,
+  `tests/test_employee_change.py`). 입·퇴사는 신고월과 무관하므로 자료 수집 기간이
+  아니어도 버튼이 항상 열려 있다
+- **보관함** — 완료 (`ClientFilingResult`, 마이그레이션 `e4f5a6b7c8d9`,
+  `tests/test_portal_archive.py`). 세무사가 PDF를 올리는 `MANUAL_UPLOAD` 경로로
+  **Phase 2 RPA 이전에 동작한다**. 예상 납부세액은 `PayrollEntry` 합계로 계산된다
+- 남은 것: **Phase 2 RPA 자동 적재**(같은 테이블에 `source=RPA`로 기입하면 화면 변경 없음),
+  그리고 §4.5의 **열람 로그**와 세무사 대시보드의 **상설 링크·PIN 관리 UI**
+  (백엔드 API는 준비됨)
 
 **1단계는 사실상 기존 자산의 수명 연장이다.** 베타 사무소 한 곳에 1단계만 붙여
 **사장님 재방문율**을 측정하는 것이 이 방향의 유일한 검증이다. 재방문이 나오지 않으면

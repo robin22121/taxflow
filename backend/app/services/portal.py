@@ -10,10 +10,10 @@ from __future__ import annotations
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from jose import jwt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,9 +22,11 @@ from app.config import get_settings
 from app.core.security import decode_token, hash_password, verify_password
 from app.models import (
     Client,
+    ClientFilingResult,
     CollectionSession,
     MonthlyFiling,
     MonthlyFilingStatus,
+    PayrollEntry,
     SecureToken,
 )
 from app.services.invite import get_or_create_session
@@ -267,6 +269,65 @@ def grant_is_valid(token: str | None, client_id: str) -> bool:
     except ValueError:
         return False
     return payload.get("type") == _GRANT_TYPE and payload.get("sub") == client_id
+
+
+@dataclass
+class ArchiveRow:
+    """보관함 한 줄 — 사장님이 알고 싶은 건 '얼마 내야 하나'와 '접수증 있나' 둘뿐이다."""
+
+    period: str
+    estimated_tax: int
+    settled_tax: int | None
+    due_date: date | None
+    virtual_account: str | None
+    epayment_number: str | None
+    has_receipt: bool
+    has_payment_slip: bool
+
+
+async def client_archive(db: AsyncSession, client: Client) -> list[ArchiveRow]:
+    """거래처의 월별 신고 결과. 최신 기간부터 (§3.1 홈 화면, §3.4 보관함).
+
+    예상 납부세액은 저장하지 않고 ``PayrollEntry``에서 그때그때 합산한다.
+    급여를 수정하면 값이 따라 움직여야 하기 때문이다. 홈택스 확정액이
+    들어오면 화면이 그쪽을 쓴다.
+    """
+    sums = (
+        await db.execute(
+            select(
+                MonthlyFiling.period,
+                func.sum(PayrollEntry.income_tax + PayrollEntry.local_tax),
+            )
+            .join(MonthlyFiling, MonthlyFiling.id == PayrollEntry.monthly_filing_id)
+            .where(PayrollEntry.client_id == client.id)
+            .group_by(MonthlyFiling.period)
+        )
+    ).all()
+    estimated = {period: int(total or 0) for period, total in sums}
+
+    results = (
+        await db.execute(
+            select(ClientFilingResult).where(ClientFilingResult.client_id == client.id)
+        )
+    ).scalars().all()
+    by_period = {row.period: row for row in results}
+
+    rows: list[ArchiveRow] = []
+    for period in sorted(set(estimated) | set(by_period), reverse=True):
+        result = by_period.get(period)
+        rows.append(
+            ArchiveRow(
+                period=period,
+                estimated_tax=estimated.get(period, 0),
+                settled_tax=result.settled_tax if result else None,
+                due_date=result.due_date if result else None,
+                virtual_account=result.virtual_account if result else None,
+                epayment_number=result.epayment_number if result else None,
+                has_receipt=bool(result and result.receipt_key),
+                has_payment_slip=bool(result and result.payment_slip_key),
+            )
+        )
+    return rows
 
 
 async def notify_pin_unlock(client: Client) -> None:

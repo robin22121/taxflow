@@ -269,3 +269,15 @@ export type PayrollEntry = {
   approved: boolean;
   source_event: SourceEvent | null;
 };
+
+export type EmployeeChangeRequest = {
+  id: string;
+  client_id: string;
+  client_name: string;
+  change_type: "HIRE" | "RESIGN";
+  name: string;
+  hired_at: string | null;
+  resigned_at: string | null;
+  note: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+};

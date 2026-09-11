@@ -15,6 +15,7 @@ import type {
   ClientInviteResult,
   CurrentUser,
   Employee,
+  EmployeeChangeRequest,
   Filing,
   FilingDashboard,
   ImportEmployeeResult,
@@ -534,5 +535,29 @@ export function useDeletePromotion() {
     mutationFn: (promotionId: string) =>
       api(`/api/v1/admin/promotions/${promotionId}`, { method: "DELETE" }),
     onSuccess: () => invalidateAdmin(qc),
+  });
+}
+
+export function useEmployeeChanges(status: "PENDING" | "ALL") {
+  return useQuery({
+    queryKey: ["employee-changes", status],
+    queryFn: () =>
+      api<EmployeeChangeRequest[]>(`/api/v1/employee-changes?status=${status}`),
+  });
+}
+
+export function useReviewEmployeeChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { requestId: string; action: "approve" | "reject" }) =>
+      api<EmployeeChangeRequest>(
+        `/api/v1/employee-changes/${vars.requestId}/${vars.action}`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employee-changes"] });
+      // 승인 시 직원 마스터가 바뀐다 — 거래처 화면의 직원 목록도 다시 받는다.
+      qc.invalidateQueries({ queryKey: ["employees"] });
+    },
   });
 }

@@ -10,7 +10,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +21,7 @@ from app.api.collect import _ingest_message
 from app.core.deps import get_db
 from app.models import (
     ChangeType,
+    ClientFilingResult,
     Employee,
     EmployeeChangeRequest,
     EmploymentStatus,
@@ -31,6 +34,7 @@ from app.services.portal import (
     GRANT_TTL,
     PinLockedError,
     ResolvedLink,
+    client_archive,
     grant_is_valid,
     issue_grant,
     notify_pin_unlock,
@@ -71,6 +75,17 @@ class GatedPayrollRow(BaseModel):
     name: str
     total_amount: int
     prev_amount: int | None
+
+
+class ArchiveRowOut(BaseModel):
+    period: str
+    estimated_tax: int
+    settled_tax: int | None
+    due_date: date | None
+    virtual_account: str | None
+    epayment_number: str | None
+    has_receipt: bool
+    has_payment_slip: bool
 
 
 class PortalEmployee(BaseModel):
@@ -260,6 +275,78 @@ async def gated_payroll(
         )
         for row in rows
     ]
+
+
+@router.get("/r/{token_str}/archive", response_model=list[ArchiveRowOut])
+async def portal_archive(
+    token_str: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[ArchiveRowOut]:
+    """월별 납부세액·가상계좌·접수증 보유 여부 (§3.1, §3.4).
+
+    금액이 걸려 있지만 **게이트 앞**이다 — 사장님이 알아야 할 "얼마 내야 하나"는
+    사업장 전체 합계라 직원별 급여와 달리 새어도 개인 급여가 드러나지 않는다.
+    """
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    return [
+        ArchiveRowOut(
+            period=row.period,
+            estimated_tax=row.estimated_tax,
+            settled_tax=row.settled_tax,
+            due_date=row.due_date,
+            virtual_account=row.virtual_account,
+            epayment_number=row.epayment_number,
+            has_receipt=row.has_receipt,
+            has_payment_slip=row.has_payment_slip,
+        )
+        for row in await client_archive(db, link.client)
+    ]
+
+
+@router.get("/r/{token_str}/archive/{period}/{kind}")
+async def portal_archive_document(
+    token_str: str,
+    period: str,
+    kind: Literal["receipt", "payment-slip"],
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """접수증·납부서 PDF 원본."""
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+
+    result = (
+        await db.execute(
+            select(ClientFilingResult).where(
+                ClientFilingResult.client_id == link.client.id,
+                ClientFilingResult.period == period,
+            )
+        )
+    ).scalar_one_or_none()
+    storage_key = None
+    filename = None
+    if result:
+        if kind == "receipt":
+            storage_key, filename = result.receipt_key, result.receipt_name
+        else:
+            storage_key, filename = result.payment_slip_key, result.payment_slip_name
+    if not storage_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "아직 올라온 서류가 없습니다")
+
+    try:
+        blob = get_storage().get_object(storage_key)
+    except Exception as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "파일을 찾을 수 없습니다") from e
+
+    return Response(
+        content=blob,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{quote(filename or f"{period}.pdf")}"'
+        },
+    )
 
 
 @router.get("/r/{token_str}/employees", response_model=list[PortalEmployee])

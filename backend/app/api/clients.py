@@ -2,16 +2,19 @@
 
 import io
 import logging
-from datetime import datetime
+import re
+from datetime import date, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
 from app.models import (
     Client,
+    ClientFilingResult,
     ClientPayrollDefault,
     Employee,
     EmploymentStatus,
@@ -32,6 +35,7 @@ from app.schemas.clients import (
     PayrollDefaultUpdate,
 )
 from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
+from app.services.storage import get_storage
 from app.services.invite import get_or_create_session, send_invite_to_client
 from app.services.portal import (
     get_or_issue_portal_token,
@@ -297,6 +301,115 @@ async def rotate_portal_link(
     token = await rotate_portal_token(db, client)
     await db.commit()
     return PortalLinkOut(url=portal_url(token), issued_at=token.created_at)
+
+
+class FilingResultIn(BaseModel):
+    settled_tax: int | None = None
+    virtual_account: str | None = Field(default=None, max_length=60)
+    epayment_number: str | None = Field(default=None, max_length=40)
+    due_date: date | None = None
+
+
+class FilingResultOut(BaseModel):
+    period: str
+    settled_tax: int | None
+    virtual_account: str | None
+    epayment_number: str | None
+    due_date: date | None
+    has_receipt: bool
+    has_payment_slip: bool
+
+
+def _result_out(row: ClientFilingResult) -> FilingResultOut:
+    return FilingResultOut(
+        period=row.period,
+        settled_tax=row.settled_tax,
+        virtual_account=row.virtual_account,
+        epayment_number=row.epayment_number,
+        due_date=row.due_date,
+        has_receipt=bool(row.receipt_key),
+        has_payment_slip=bool(row.payment_slip_key),
+    )
+
+
+async def _filing_result(
+    db: AsyncSession, client: Client, period: str
+) -> ClientFilingResult:
+    if not re.fullmatch(r"\d{4}-\d{2}", period):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "기간은 YYYY-MM 형식입니다")
+    row = (
+        await db.execute(
+            select(ClientFilingResult).where(
+                ClientFilingResult.client_id == client.id,
+                ClientFilingResult.period == period,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = ClientFilingResult(client_id=client.id, period=period)
+        db.add(row)
+        await db.flush()
+    return row
+
+
+@router.put("/{client_id}/filing-results/{period}", response_model=FilingResultOut)
+async def upsert_filing_result(
+    client_id: str,
+    period: str,
+    payload: FilingResultIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FilingResultOut:
+    """보관함에 신고 결과를 기입한다 — 확정 납부세액·가상계좌·납부기한 (§5.4)."""
+    client = await _client_or_404(db, client_id, user)
+    row = await _filing_result(db, client, period)
+    row.settled_tax = payload.settled_tax
+    row.virtual_account = payload.virtual_account
+    row.epayment_number = payload.epayment_number
+    row.due_date = payload.due_date
+    await db.commit()
+    await db.refresh(row)
+    return _result_out(row)
+
+
+@router.post(
+    "/{client_id}/filing-results/{period}/documents/{kind}",
+    response_model=FilingResultOut,
+)
+async def upload_filing_document(
+    client_id: str,
+    period: str,
+    kind: Literal["receipt", "payment-slip"],
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FilingResultOut:
+    """접수증·납부서 PDF 업로드.
+
+    Phase 2의 SmartA RPA를 기다리지 않고 보관함이 돌아가게 하는 경로다.
+    나중에 에이전트가 같은 레코드에 자동 적재하면 화면은 그대로 둘 수 있다.
+    """
+    client = await _client_or_404(db, client_id, user)
+    content = await file.read()
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 파일입니다")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "10MB 초과")
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "PDF 파일만 올릴 수 있습니다")
+
+    storage = get_storage()
+    key = storage.make_key(f"filing-result/{kind}", ".pdf")
+    storage.put_object(key, content, "application/pdf")
+
+    row = await _filing_result(db, client, period)
+    if kind == "receipt":
+        row.receipt_key, row.receipt_name = key, file.filename
+    else:
+        row.payment_slip_key, row.payment_slip_name = key, file.filename
+    await db.commit()
+    await db.refresh(row)
+    return _result_out(row)
 
 
 class PortalPinStatus(BaseModel):
