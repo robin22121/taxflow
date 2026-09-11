@@ -13,6 +13,7 @@ import {
   useFilingDashboard,
   useFilingEntries,
   useInsuranceSummary,
+  usePortalLink,
   usePreviewCarryForward,
   usePreviewMessage,
   usePreviewUpload,
@@ -1010,6 +1011,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
   const { data: attachments } = useSessionAttachments(filingId, session.id);
   const { data: timeline } = useSessionTimeline(filingId, session.id);
   const { data: clients } = useClients();
+  const { data: portalLink } = usePortalLink(session.client_id);
   const submit = useSubmitMessage(filingId);
   const requestCollection = useRequestCollection(filingId);
   const [showInput, setShowInput] = useState(false);
@@ -1034,7 +1036,8 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
   const clientDetail = clients?.find((c) => c.id === session.client_id);
   const visibleAttachments = (attachments ?? []).filter((a) => !deletedKeys.has(a.storage_key));
   const visibleTimeline = (timeline ?? []).filter((t) => !deletedEventIds.has(t.id));
-  const publicUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`;
+  // 링크는 백엔드가 app_public_url로 조립한다. 프론트에서 조립하면 API 도메인이 섞인다.
+  const publicUrl = portalLink?.url;
 
   return (
     <>
@@ -1044,7 +1047,9 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
           <div className="text-[13px] font-semibold mt-0.5">{session.client_name}</div>
         </div>
         <div className="flex gap-1.5 text-[10px]">
-          <a href={publicUrl} target="_blank" className="text-blue-600 hover:underline">URL</a>
+          {publicUrl && (
+            <a href={publicUrl} target="_blank" className="text-blue-600 hover:underline">URL</a>
+          )}
           <span className="text-gray-300">|</span>
           <button onClick={() => requestCollection.mutate(session.id)} disabled={requestCollection.isPending} className="text-blue-600 hover:underline disabled:opacity-50">
             {requestCollection.isPending ? "발송중..." : "자료요청"}

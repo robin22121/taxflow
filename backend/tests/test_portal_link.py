@@ -131,5 +131,40 @@ async def test_no_open_filing_is_not_accepting(http: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_invite_carries_portal_link_not_session_token(
+    http: AsyncClient, auth_headers: dict
+):
+    """발송 경로는 상설 링크를 싣는다 — 세션 토큰이 나가면 달마다 링크가 바뀐다 (§3.6)."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import CollectionEvent, CollectionSession
+
+    client_id = await _first_client_id(http, auth_headers)
+    link = (
+        await http.get(f"/api/v1/clients/{client_id}/portal-link", headers=auth_headers)
+    ).json()["url"]
+
+    sent = await http.post(f"/api/v1/clients/{client_id}/invite", headers=auth_headers)
+    assert sent.status_code == 200, sent.text
+
+    async with SessionLocal() as db:
+        event = (
+            await db.execute(
+                select(CollectionEvent)
+                .join(CollectionSession, CollectionSession.id == CollectionEvent.session_id)
+                .where(
+                    CollectionSession.client_id == client_id,
+                    CollectionEvent.event_type == "SEND_INVITE",
+                )
+                .order_by(CollectionEvent.created_at.desc())
+            )
+        ).scalars().first()
+
+    assert event is not None
+    assert link in event.raw_text
+
+
+@pytest.mark.asyncio
 async def test_unknown_token_is_404(http: AsyncClient):
     assert (await http.get("/api/v1/public/r/nope-not-a-real-token")).status_code == 404

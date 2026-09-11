@@ -75,7 +75,10 @@ async def send_invite_to_client(
     """
     settings = settings or get_settings()
     session = await get_or_create_session(db, filing, client, ttl_days=30)
-    url = f"{settings.app_public_url}/r/{session.request_token}"
+    # portal이 이 모듈을 import하므로 순환을 피해 함수 안에서 가져온다.
+    from app.services.portal import portal_link_for
+
+    url = await portal_link_for(db, client)
 
     rep = client.representative or ""
     greeting = f"{client.business_name} {rep} 대표님" if rep else f"{client.business_name} 대표님"

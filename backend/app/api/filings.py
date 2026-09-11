@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.channels import MessageRecipient, get_alimtalk_channel
-from app.config import get_settings
 from app.core.deps import get_current_user, get_db
 from app.models import (
     Client,
@@ -45,6 +44,7 @@ from app.services.insurance_excel import (
     generate_loss_report,
     generate_remuneration_change_report,
 )
+from app.services.portal import portal_link_for
 from app.services.payslip_excel import generate_payslips
 from app.services.simple_statement_excel import (
     generate_business_statement,
@@ -184,9 +184,8 @@ async def _send_collection_alimtalk(
 ) -> None:
     """Send a collection request alimtalk for a single client session."""
     channel = get_alimtalk_channel()
-    settings = get_settings()
 
-    url = f"{settings.app_public_url}/r/{session.request_token}"
+    url = await portal_link_for(db, client)
     body = (
         f"[{client.business_name}] {filing.period} 원천세 자료 요청드립니다.\n"
         f"아래 링크에서 직원 인건비를 입력하시거나, 평소처럼 이 채팅에 답장해주셔도 됩니다.\n"

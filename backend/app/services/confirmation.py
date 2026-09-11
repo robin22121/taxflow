@@ -25,6 +25,7 @@ from app.models import (
     PayrollEntry,
 )
 from app.models.payroll import IncomeType, MatchStatus
+from app.services.portal import portal_link_for
 
 logger = logging.getLogger(__name__)
 
@@ -234,11 +235,7 @@ async def send_confirmation(
         else:
             return False, "none", "거래처 연락처가 없어 회신할 수 없습니다."
 
-    public_url = (
-        f"{settings.app_public_url}/r/{session.request_token}"
-        if session.request_token
-        else None
-    )
+    public_url = await portal_link_for(db, client)
 
     if channel == "email":
         if not client.contact_email:

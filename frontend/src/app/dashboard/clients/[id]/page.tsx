@@ -8,8 +8,12 @@ import {
   useClientEmployees,
   useImportEmployees,
   useImportPayroll,
+  useIssuePortalPin,
   usePayrollDefault,
+  usePortalLink,
+  usePortalPinStatus,
   useResetPayrollDefault,
+  useRotatePortalLink,
   useUpdateClient,
   useUpdatePayrollDefault,
 } from "@/lib/queries";
@@ -106,6 +110,9 @@ export default function ClientDetailPage({
           pending={updateClient.isPending}
         />
       )}
+
+      {/* 사장님 화면 — 상설 링크 + PIN (plan/12-owner-portal.md §4.3) */}
+      <PortalSection clientId={id} />
 
       {/* Import Section */}
       <Card>
@@ -295,6 +302,138 @@ function StatusBadge({ status }: { status: string }) {
   if (status === "ACTIVE") return <Badge tone="success">재직</Badge>;
   if (status === "RESIGNED") return <Badge tone="danger">퇴사</Badge>;
   return <Badge tone="warning">대기</Badge>;
+}
+
+/* ─── 사장님 화면 — 상설 링크 + PIN (plan/12-owner-portal.md §4.3) ─── */
+
+function PortalSection({ clientId }: { clientId: string }) {
+  const { data: link, isLoading } = usePortalLink(clientId);
+  const { data: pin } = usePortalPinStatus(clientId);
+  const rotate = useRotatePortalLink(clientId);
+  const issuePin = useIssuePortalPin(clientId);
+  const [copied, setCopied] = useState(false);
+  const [newPin, setNewPin] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const lockedUntil = pin?.locked_until ? new Date(pin.locked_until) : null;
+  const locked = lockedUntil !== null && lockedUntil.getTime() > Date.now();
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold text-gray-900">사장님 화면</h2>
+      <p className="text-xs text-gray-500 mt-0.5">
+        대표님이 급여 자료를 보내는 상설 링크입니다. 매달 바뀌지 않으니 카카오톡에 저장해두고
+        쓰시라고 안내하세요.
+      </p>
+
+      <div className="mt-4">
+        <label className="block text-xs text-gray-500 mb-1">상설 링크</label>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            readOnly
+            value={isLoading ? "불러오는 중..." : (link?.url ?? "")}
+            onFocus={(e) => e.target.select()}
+            className="flex-1 rounded-lg border border-gray-300 bg-gray-50 px-3 py-1.5 font-mono text-[12px] text-gray-900"
+          />
+          <div className="flex gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              disabled={!link}
+              onClick={async () => {
+                if (!link) return;
+                setErr(null);
+                try {
+                  await navigator.clipboard.writeText(link.url);
+                  setCopied(true);
+                  window.setTimeout(() => setCopied(false), 2000);
+                } catch {
+                  setErr("복사에 실패했습니다. 주소를 직접 선택해 복사해주세요.");
+                }
+              }}
+            >
+              {copied ? "복사됨" : "링크 복사"}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={!link}
+              onClick={() => link && window.open(link.url, "_blank")}
+            >
+              열기
+            </Button>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 mt-1">
+          <p className="text-[11px] text-gray-500">
+            {link ? `${new Date(link.issued_at).toLocaleDateString("ko-KR")} 발급 · 만료 없음` : ""}
+          </p>
+          <Button
+            variant="ghost"
+            disabled={!link || rotate.isPending}
+            onClick={() => {
+              if (!window.confirm("기존 링크가 즉시 사용 불가가 됩니다. 새 링크를 발급할까요?")) return;
+              rotate.mutate();
+            }}
+          >
+            {rotate.isPending ? "재발급 중..." : "링크 재발급 (기존 무효화)"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-5 pt-4 border-t border-gray-200">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-gray-900">급여 상세 열람 PIN</h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              직원별 금액을 볼 때만 필요한 6자리 숫자입니다. 자료 제출에는 필요 없습니다.
+              <br />
+              링크와 <strong>다른 경로</strong>(전화·기존 카카오톡)로 전달해야 게이트가 의미를 갖습니다.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            disabled={issuePin.isPending}
+            onClick={async () => {
+              if (pin?.is_set && !window.confirm("기존 PIN이 즉시 무효화됩니다. 새 PIN을 발급할까요?")) return;
+              setErr(null);
+              try {
+                const res = await issuePin.mutateAsync();
+                setNewPin(res.pin);
+              } catch (e) {
+                setErr((e as Error).message);
+              }
+            }}
+          >
+            {issuePin.isPending ? "발급 중..." : pin?.is_set ? "PIN 재발급" : "PIN 발급"}
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 mt-2 text-[12px]">
+          {pin?.is_set ? <Badge tone="success">발급됨</Badge> : <Badge tone="warning">미발급</Badge>}
+          {lockedUntil && locked && (
+            <Badge tone="danger">
+              잠김 — {lockedUntil.toLocaleString("ko-KR")} 해제
+            </Badge>
+          )}
+          {pin && !pin.is_set && (
+            <span className="text-gray-500">
+              미발급이면 사장님 화면에 급여 상세 구역이 아예 표시되지 않습니다.
+            </span>
+          )}
+        </div>
+
+        {newPin && (
+          <div className="mt-3 p-3 rounded-lg bg-blue-50/30 border border-blue-600/20">
+            <p className="text-[11px] text-gray-500 mb-1">
+              새 PIN — 이 화면을 벗어나면 다시 볼 수 없습니다
+            </p>
+            <p className="font-mono text-xl tracking-[0.3em] text-blue-600">{newPin}</p>
+          </div>
+        )}
+      </div>
+
+      {err && <p className="text-sm text-red-600 mt-3">{err}</p>}
+    </Card>
+  );
 }
 
 /* ─── 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) ─── */

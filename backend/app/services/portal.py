@@ -105,6 +105,15 @@ def portal_url(token: SecureToken) -> str:
     return f"{get_settings().app_public_url}/r/{token.token}"
 
 
+async def portal_link_for(db: AsyncSession, client: Client) -> str:
+    """거래처에게 보낼 링크. 발송 경로는 모두 이 함수를 거친다 (§3.6).
+
+    세션 토큰 URL을 직접 조립하면 달마다 링크가 바뀌어 옛 링크로 옛 기간 폼에
+    제출하는 사고가 난다. 상설 링크는 항상 지금 열린 신고로 해석된다.
+    """
+    return portal_url(await get_or_issue_portal_token(db, client))
+
+
 async def current_open_filing(db: AsyncSession, client: Client) -> MonthlyFiling | None:
     """거래처가 속한 사무소에서 지금 자료를 받고 있는 신고 중 가장 최근 기간."""
     return (
