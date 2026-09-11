@@ -435,28 +435,6 @@ export type CollectPreview = {
   unconfirmed_followups?: Record<string, unknown>[];
 };
 
-/** 텍스트를 AI로 읽어 항목만 미리 받아온다 (저장 안 함). */
-export function usePreviewMessage() {
-  return useMutation({
-    mutationFn: (vars: {
-      sessionId: string;
-      text: string;
-      channel: string;
-      sender_name: string;
-      received_date: string;
-    }) =>
-      api<CollectPreview>(`/api/v1/collect/sessions/${vars.sessionId}/messages/preview`, {
-        method: "POST",
-        json: {
-          text: vars.text,
-          channel: vars.channel,
-          sender_name: vars.sender_name,
-          received_date: vars.received_date,
-        },
-      }),
-  });
-}
-
 /** 급여파일을 AI로 읽어 항목만 미리 받아온다 (저장 안 함). */
 export function usePreviewUpload() {
   return useMutation({

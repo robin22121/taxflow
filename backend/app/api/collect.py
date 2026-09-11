@@ -206,27 +206,6 @@ def _to_preview(
     )
 
 
-@router.post("/sessions/{session_id}/messages/preview", response_model=CollectPreviewOut)
-async def preview_message(
-    session_id: str,
-    payload: CollectMessageIn,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> CollectPreviewOut:
-    """텍스트를 AI로 읽어 항목만 돌려준다. DB에는 아무것도 쓰지 않는다."""
-    session = await _load_session(db, session_id, user)
-    if not payload.text.strip():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "내용이 비어 있습니다")
-
-    client, filing = session.client, session.monthly_filing
-    employees, prev_entries = await _build_context(db, client, filing)
-    current_entries = await _load_current_entries(db, client, filing)
-    matching = await _parse_and_match(payload.text, client, filing, employees, prev_entries)
-    return _to_preview(
-        session, payload.text, payload.channel, matching, employees, current_entries
-    )
-
-
 @router.post("/sessions/{session_id}/upload/preview", response_model=CollectPreviewOut)
 async def preview_upload(
     session_id: str,

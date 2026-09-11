@@ -15,7 +15,6 @@ import {
   useInsuranceSummary,
   usePortalLink,
   usePreviewCarryForward,
-  usePreviewMessage,
   usePreviewUpload,
   useRequestCollection,
   useSendInvite,
@@ -605,31 +604,12 @@ function PayrollInputBar({
   requestSelectedPending: boolean;
   onPreview: (data: CollectPreview, meta: PreviewMeta) => void;
 }) {
-  const previewMessage = usePreviewMessage();
   const previewUpload = usePreviewUpload();
   const previewCarryForward = usePreviewCarryForward();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState("");
-  const [senderName, setSenderName] = useState("");
-  const [channel, setChannel] = useState("manual");
-  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
 
-  const busy = previewMessage.isPending || previewUpload.isPending || previewCarryForward.isPending;
-  const sender = senderName.trim() || "직접입력";
-
-  function runText() {
-    if (!text.trim() || busy) return;
-    previewMessage.mutate(
-      { sessionId: session.id, text, channel, sender_name: sender, received_date: receivedDate },
-      {
-        onSuccess: (data) => {
-          onPreview(data, { text, channel, sender_name: sender, received_date: receivedDate, attachments: null });
-          setText("");
-        },
-        onError: (e) => alert((e as Error).message),
-      },
-    );
-  }
+  const busy = previewUpload.isPending || previewCarryForward.isPending;
+  const today = new Date().toISOString().slice(0, 10);
 
   function runCarryForward() {
     if (busy) return;
@@ -640,8 +620,8 @@ function PayrollInputBar({
           onPreview(data, {
             text: data.source_text,
             channel: data.channel,
-            sender_name: senderName.trim() || "전월자료",
-            received_date: receivedDate,
+            sender_name: "전월자료",
+            received_date: today,
             attachments: null,
           }),
         onError: (e) => alert((e as Error).message),
@@ -657,8 +637,8 @@ function PayrollInputBar({
           onPreview(data, {
             text: data.source_text,
             channel: data.channel,
-            sender_name: senderName.trim() || "급여파일 업로드",
-            received_date: receivedDate,
+            sender_name: "급여파일 업로드",
+            received_date: today,
             attachments: data.attachments,
           }),
         onError: (e) => alert((e as Error).message),
@@ -690,35 +670,13 @@ function PayrollInputBar({
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestSelected} disabled={requestSelectedPending}>
           {requestSelectedPending ? "발송중..." : "자료요청 (선택)"}
         </Button>
-        <div className="flex-1" />
         {showComm && (
           <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
             고객소통내역 {commOpen ? "▶" : "◀"}
           </Button>
         )}
-      </div>
-
-      {/* 2줄 — 직접입력 */}
-      <div className="flex items-stretch gap-1.5">
-        <input placeholder="발신자" value={senderName} onChange={(e) => setSenderName(e.target.value)}
-          className="w-[92px] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-blue-500" />
-        <select value={channel} onChange={(e) => setChannel(e.target.value)}
-          className="w-[86px] shrink-0 rounded-md border border-gray-200 bg-white px-1.5 py-1.5 text-[12px]">
-          <option value="kakao">카카오톡</option>
-          <option value="email">이메일</option>
-          <option value="sms">문자</option>
-          <option value="voice">전화</option>
-          <option value="manual">직접</option>
-        </select>
-        <input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)}
-          className="w-[130px] shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[12px]" />
-        <textarea rows={1} value={text} onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runText(); }}
-          placeholder={`${session.client_name} 급여 내용을 직접 입력하거나 붙여넣으세요 — 예: 김연호 320만원, 신입 박지훈 250만원 (⌘+Enter)`}
-          className="flex-1 min-w-0 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-500 resize-none" />
-        <Button className="!text-[12px] !px-3 !py-1 shrink-0" onClick={runText} disabled={busy || !text.trim()}>
-          {previewMessage.isPending ? "AI 읽는 중..." : "AI 파싱"}
-        </Button>
+        <div className="flex-1" />
+        <EmployeeActionButtons />
       </div>
     </div>
   );
@@ -1384,7 +1342,6 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
             {summaryMode === "wht" && (
               <WhtSubTabBar value={whtSubTab} onChange={setWhtSubTab} entries={entries} />
             )}
-            {summaryMode === "received" && <ReceivedActionRow />}
             {displayEntries.length > 0 ? (
               <table className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-white">
@@ -1433,17 +1390,17 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   );
 }
 
-/* ═══ 받은 자료 Action Row (백엔드 미지원 — 준비중) ═══ */
+/* ═══ 직원 관리 액션 (백엔드 미지원 — 준비중) ═══ */
 
-function ReceivedActionRow() {
+function EmployeeActionButtons() {
   const tip = "준비중 — 다음 업데이트에서 활성화";
   return (
-    <div className="flex items-center gap-1.5 px-3 md:px-4 pt-2.5 pb-1.5 flex-wrap">
+    <>
       <DisabledActionButton title={tip}>직원 추가</DisabledActionButton>
       <DisabledActionButton title={tip}>신규지정</DisabledActionButton>
       <DisabledActionButton title={tip} danger>퇴사처리</DisabledActionButton>
-      <span className="text-[10.5px] text-gray-400 ml-1">· 준비중</span>
-    </div>
+      <span className="text-[10.5px] text-gray-400">· 준비중</span>
+    </>
   );
 }
 
