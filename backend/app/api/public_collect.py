@@ -8,15 +8,25 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.collect import _ingest_message
 from app.core.deps import get_db
-from app.models import Employee, EmploymentStatus, PayrollEntry
+from app.models import (
+    ChangeType,
+    ClientFilingResult,
+    Employee,
+    EmployeeChangeRequest,
+    EmploymentStatus,
+    PayrollEntry,
+)
 from app.schemas.filings import CollectMessageOut
 from app.services.crypto import encrypt_rrn, mask_rrn
 from app.services.file_intake import intake_file
@@ -24,6 +34,7 @@ from app.services.portal import (
     GRANT_TTL,
     PinLockedError,
     ResolvedLink,
+    client_archive,
     grant_is_valid,
     issue_grant,
     notify_pin_unlock,
@@ -64,6 +75,38 @@ class GatedPayrollRow(BaseModel):
     name: str
     total_amount: int
     prev_amount: int | None
+
+
+class ArchiveRowOut(BaseModel):
+    period: str
+    estimated_tax: int
+    settled_tax: int | None
+    due_date: date | None
+    virtual_account: str | None
+    epayment_number: str | None
+    has_receipt: bool
+    has_payment_slip: bool
+
+
+class PortalEmployee(BaseModel):
+    id: str
+    name: str
+
+
+class EmployeeChangeIn(BaseModel):
+    change_type: Literal["HIRE", "RESIGN"]
+    name: str | None = Field(default=None, max_length=100)
+    employee_id: str | None = None
+    hired_at: date | None = None
+    resigned_at: date | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class EmployeeChangeOut(BaseModel):
+    id: str
+    change_type: str
+    name: str
+    status: str
 
 
 class SecureRrnSubmitIn(BaseModel):
@@ -232,6 +275,156 @@ async def gated_payroll(
         )
         for row in rows
     ]
+
+
+@router.get("/r/{token_str}/archive", response_model=list[ArchiveRowOut])
+async def portal_archive(
+    token_str: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[ArchiveRowOut]:
+    """월별 납부세액·가상계좌·접수증 보유 여부 (§3.1, §3.4).
+
+    금액이 걸려 있지만 **게이트 앞**이다 — 사장님이 알아야 할 "얼마 내야 하나"는
+    사업장 전체 합계라 직원별 급여와 달리 새어도 개인 급여가 드러나지 않는다.
+    """
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    return [
+        ArchiveRowOut(
+            period=row.period,
+            estimated_tax=row.estimated_tax,
+            settled_tax=row.settled_tax,
+            due_date=row.due_date,
+            virtual_account=row.virtual_account,
+            epayment_number=row.epayment_number,
+            has_receipt=row.has_receipt,
+            has_payment_slip=row.has_payment_slip,
+        )
+        for row in await client_archive(db, link.client)
+    ]
+
+
+@router.get("/r/{token_str}/archive/{period}/{kind}")
+async def portal_archive_document(
+    token_str: str,
+    period: str,
+    kind: Literal["receipt", "payment-slip"],
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """접수증·납부서 PDF 원본."""
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+
+    result = (
+        await db.execute(
+            select(ClientFilingResult).where(
+                ClientFilingResult.client_id == link.client.id,
+                ClientFilingResult.period == period,
+            )
+        )
+    ).scalar_one_or_none()
+    storage_key = None
+    filename = None
+    if result:
+        if kind == "receipt":
+            storage_key, filename = result.receipt_key, result.receipt_name
+        else:
+            storage_key, filename = result.payment_slip_key, result.payment_slip_name
+    if not storage_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "아직 올라온 서류가 없습니다")
+
+    try:
+        blob = get_storage().get_object(storage_key)
+    except Exception as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "파일을 찾을 수 없습니다") from e
+
+    return Response(
+        content=blob,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{quote(filename or f"{period}.pdf")}"'
+        },
+    )
+
+
+@router.get("/r/{token_str}/employees", response_model=list[PortalEmployee])
+async def portal_employees(
+    token_str: str,
+    db: AsyncSession = Depends(get_db),
+) -> list[PortalEmployee]:
+    """퇴사 통보용 직원 명단. 이름만 나가고 금액은 게이트 뒤에 있다 (§3.2)."""
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    rows = (
+        await db.execute(
+            select(Employee)
+            .where(
+                Employee.client_id == link.client.id,
+                Employee.status == EmploymentStatus.ACTIVE,
+            )
+            .order_by(Employee.name)
+        )
+    ).scalars().all()
+    return [PortalEmployee(id=row.id, name=row.name) for row in rows]
+
+
+@router.post(
+    "/r/{token_str}/employee-change",
+    response_model=EmployeeChangeOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_employee_change(
+    token_str: str,
+    payload: EmployeeChangeIn,
+    db: AsyncSession = Depends(get_db),
+) -> EmployeeChangeOut:
+    """입·퇴사 통보 — 세무사가 승인해야 직원 마스터에 반영된다 (§5.2).
+
+    주민번호는 받지 않는다. 통보의 목적은 4대보험 신고 기한(입사일 +14일)을
+    놓치지 않는 것이고, 주민번호는 별도 보안 입력 경로로 분리돼 있다.
+    """
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+
+    if payload.change_type == "HIRE":
+        name = (payload.name or "").strip()
+        if not name:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "직원 이름을 입력해 주세요")
+        request = EmployeeChangeRequest(
+            client_id=link.client.id,
+            change_type=ChangeType.HIRE,
+            name=name,
+            hired_at=payload.hired_at,
+            note=payload.note,
+        )
+    else:
+        if not payload.employee_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "그만둔 직원을 선택해 주세요")
+        employee = await db.get(Employee, payload.employee_id)
+        if not employee or employee.client_id != link.client.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "직원을 찾을 수 없습니다")
+        request = EmployeeChangeRequest(
+            client_id=link.client.id,
+            change_type=ChangeType.RESIGN,
+            employee_id=employee.id,
+            name=employee.name,
+            resigned_at=payload.resigned_at,
+            note=payload.note,
+        )
+
+    db.add(request)
+    await db.commit()
+    await db.refresh(request)
+    return EmployeeChangeOut(
+        id=request.id,
+        change_type=request.change_type.value,
+        name=request.name,
+        status=request.status.value,
+    )
 
 
 @router.post("/secure/{token_str}/rrn")
