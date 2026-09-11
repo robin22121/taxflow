@@ -41,6 +41,7 @@ from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
 from app.services.storage import get_storage
 from app.services.invite import get_or_create_session, send_invite_to_client
 from app.services.portal import (
+    InvalidPinError,
     client_archive,
     get_or_issue_portal_token,
     pin_is_set,
@@ -465,6 +466,12 @@ class PortalPinIssued(BaseModel):
     pin: str
 
 
+class PortalPinIn(BaseModel):
+    """세무사가 PIN을 직접 지정할 때. 비우면 무작위 발급."""
+
+    pin: str | None = None
+
+
 @router.get("/{client_id}/portal-pin", response_model=PortalPinStatus)
 async def get_portal_pin_status(
     client_id: str,
@@ -478,15 +485,20 @@ async def get_portal_pin_status(
 @router.post("/{client_id}/portal-pin", response_model=PortalPinIssued)
 async def issue_portal_pin(
     client_id: str,
+    payload: PortalPinIn | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> PortalPinIssued:
     """PIN 발급·재발급 — 평문은 이 응답에서 한 번만 보인다.
 
+    세무사가 값을 지정하면 그 PIN을, 비워 보내면 무작위로 만든다.
     링크가 담긴 알림톡과 **다른 경로**로 전달해야 게이트가 의미를 갖는다 (§4.3.3).
     """
     client = await _client_or_404(db, client_id, user)
-    pin = await set_portal_pin(db, client)
+    try:
+        pin = await set_portal_pin(db, client, payload.pin if payload else None)
+    except InvalidPinError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     await db.commit()
     return PortalPinIssued(pin=pin)
 

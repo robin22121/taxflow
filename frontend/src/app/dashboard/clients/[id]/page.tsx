@@ -763,6 +763,7 @@ function PortalSection({ clientId }: { clientId: string }) {
   const issuePin = useIssuePortalPin(clientId);
   const [copied, setCopied] = useState(false);
   const [newPin, setNewPin] = useState<string | null>(null);
+  const [pinInput, setPinInput] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
   const lockedUntil = pin?.locked_until ? new Date(pin.locked_until) : null;
@@ -836,25 +837,42 @@ function PortalSection({ clientId }: { clientId: string }) {
             <p className="text-[11px] text-gray-500 mt-0.5">
               직원별 금액을 볼 때만 필요한 6자리 숫자입니다. 자료 제출에는 필요 없습니다.
               <br />
+              원하는 번호를 직접 지정하거나, 비워두고 누르면 무작위로 발급됩니다.
+              <br />
               링크와 <strong>다른 경로</strong>(전화·기존 카카오톡)로 전달해야 게이트가 의미를 갖습니다.
             </p>
           </div>
-          <Button
-            variant="secondary"
-            disabled={issuePin.isPending}
-            onClick={async () => {
-              if (pin?.is_set && !window.confirm("기존 PIN이 즉시 무효화됩니다. 새 PIN을 발급할까요?")) return;
-              setErr(null);
-              try {
-                const res = await issuePin.mutateAsync();
-                setNewPin(res.pin);
-              } catch (e) {
-                setErr((e as Error).message);
-              }
-            }}
-          >
-            {issuePin.isPending ? "발급 중..." : pin?.is_set ? "PIN 재발급" : "PIN 발급"}
-          </Button>
+          <div className="flex gap-2 shrink-0">
+            <input
+              inputMode="numeric"
+              maxLength={6}
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ""))}
+              placeholder="직접 지정 (6자리)"
+              className="w-[130px] rounded-lg border border-gray-300 px-3 py-1.5 text-[13px] tracking-[0.15em] outline-none focus:border-blue-500"
+            />
+            <Button
+              variant="secondary"
+              disabled={issuePin.isPending || (pinInput.length > 0 && pinInput.length !== 6)}
+              onClick={async () => {
+                if (pin?.is_set && !window.confirm("기존 PIN이 즉시 무효화됩니다. 새 PIN을 설정할까요?")) return;
+                setErr(null);
+                try {
+                  const res = await issuePin.mutateAsync(pinInput || undefined);
+                  setNewPin(res.pin);
+                  setPinInput("");
+                } catch (e) {
+                  setErr((e as Error).message);
+                }
+              }}
+            >
+              {issuePin.isPending
+                ? "설정 중..."
+                : pinInput.length === 6
+                  ? "이 PIN으로 설정"
+                  : pin?.is_set ? "무작위 재발급" : "무작위 발급"}
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 mt-2 text-[12px]">
