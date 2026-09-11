@@ -11,7 +11,7 @@
 | 채널 | 드라이버 코드 | 실배포 설정 | 차단 요인 |
 |------|--------------|------------|----------|
 | **이메일** | Resend | `EMAIL_PROVIDER=resend` | ✅ 없음 (도메인 verified) |
-| **SMS** | `AligoSmsChannel` (`channels/sms.py:47`) — 완성, 90byte SMS/LMS 자동분기 | `SMS_PROVIDER=aligo`, 키 정상 | ⚠️ **발신 허용 IP 미등록** → `-101 IP 인증오류` |
+| **SMS** | `AligoSmsChannel` (`channels/sms.py:47`) — 완성, 90byte SMS/LMS 자동분기 | `SMS_PROVIDER=aligo`, 키 정상 | ✅ 없음 (2026-09-11 IP 등록 → 실발송 성공) |
 | **알림톡** | `AligoAlimtalkChannel`(`channels/alimtalk.py:49`), `NhnCloudAlimtalkChannel`(L104) — **구현됨** | `KAKAO_ALIMTALK_PROVIDER=stub` | ⚠️ 카카오 채널·발신프로필·템플릿 미등록 + **코드 구조 불일치**(§3.3) |
 
 > 드라이버는 3종(stub/aligo/nhn_cloud) 모두 있고 팩토리(`get_alimtalk_channel()`, L177)로 분기한다.
@@ -23,14 +23,18 @@
 
 ---
 
-## 2. 트랙 A — Aligo SMS 활성화 (즉시, 5분)
+## 2. 트랙 A — Aligo SMS 활성화 ✅ 완료 (2026-09-11)
 
-**작업**: Aligo 콘솔 → 발신 허용 IP에 vm-node 공인 IP **`133.186.134.144`** 추가.
-**2026-09-11 등록 완료** (사용자). 실발송 1건으로 `-101` 해소를 확인하는 것만 남았다.
+**작업**: Aligo 콘솔 → 발신 허용 IP에 vm-node 공인 IP **`133.186.134.144`** 추가. **완료.**
+
+**실발송 검증 완료** — 2026-09-11 13:34 프로덕션에서 LMS 3건 발송,
+`apis.aligo.in/send/` 200 + `accepted msg_id` 수신, 수신자 단말 도착 확인.
+`-101 IP 인증오류`는 재현되지 않는다.
 
 - 근거: [`11-nhn-cloud-deploy.md`](11-nhn-cloud-deploy.md) L206, L214
 - 등록 전 오류: `-101 IP 인증오류`
 - 코드 변경 없음. 키·발신번호·`SMS_PROVIDER=aligo` 모두 이미 정상
+- ⚠️ 재부팅·재생성으로 vm-node 공인 IP가 바뀌면 다시 `-101`이 난다 (아래 경고 참고)
 
 **완료 후 즉시 가능해지는 것**: 초대 SMS 폴백(`invite.py:116`), 인식결과 확인요청,
 후속질문, 미등록 거래처 알림 — 알림톡 없이도 **문자만으로 전 플로우가 돈다.**
