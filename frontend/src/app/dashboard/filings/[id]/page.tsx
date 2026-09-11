@@ -13,6 +13,7 @@ import {
   useFilingDashboard,
   useFilingEntries,
   useInsuranceSummary,
+  usePortalLink,
   usePreviewCarryForward,
   usePreviewMessage,
   usePreviewUpload,
@@ -476,13 +477,32 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 min-h-0 flex overflow-hidden">
+            <div className="relative flex-1 min-h-0 flex overflow-hidden">
               <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
                 <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
                   highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
                   forcedTab={mainTab === "insurance" ? "insurance" : "wht"}
                   summaryMode={mainTab === "received" ? "received" : mainTab === "wht" ? "wht" : undefined} />
               </div>
+
+              {/* 고객소통내역 (받은 자료 탭 전용, 기본 열림, 슬라이드 개폐) — 급여데이터 열과 같은 높이 */}
+              {/* lg:mb-11 = 합계 푸터 높이(border-t-2 2px + py-3 24px + 12px/1.5 라인 18px = 44px) 만큼
+                  하단을 올려 패널 아랫변이 푸터 윗선과 맞도록 한다 */}
+              {mainTab === "received" && (
+                <div
+                  className={`absolute lg:static inset-y-0 right-0 z-30 lg:z-auto bg-white lg:bg-gray-50 border-gray-200 flex flex-col shrink-0 overflow-hidden shadow-xl lg:shadow-none transition-all duration-200 ease-in-out ${
+                    selectedEntries.length > 0 ? "lg:mb-11" : ""
+                  } ${
+                    commOpen
+                      ? "translate-x-0 w-[min(92vw,380px)] xl:w-[440px] border-l"
+                      : "translate-x-full w-[min(92vw,380px)] lg:translate-x-0 lg:w-0 lg:border-l-0"
+                  }`}
+                >
+                  <CenterPane key={`${selectedSession.id}-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                    highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                    onClose={() => setCommOpen(false)} />
+                </div>
+              )}
             </div>
 
             {/* 급여자료 입력 바 */}
@@ -503,24 +523,9 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         )}
       </div>
 
-      {/* RIGHT — 고객소통내역 (받은 자료 탭 전용, 기본 열림, 슬라이드 개폐) */}
-      {selectedSession && mainTab === "received" && (
-        <>
-          {commOpen && (
-            <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setCommOpen(false)} />
-          )}
-          <div
-            className={`absolute lg:static inset-y-0 right-0 z-30 lg:z-auto bg-white lg:bg-gray-50/40 border-gray-200 flex flex-col shrink-0 overflow-hidden shadow-xl lg:shadow-none transition-all duration-200 ease-in-out ${
-              commOpen
-                ? "translate-x-0 w-[min(92vw,380px)] xl:w-[440px] border-l"
-                : "translate-x-full w-[min(92vw,380px)] lg:translate-x-0 lg:w-0 lg:border-l-0"
-            }`}
-          >
-            <CenterPane key={`${selectedSession.id}-comm`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-              highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-              onClose={() => setCommOpen(false)} />
-          </div>
-        </>
+      {/* 고객소통내역 모바일 오버레이 배경 */}
+      {selectedSession && mainTab === "received" && commOpen && (
+        <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setCommOpen(false)} />
       )}
 
       {preview && selectedSession && (
@@ -1010,6 +1015,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
   const { data: attachments } = useSessionAttachments(filingId, session.id);
   const { data: timeline } = useSessionTimeline(filingId, session.id);
   const { data: clients } = useClients();
+  const { data: portalLink } = usePortalLink(session.client_id);
   const submit = useSubmitMessage(filingId);
   const requestCollection = useRequestCollection(filingId);
   const [showInput, setShowInput] = useState(false);
@@ -1034,7 +1040,8 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
   const clientDetail = clients?.find((c) => c.id === session.client_id);
   const visibleAttachments = (attachments ?? []).filter((a) => !deletedKeys.has(a.storage_key));
   const visibleTimeline = (timeline ?? []).filter((t) => !deletedEventIds.has(t.id));
-  const publicUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000"}/r/${session.request_token}`;
+  // 링크는 백엔드가 app_public_url로 조립한다. 프론트에서 조립하면 API 도메인이 섞인다.
+  const publicUrl = portalLink?.url;
 
   return (
     <>
@@ -1044,7 +1051,9 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
           <div className="text-[13px] font-semibold mt-0.5">{session.client_name}</div>
         </div>
         <div className="flex gap-1.5 text-[10px]">
-          <a href={publicUrl} target="_blank" className="text-blue-600 hover:underline">URL</a>
+          {publicUrl && (
+            <a href={publicUrl} target="_blank" className="text-blue-600 hover:underline">URL</a>
+          )}
           <span className="text-gray-300">|</span>
           <button onClick={() => requestCollection.mutate(session.id)} disabled={requestCollection.isPending} className="text-blue-600 hover:underline disabled:opacity-50">
             {requestCollection.isPending ? "발송중..." : "자료요청"}

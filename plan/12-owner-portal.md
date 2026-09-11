@@ -124,8 +124,7 @@
 
 **선행 조건 — 상세는 [`13-messaging-activation.md`](13-messaging-activation.md) 참고**
 
-- [ ] **Aligo 발신 허용 IP 등록** — 현재 `-101 IP 인증오류`로 문자 발송 불가.
-      콘솔에 vm-node IP 등록만 하면 해소(5분). **이것만 되면 포털 1단계는 문자로 검증 가능**
+- [x] **Aligo 발신 허용 IP 등록** — 2026-09-11 등록 완료. 실발송 1건으로 `-101` 해소 확인 필요
 - [ ] **알림톡 채널·발신프로필·템플릿 등록** — 현재 `KAKAO_ALIMTALK_PROVIDER=stub`.
       드라이버 코드는 있으나 카카오 계정·템플릿 미등록. 리드타임 2~4주
 
@@ -444,12 +443,16 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
 | **3** | 보관함 — `ClientFilingResult` + 세무사 PDF 수동 업로드 + 예상 납부세액 | 낮음 | 1단계 |
 | **4** | 보관함 자동 적재 — RPA가 `ClientFilingResult`에 직접 기입 | Phase 2 종속 | Phase 2 RPA 산출물 |
 
-**구현 상태 (2026-09-10)** — 1·2단계는 백엔드·프론트 모두 구현·검증 완료
+**구현 상태 (2026-09-11)** — **1단계 완료**. 백엔드·프론트·세무사 UI·발송 경로까지 연결
 (`app/services/portal.py`, `frontend/src/app/r/[token]/page.tsx`,
+`frontend/src/app/dashboard/clients/[id]/page.tsx`,
 `tests/test_portal_link.py`, `tests/test_portal_pin.py`).
 
 - 상설 링크 해석, 열린 신고 없음 안내, PIN 게이트(입력·잠금·열람 통보), 게이트 뒤 급여 상세 표 — 완료
 - grant는 `sessionStorage`에만 두고 `X-Portal-Grant` 헤더로 보낸다. 사장님이 "닫기"로 직접 잠글 수 있다
+- 세무사 화면(거래처 상세 "사장님 화면"): 링크 복사·열기·재발급, PIN 발급/재발급·잠금 표시 — 완료
+- 발송 경로(초대·자료요청·확인요청)가 모두 `portal_link_for()`를 거쳐 상설 링크를 싣는다.
+  세션 토큰 URL을 직접 조립하던 3곳(`invite.py`, `api/filings.py`, `confirmation.py`)을 교체했다
 - **입·퇴사 등록 버튼 2개 + 세무사 승인 창구** — 완료
   (`app/api/employee_changes.py`, `frontend/src/app/dashboard/employee-changes/page.tsx`,
   `tests/test_employee_change.py`). 입·퇴사는 신고월과 무관하므로 자료 수집 기간이
@@ -458,8 +461,8 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
   `tests/test_portal_archive.py`). 세무사가 PDF를 올리는 `MANUAL_UPLOAD` 경로로
   **Phase 2 RPA 이전에 동작한다**. 예상 납부세액은 `PayrollEntry` 합계로 계산된다
 - 남은 것: **Phase 2 RPA 자동 적재**(같은 테이블에 `source=RPA`로 기입하면 화면 변경 없음),
-  그리고 §4.5의 **열람 로그**와 세무사 대시보드의 **상설 링크·PIN 관리 UI**
-  (백엔드 API는 준비됨)
+  그리고 §4.5의 **열람 로그**와 그에 기반한 §3.7 4단계 상태
+  (발송됨/열람함/입력중/제출완료)
 
 **1단계는 사실상 기존 자산의 수명 연장이다.** 베타 사무소 한 곳에 1단계만 붙여
 **사장님 재방문율**을 측정하는 것이 이 방향의 유일한 검증이다. 재방문이 나오지 않으면

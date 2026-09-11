@@ -73,6 +73,16 @@ export type Client = {
   invite_sent: boolean;
 };
 
+export type PortalLink = {
+  url: string;
+  issued_at: string;
+};
+
+export type PortalPinStatus = {
+  is_set: boolean;
+  locked_until: string | null;
+};
+
 export type PayrollDefault = {
   meal_default: number;
   car_default: number;

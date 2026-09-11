@@ -24,6 +24,8 @@ import type {
   PayrollDefault,
   PayrollDefaultPatch,
   PayrollEntry,
+  PortalLink,
+  PortalPinStatus,
   Promotion,
   SessionAttachment,
   SessionTimelineEvent,
@@ -175,6 +177,46 @@ export function useSendClientInvite(clientId: string) {
       qc.invalidateQueries({ queryKey: ["clients", clientId] });
       qc.invalidateQueries({ queryKey: ["clients"] });
     },
+  });
+}
+
+/* ─── 사업주 포털 — 상설 링크 · PIN (plan/12-owner-portal.md §4.3) ─── */
+
+export function usePortalLink(clientId: string) {
+  return useQuery({
+    queryKey: ["clients", clientId, "portal-link"],
+    queryFn: () => api<PortalLink>(`/api/v1/clients/${clientId}/portal-link`),
+  });
+}
+
+export function useRotatePortalLink(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<PortalLink>(`/api/v1/clients/${clientId}/portal-link/rotate`, {
+        method: "POST",
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "portal-link"] }),
+  });
+}
+
+export function usePortalPinStatus(clientId: string) {
+  return useQuery({
+    queryKey: ["clients", clientId, "portal-pin"],
+    queryFn: () => api<PortalPinStatus>(`/api/v1/clients/${clientId}/portal-pin`),
+  });
+}
+
+export function useIssuePortalPin(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<{ pin: string }>(`/api/v1/clients/${clientId}/portal-pin`, {
+        method: "POST",
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "portal-pin"] }),
   });
 }
 
