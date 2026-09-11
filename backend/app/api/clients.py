@@ -20,6 +20,7 @@ from app.models import (
     EmploymentStatus,
     MonthlyFiling,
     MonthlyFilingStatus,
+    PayrollEntry,
     TaxOffice,
     User,
 )
@@ -33,6 +34,8 @@ from app.schemas.clients import (
     EmployeeOut,
     PayrollDefaultOut,
     PayrollDefaultUpdate,
+    PayrollHistoryPeriod,
+    PayrollHistoryRow,
 )
 from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
 from app.services.storage import get_storage
@@ -660,3 +663,61 @@ async def create_employee(
     await db.commit()
     await db.refresh(emp)
     return emp
+
+
+@router.get("/{client_id}/payroll-history", response_model=list[PayrollHistoryPeriod])
+async def get_payroll_history(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[PayrollHistoryPeriod]:
+    """거래처의 전체 월 급여자료를 최신 월부터 묶어서 반환."""
+    await _authorize_client(db, client_id, user)
+
+    rows = (
+        await db.execute(
+            select(PayrollEntry, MonthlyFiling, Employee)
+            .join(MonthlyFiling, MonthlyFiling.id == PayrollEntry.monthly_filing_id)
+            .outerjoin(Employee, Employee.id == PayrollEntry.employee_id)
+            .where(PayrollEntry.client_id == client_id)
+            .order_by(MonthlyFiling.period.desc(), PayrollEntry.raw_name)
+        )
+    ).all()
+
+    periods: dict[str, PayrollHistoryPeriod] = {}
+    for entry, filing, emp in rows:
+        bucket = periods.get(filing.period)
+        if bucket is None:
+            bucket = PayrollHistoryPeriod(
+                period=filing.period,
+                filing_id=filing.id,
+                filing_status=filing.status.value,
+                employee_count=0,
+                total_amount=0,
+                total_non_taxable=0,
+                total_income_tax=0,
+                rows=[],
+            )
+            periods[filing.period] = bucket
+
+        bucket.rows.append(
+            PayrollHistoryRow(
+                entry_id=entry.id,
+                employee_id=entry.employee_id,
+                name=emp.name if emp else entry.raw_name,
+                employee_code=emp.employee_code if emp else None,
+                income_type=entry.income_type.value,
+                match_status=entry.match_status.value,
+                total_amount=entry.total_amount,
+                non_taxable=entry.non_taxable,
+                taxable=entry.taxable,
+                income_tax=entry.income_tax,
+                local_tax=entry.local_tax,
+            )
+        )
+        bucket.employee_count += 1
+        bucket.total_amount += entry.total_amount
+        bucket.total_non_taxable += entry.non_taxable
+        bucket.total_income_tax += entry.income_tax
+
+    return list(periods.values())

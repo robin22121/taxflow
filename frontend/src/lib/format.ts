@@ -24,3 +24,17 @@ export function formatBizNumber(raw: string): string {
   if (d.length <= 5) return `${d.slice(0, 3)}-${d.slice(3)}`;
   return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5, 10)}`;
 }
+
+/** 이번 달 기준 직전 월 (귀속월 기본값) — "2026-08" */
+export function previousPeriod(): string {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** "2026-08" → "2026년 8월분" */
+export function koreanPeriod(period: string): string {
+  const [y, m] = period.split("-");
+  return `${y}년 ${Number(m)}월분`;
+}

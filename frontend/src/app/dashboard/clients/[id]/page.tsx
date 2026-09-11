@@ -1,11 +1,12 @@
 "use client";
 
-import { use, useRef, useState } from "react";
+import { Fragment, use, useRef, useState } from "react";
 import Link from "next/link";
 
 import {
   useClientDetail,
   useClientEmployees,
+  useClientPayrollHistory,
   useImportEmployees,
   useImportPayroll,
   useIssuePortalPin,
@@ -18,7 +19,13 @@ import {
   useUpdatePayrollDefault,
 } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
-import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
+import {
+  digitsOnly,
+  formatBizNumber,
+  formatPhone,
+  koreanPeriod,
+  previousPeriod,
+} from "@/lib/format";
 import type {
   Client,
   ImportEmployeeResult,
@@ -41,7 +48,7 @@ export default function ClientDetailPage({
 
   const empFileRef = useRef<HTMLInputElement>(null);
   const payFileRef = useRef<HTMLInputElement>(null);
-  const [payPeriod, setPayPeriod] = useState("2026-03");
+  const [payPeriod, setPayPeriod] = useState(previousPeriod);
   const [empResult, setEmpResult] = useState<ImportEmployeeResult | null>(null);
   const [payResult, setPayResult] = useState<ImportPayrollResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,10 +180,15 @@ export default function ClientDetailPage({
             <p className="text-xs text-gray-500">
               위하고T 원천징수이행상황신고서 엑셀 (.xlsx, .csv)
             </p>
+            <p className="text-xs text-gray-500">
+              선택한 귀속년월의 급여자료로 저장됩니다. 신고 화면의 &ldquo;전월자료
+              불러오기&rdquo;는 진행 중인 신고월의 직전 월 자료를 찾으므로,
+              귀속년월을 맞춰 올려야 합니다.
+            </p>
             <div className="flex gap-2 items-end">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">
-                  지급년월
+                  귀속년월 ({koreanPeriod(payPeriod)})
                 </label>
                 <input
                   type="month"
@@ -294,7 +306,170 @@ export default function ClientDetailPage({
           </p>
         )}
       </Card>
+
+      {/* 급여 이력 — 거래처의 전체 월 급여자료 */}
+      <PayrollHistorySection clientId={id} />
     </div>
+  );
+}
+
+/* ─── 급여 이력 — 월별 묶음, 펼치면 직원별 내역 ─── */
+
+function PayrollHistorySection({ clientId }: { clientId: string }) {
+  const { data: history, isLoading } = useClientPayrollHistory(clientId);
+  const [openPeriod, setOpenPeriod] = useState<string | null>(null);
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">급여 이력</h2>
+      <p className="text-xs text-gray-500 mb-3">
+        이 거래처에 등록된 모든 월의 급여자료입니다. 월을 클릭하면 직원별
+        내역이 펼쳐집니다.
+      </p>
+
+      {isLoading ? (
+        <p className="text-sm text-gray-500">불러오는 중...</p>
+      ) : !history || history.length === 0 ? (
+        <p className="text-sm text-gray-500">
+          급여자료가 없습니다. 위 &ldquo;전월 급여 업로드&rdquo;에서 월별 자료를
+          올리세요.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-gray-500 border-b border-gray-300">
+              <tr>
+                <th className="text-left py-2 pr-3">귀속월</th>
+                <th className="text-right py-2 pr-3">인원</th>
+                <th className="text-right py-2 pr-3">총지급액</th>
+                <th className="text-right py-2 pr-3">비과세</th>
+                <th className="text-right py-2 pr-3">소득세</th>
+                <th className="text-left py-2 pr-3">신고상태</th>
+                <th className="text-right py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((p) => (
+                <Fragment key={p.period}>
+                  <tr
+                    className="border-b border-gray-100 cursor-pointer hover:bg-gray-50"
+                    onClick={() =>
+                      setOpenPeriod(openPeriod === p.period ? null : p.period)
+                    }
+                  >
+                    <td className="py-2 pr-3 font-medium text-gray-900">
+                      {koreanPeriod(p.period)}
+                    </td>
+                    <td className="py-2 pr-3 text-right text-gray-900">
+                      {p.employee_count}명
+                    </td>
+                    <td className="py-2 pr-3 text-right text-gray-900">
+                      {p.total_amount.toLocaleString()}
+                    </td>
+                    <td className="py-2 pr-3 text-right text-gray-500">
+                      {p.total_non_taxable.toLocaleString()}
+                    </td>
+                    <td className="py-2 pr-3 text-right text-gray-500">
+                      {p.total_income_tax.toLocaleString()}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <FilingStatusBadge status={p.filing_status} />
+                    </td>
+                    <td className="py-2 text-right text-xs text-gray-500">
+                      {openPeriod === p.period ? "접기" : "펼치기"}
+                    </td>
+                  </tr>
+                  {openPeriod === p.period && (
+                    <tr className="border-b border-gray-100 bg-gray-50">
+                      <td colSpan={7} className="p-3">
+                        <table className="w-full text-xs">
+                          <thead className="text-gray-500">
+                            <tr>
+                              <th className="text-left py-1 pr-3">이름</th>
+                              <th className="text-left py-1 pr-3">사번</th>
+                              <th className="text-left py-1 pr-3">소득구분</th>
+                              <th className="text-right py-1 pr-3">총지급액</th>
+                              <th className="text-right py-1 pr-3">비과세</th>
+                              <th className="text-right py-1 pr-3">과세</th>
+                              <th className="text-right py-1 pr-3">소득세</th>
+                              <th className="text-right py-1">지방소득세</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {p.rows.map((r) => (
+                              <tr key={r.entry_id} className="border-t border-gray-200">
+                                <td className="py-1 pr-3 text-gray-900">{r.name}</td>
+                                <td className="py-1 pr-3 text-gray-500">
+                                  {r.employee_code || "—"}
+                                </td>
+                                <td className="py-1 pr-3 text-gray-500">
+                                  {incomeTypeKo(r.income_type)}
+                                </td>
+                                <td className="py-1 pr-3 text-right text-gray-900">
+                                  {r.total_amount.toLocaleString()}
+                                </td>
+                                <td className="py-1 pr-3 text-right text-gray-500">
+                                  {r.non_taxable.toLocaleString()}
+                                </td>
+                                <td className="py-1 pr-3 text-right text-gray-500">
+                                  {r.taxable.toLocaleString()}
+                                </td>
+                                <td className="py-1 pr-3 text-right text-gray-500">
+                                  {r.income_tax.toLocaleString()}
+                                </td>
+                                <td className="py-1 text-right text-gray-500">
+                                  {r.local_tax.toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div className="mt-2 text-right">
+                          <Link
+                            href={`/dashboard/filings/${p.filing_id}`}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            {koreanPeriod(p.period)} 신고 화면으로 이동 →
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function FilingStatusBadge({ status }: { status: string }) {
+  const label = {
+    DRAFT: "준비",
+    COLLECTING: "수집중",
+    REVIEWING: "검증중",
+    APPROVED: "승인",
+    EXCEL_GENERATED: "엑셀생성",
+    FILED: "신고완료",
+    COMPLETED: "완료",
+  }[status];
+  if (status === "FILED" || status === "COMPLETED")
+    return <Badge tone="success">{label}</Badge>;
+  if (status === "DRAFT") return <Badge tone="neutral">{label}</Badge>;
+  return <Badge tone="info">{label ?? status}</Badge>;
+}
+
+function incomeTypeKo(t: string): string {
+  return (
+    {
+      WAGE: "근로",
+      BUSINESS: "사업",
+      OTHER: "기타",
+      DAILY: "일용",
+      RETIREMENT: "퇴직",
+    }[t] ?? t
   );
 }
 

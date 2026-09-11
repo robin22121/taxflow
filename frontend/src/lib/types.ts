@@ -280,6 +280,31 @@ export type PayrollEntry = {
   source_event: SourceEvent | null;
 };
 
+export type PayrollHistoryRow = {
+  entry_id: string;
+  employee_id: string | null;
+  name: string;
+  employee_code: string | null;
+  income_type: string;
+  match_status: string;
+  total_amount: number;
+  non_taxable: number;
+  taxable: number;
+  income_tax: number;
+  local_tax: number;
+};
+
+export type PayrollHistoryPeriod = {
+  period: string;
+  filing_id: string;
+  filing_status: string;
+  employee_count: number;
+  total_amount: number;
+  total_non_taxable: number;
+  total_income_tax: number;
+  rows: PayrollHistoryRow[];
+};
+
 export type EmployeeChangeRequest = {
   id: string;
   client_id: string;

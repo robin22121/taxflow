@@ -127,3 +127,32 @@ class PayrollDefaultUpdate(BaseModel):
     ei_rate_percent: float | None = None
 
     note: str | None = None
+
+
+class PayrollHistoryRow(BaseModel):
+    """거래처 급여 이력의 직원 1명 1개월치."""
+
+    entry_id: str
+    employee_id: str | None
+    name: str
+    employee_code: str | None
+    income_type: str
+    match_status: str
+    total_amount: int
+    non_taxable: int
+    taxable: int
+    income_tax: int
+    local_tax: int
+
+
+class PayrollHistoryPeriod(BaseModel):
+    """월 단위 묶음. 최신 월이 먼저 오도록 정렬해 반환."""
+
+    period: str
+    filing_id: str
+    filing_status: str
+    employee_count: int
+    total_amount: int
+    total_non_taxable: int
+    total_income_tax: int
+    rows: list[PayrollHistoryRow]
