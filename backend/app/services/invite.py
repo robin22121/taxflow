@@ -29,14 +29,18 @@ async def get_or_create_session(
     client: Client,
     ttl_days: int = 14,
 ) -> CollectionSession:
+    # (filing, client)에 유니크 제약이 없어 동시 요청이 중복 행을 만들 수 있다.
+    # 중복이 이미 있으면 가장 먼저 만들어진 세션을 쓴다 — 그 토큰이 이미 발송됐을 수 있다.
     existing = (
         await db.execute(
-            select(CollectionSession).where(
+            select(CollectionSession)
+            .where(
                 CollectionSession.monthly_filing_id == filing.id,
                 CollectionSession.client_id == client.id,
             )
+            .order_by(CollectionSession.created_at)
         )
-    ).scalar_one_or_none()
+    ).scalars().first()
     if existing:
         return existing
 
