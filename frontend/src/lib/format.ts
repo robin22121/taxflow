@@ -33,6 +33,13 @@ export function previousPeriod(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** 주어진 귀속월의 직전 월 — 백엔드 _prev_period와 같은 규칙 */
+export function priorPeriod(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 /** "2026-08" → "2026년 8월분" */
 export function koreanPeriod(period: string): string {
   const [y, m] = period.split("-");
