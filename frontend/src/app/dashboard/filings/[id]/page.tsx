@@ -486,9 +486,13 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
               </div>
 
               {/* 고객소통내역 (받은 자료 탭 전용, 기본 열림, 슬라이드 개폐) — 급여데이터 열과 같은 높이 */}
+              {/* lg:mb-11 = 합계 푸터 높이(border-t-2 2px + py-3 24px + 12px/1.5 라인 18px = 44px) 만큼
+                  하단을 올려 패널 아랫변이 푸터 윗선과 맞도록 한다 */}
               {mainTab === "received" && (
                 <div
                   className={`absolute lg:static inset-y-0 right-0 z-30 lg:z-auto bg-white lg:bg-gray-50 border-gray-200 flex flex-col shrink-0 overflow-hidden shadow-xl lg:shadow-none transition-all duration-200 ease-in-out ${
+                    selectedEntries.length > 0 ? "lg:mb-11" : ""
+                  } ${
                     commOpen
                       ? "translate-x-0 w-[min(92vw,380px)] xl:w-[440px] border-l"
                       : "translate-x-full w-[min(92vw,380px)] lg:translate-x-0 lg:w-0 lg:border-l-0"
