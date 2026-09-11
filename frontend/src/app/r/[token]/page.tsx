@@ -23,8 +23,6 @@ type ArchiveRow = {
   has_receipt: boolean;
   has_payment_slip: boolean;
 };
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 type SubmitResult = {
   matched: number;
   new_hire_suspected: number;
@@ -34,12 +32,23 @@ type SubmitResult = {
   unconfirmed?: number;
 };
 
-export default function PublicCollectPage({
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+type Tab = "input" | "filings" | "payslips";
+
+const TABS: { key: Tab; label: string; hint: string }[] = [
+  { key: "input", label: "급여 입력", hint: "이번 달 자료 보내기" },
+  { key: "filings", label: "신고 내역", hint: "납부세액·접수증" },
+  { key: "payslips", label: "급여명세서", hint: "월별 내려받기" },
+];
+
+export default function OwnerPortalPage({
   params,
 }: {
   params: Promise<{ token: string }>;
 }) {
   const { token } = use(params);
+  const [tab, setTab] = useState<Tab>("input");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -48,6 +57,7 @@ export default function PublicCollectPage({
   const [mode, setMode] = useState<"idle" | "text" | "processing">("idle");
   // PIN 게이트 — 금액이 걸린 것만 자물쇠 뒤에 둔다 (plan/12-owner-portal.md §4.3.1)
   const [gate, setGate] = useState<"hidden" | "asking" | "open">("hidden");
+  const [grant, setGrant] = useState<string | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinBusy, setPinBusy] = useState(false);
@@ -62,8 +72,9 @@ export default function PublicCollectPage({
   const [changeBusy, setChangeBusy] = useState(false);
   const [changeError, setChangeError] = useState<string | null>(null);
   const [changeDone, setChangeDone] = useState<string | null>(null);
-  // 보관함 — 얼마 내야 하나 / 접수증 있나 (§3.1)
+  // 보관함 — 얼마 내야 하나 / 접수증 있나 (§3.1, §3.4)
   const [archive, setArchive] = useState<ArchiveRow[]>([]);
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   // grant는 sessionStorage에만 둔다 — 탭을 닫으면 사라지고 장기 쿠키를 남기지 않는다 (§4.1)
   const grantKey = `taxflow_portal_grant_${token}`;
@@ -89,6 +100,7 @@ export default function PublicCollectPage({
     })
       .then((rows) => {
         setPayroll(rows);
+        setGrant(saved);
         setGate("open");
       })
       .catch(() => sessionStorage.removeItem(grantKey));
@@ -131,7 +143,6 @@ export default function PublicCollectPage({
     }
   }
 
-
   async function unlock() {
     if (pin.length < 4) return;
     setPinBusy(true);
@@ -146,12 +157,51 @@ export default function PublicCollectPage({
         headers: { "X-Portal-Grant": res.grant },
       });
       setPayroll(rows);
+      setGrant(res.grant);
       setGate("open");
       setPin("");
     } catch (e) {
       setPinError((e as Error).message);
     } finally {
       setPinBusy(false);
+    }
+  }
+
+  function lockAgain() {
+    sessionStorage.removeItem(grantKey);
+    setGrant(null);
+    setPayroll(null);
+    setGate("hidden");
+  }
+
+  async function downloadPayslips(period: string) {
+    if (!grant) {
+      setGate("asking");
+      return;
+    }
+    setDownloading(period);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/v1/public/r/${token}/payslips/${period}`,
+        { headers: { "X-Portal-Grant": grant } },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail ?? "명세서를 받지 못했어요");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `급여명세서_${period}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setDownloading(null);
     }
   }
 
@@ -196,499 +246,404 @@ export default function PublicCollectPage({
     }
   }
 
-  function lockAgain() {
-    sessionStorage.removeItem(grantKey);
-    setPayroll(null);
-    setPin("");
-    setPinError(null);
-    setGate("hidden");
-  }
-
   if (error && !session) {
     return (
-      <div className="min-h-dvh flex items-center justify-center p-4 bg-[#F7F7F9]">
-        <div className="max-w-md rounded-2xl bg-white border border-gray-200 p-6 text-center shadow-lg">
-          <p className="text-red-600">{error}</p>
+      <main className="min-h-dvh bg-gray-50 flex items-center justify-center px-5">
+        <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+          <div className="text-[15px] font-semibold text-gray-900">링크를 열 수 없어요</div>
+          <p className="mt-2 text-[13px] text-gray-500">{error}</p>
+          <p className="mt-3 text-[12px] text-gray-400">세무사 사무소에 문의해 주세요.</p>
         </div>
-      </div>
+      </main>
     );
   }
+
   if (!session) {
-    return <div className="min-h-dvh flex items-center justify-center bg-[#F7F7F9]"><p className="text-gray-500">로딩 중...</p></div>;
+    return (
+      <main className="min-h-dvh bg-gray-50 flex items-center justify-center">
+        <div className="text-[13px] text-gray-400">불러오는 중…</div>
+      </main>
+    );
   }
 
   return (
-    <div className="flex flex-col min-h-dvh bg-[#F7F7F9]" style={{
-      backgroundImage: "radial-gradient(circle at 1px 1px, rgba(16,17,18,0.025) 1px, transparent 0)",
-      backgroundSize: "16px 16px",
-    }}>
-      {/* Header */}
-      <div className="px-4 py-3 bg-white border-b border-gray-200 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-blue-600 text-white flex items-center justify-center text-base font-extrabold shrink-0">
-            {session.client_name.charAt(0)}
+    <main className="min-h-dvh bg-gray-50">
+      {/* 상단 — 어느 회사의 무엇인지 한눈에 */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="mx-auto max-w-3xl px-5 pt-5 pb-3">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-blue-600">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-gray-900 text-[10px] font-extrabold text-white">이</span>
+            이지원천
           </div>
-          <div className="min-w-0">
-            <div className="text-[15px] font-bold tracking-tight text-gray-900 truncate">{session.client_name}</div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${session.accepting ? "bg-green-500" : "bg-gray-300"}`} />
-              <span className="text-[11.5px] text-gray-500">
-                {session.accepting ? `${session.period} 자료 수집중` : "지금은 보낼 자료 없음"}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Chat body */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
-        {/* Date divider */}
-        <div className="flex justify-center mb-3">
-          <span className="px-3 py-1 rounded-full bg-black/[0.06] text-[11.5px] text-gray-500">
-            오늘
-          </span>
-        </div>
-
-        {/* Safety card */}
-        <div className="mx-0 mb-3 p-3 bg-white border border-gray-200 rounded-[14px] shadow-sm">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 text-sm">🔒</div>
-            <div>
-              <div className="text-[12px] font-bold text-gray-900">전용 안전 링크</div>
-              <div className="text-[11px] text-gray-500 leading-snug">답장 내용은 세무사 사무소만 확인할 수 있어요</div>
-            </div>
+          <h1 className="mt-2 text-[20px] font-bold tracking-tight text-gray-900">
+            {session.client_name}
+          </h1>
+          <div className="mt-1 flex items-center gap-2 text-[12.5px] text-gray-500">
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${
+              session.accepting
+                ? "bg-blue-50 text-blue-700 border border-blue-100"
+                : "bg-gray-100 text-gray-500 border border-gray-200"
+            }`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${session.accepting ? "bg-blue-500" : "bg-gray-400"}`} />
+              {periodLabel(session.period)} {session.accepting ? "자료 받는 중" : "접수 마감"}
+            </span>
+            <span className="text-gray-300">·</span>
+            <span>세무 대리 · 원천세 신고</span>
           </div>
         </div>
 
-        {/* Greeting bubbles (them) */}
-        {!session.accepting ? (
-          <ChatBubbleThem>
-            안녕하세요 <b className="text-blue-600">{session.client_name}</b> 사장님,<br />
-            지금은 보내주실 자료가 없어요.<br />
-            다음 신고 기간이 되면 알림톡으로 알려드릴게요 🙏
-          </ChatBubbleThem>
-        ) : (
+        {/* 탭 */}
+        <nav className="mx-auto max-w-3xl px-5">
+          <div className="flex gap-1 overflow-x-auto">
+            {TABS.map((t) => {
+              const active = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`relative shrink-0 px-3.5 pb-2.5 pt-1 text-[14px] font-semibold transition-colors ${
+                    active ? "text-blue-600" : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  {t.label}
+                  {active && <span className="absolute inset-x-2 bottom-0 h-[2.5px] rounded-t bg-blue-600" />}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      </header>
+
+      <div className="mx-auto max-w-3xl px-5 py-5 space-y-4 pb-16">
+        {tab === "input" && (
           <>
-            <ChatBubbleThem>
-              안녕하세요 <b className="text-blue-600">{session.client_name}</b> 사장님,<br />
-              {session.period} 직원 급여 자료 부탁드려요 🙏
-            </ChatBubbleThem>
-            <ChatBubbleThem>
-              아래 <b>편한 방법</b>으로 보내주시면 돼요.
-            </ChatBubbleThem>
+            <Section title={`${periodLabel(session.period)} 급여 자료`}
+              desc={session.accepting
+                ? "급여대장 파일을 올리거나, 직접 적어 보내주세요."
+                : "이번 달 접수는 마감됐어요. 변경할 내용이 있으면 세무사 사무소로 알려주세요."}>
+              {session.accepting ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-5 text-center transition-colors hover:border-blue-300 hover:bg-blue-50/40">
+                      <input type="file" className="hidden" disabled={submitting}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = "";
+                          if (f) handleFile(f);
+                        }} />
+                      <div className="text-[22px]">📄</div>
+                      <div className="mt-1.5 text-[13.5px] font-semibold text-gray-900">파일 올리기</div>
+                      <div className="text-[11.5px] text-gray-500">엑셀·사진·PDF</div>
+                    </label>
+                    <button onClick={() => setMode(mode === "text" ? "idle" : "text")}
+                      disabled={submitting}
+                      className="rounded-xl border border-gray-200 bg-white px-4 py-5 text-center transition-colors hover:border-blue-300 hover:bg-blue-50/40 disabled:opacity-50">
+                      <div className="text-[22px]">✏️</div>
+                      <div className="mt-1.5 text-[13.5px] font-semibold text-gray-900">직접 적기</div>
+                      <div className="text-[11.5px] text-gray-500">이름과 금액만</div>
+                    </button>
+                  </div>
+
+                  {mode === "text" && (
+                    <div className="mt-3 space-y-2">
+                      <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)}
+                        placeholder="예) 김연호 320만원, 박지훈 250만원&#10;지난달과 같으면 '지난달과 동일'이라고만 적어주셔도 돼요."
+                        className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-[14px] outline-none focus:border-blue-500" />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" onClick={() => { setMode("idle"); setText(""); }}>취소</Button>
+                        <Button onClick={submit} disabled={submitting || !text.trim()}>보내기</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {mode === "processing" && (
+                    <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-[13px] text-blue-700">
+                      자료를 읽고 있어요. 잠시만 기다려 주세요…
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[13px] text-red-600">
+                      {error}
+                    </div>
+                  )}
+
+                  {result && (
+                    <div className="mt-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5">
+                      <div className="text-[13.5px] font-semibold text-gray-900">보내주셔서 감사합니다</div>
+                      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-gray-600">
+                        <span>확인된 직원 <strong className="text-gray-900">{result.matched}</strong>명</span>
+                        {result.new_hire_suspected > 0 && <span>새 직원 <strong className="text-gray-900">{result.new_hire_suspected}</strong>명</span>}
+                        {result.resignation_suspected > 0 && <span>퇴사 확인 <strong className="text-gray-900">{result.resignation_suspected}</strong>명</span>}
+                      </div>
+                      <p className="mt-2 text-[11.5px] text-gray-400">
+                        세무사 사무소에서 확인 후 신고를 진행합니다.
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-5 text-center text-[13px] text-gray-500">
+                  다음 달 자료 요청 때 다시 안내드릴게요.
+                </div>
+              )}
+            </Section>
+
+            <Section title="직원이 바뀌었나요?"
+              desc="입사·퇴사를 알려주시면 4대보험 신고까지 함께 처리합니다.">
+              {changeDone && (
+                <div className="mb-2.5 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-[13px] text-blue-700">
+                  {changeDone}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2.5">
+                <button onClick={() => { setChangeError(null); setChangeMode(changeMode === "hire" ? "none" : "hire"); }}
+                  className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-[13.5px] font-semibold text-gray-900 hover:border-blue-300 hover:bg-blue-50/40">
+                  + 새 직원이 왔어요
+                </button>
+                <button onClick={() => (changeMode === "resign" ? setChangeMode("none") : openResign())}
+                  className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-[13.5px] font-semibold text-gray-900 hover:border-blue-300 hover:bg-blue-50/40">
+                  − 그만둔 직원이 있어요
+                </button>
+              </div>
+
+              {changeMode === "hire" && (
+                <div className="mt-3 space-y-2">
+                  <input value={hireName} onChange={(e) => setHireName(e.target.value)} placeholder="이름"
+                    className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-[14px] outline-none focus:border-blue-500" />
+                  <label className="block text-[12px] text-gray-500">입사일</label>
+                  <input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-[14px]" />
+                  <p className="text-[11.5px] text-gray-400">주민등록번호는 여기에 적지 마세요. 사무소에서 따로 안전하게 받습니다.</p>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="ghost" onClick={() => setChangeMode("none")}>취소</Button>
+                    <Button onClick={submitChange} disabled={changeBusy || !hireName.trim()}>알리기</Button>
+                  </div>
+                </div>
+              )}
+
+              {changeMode === "resign" && (
+                <div className="mt-3 space-y-2">
+                  <select value={resignId} onChange={(e) => setResignId(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-[14px]">
+                    <option value="">직원 선택</option>
+                    {(roster ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                  <label className="block text-[12px] text-gray-500">퇴사일</label>
+                  <input type="date" value={resignDate} onChange={(e) => setResignDate(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-[14px]" />
+                  <div className="flex justify-end gap-2">
+                    <Button variant="ghost" onClick={() => setChangeMode("none")}>취소</Button>
+                    <Button onClick={submitChange} disabled={changeBusy || !resignId}>알리기</Button>
+                  </div>
+                </div>
+              )}
+
+              {changeError && <p className="mt-2 text-[12.5px] text-red-600">{changeError}</p>}
+            </Section>
+
+            <Section title="이번 달 직원별 급여" desc="확인이 필요하면 PIN을 입력해 주세요.">
+              <GatedPayroll
+                hasPin={session.has_pin} gate={gate} setGate={setGate}
+                pin={pin} setPin={setPin} pinError={pinError} pinBusy={pinBusy}
+                unlock={unlock} payroll={payroll} lockAgain={lockAgain} />
+            </Section>
           </>
         )}
 
-        {/* Quick actions */}
-        <div className={`pl-10 space-y-2 mb-3 ${session.accepting ? "" : "hidden"}`}>
-          <div className="flex gap-2 max-w-[78%]">
-            <label className="flex-1 flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-gray-200 rounded-xl cursor-pointer hover:border-gray-300 transition-colors">
-              <span className="text-lg">📷</span>
-              <span className="text-[11px] font-semibold text-gray-700">사진·파일</span>
-              <input type="file" className="hidden" accept="audio/*,.mp3,.m4a,.wav,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
-            </label>
-            <button onClick={() => setMode("text")} className="flex-1 flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-gray-200 rounded-xl hover:border-gray-300 transition-colors">
-              <span className="text-lg">✏️</span>
-              <span className="text-[11px] font-semibold text-gray-700">직접 적기</span>
-            </button>
-          </div>
-        </div>
-
-        {/* User text input (expanded) */}
-        {mode === "text" && (
-          <div className="flex justify-end mb-2">
-            <div className="max-w-[82%] w-full space-y-2">
-              <textarea
-                rows={5}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={"예) 김연호 100만원, 박민수 신규입사 150만원, 이영수는 이번달 퇴사했어요"}
-                className="w-full rounded-2xl bg-white border border-gray-300 px-3.5 py-3 text-[14px] text-gray-900 leading-relaxed outline-none focus:border-blue-500 resize-none"
-                autoFocus
-              />
-              <div className="flex gap-2 justify-end">
-                <button onClick={() => { setMode("idle"); setText(""); }}
-                  className="px-3.5 py-2 rounded-xl border border-gray-300 text-[13px] text-gray-700 hover:bg-gray-50">
-                  취소
-                </button>
-                <Button onClick={submit} disabled={submitting || !text.trim()}>
-                  {submitting ? "전송 중..." : "전송"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Processing indicator */}
-        {mode === "processing" && (
-          <div className="flex gap-2 items-end mb-2">
-            <div className="w-8 h-8 rounded-[10px] bg-amber-50 text-amber-700 flex items-center justify-center shrink-0 text-sm">🤖</div>
-            <div className="max-w-[78%]">
-              <div className="bg-white border border-gray-200 rounded-[4px_16px_16px_16px] p-3 shadow-sm min-w-[200px]">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  <span className="text-[12.5px] font-bold text-gray-900">자료 읽고 있어요</span>
-                </div>
-                <div className="h-[5px] rounded-full bg-gray-200 overflow-hidden mb-1.5">
-                  <div className="h-full rounded-full bg-gradient-to-r from-amber-200 to-amber-500 animate-pulse" style={{ width: "72%" }} />
-                </div>
-                <div className="text-[11px] text-gray-500">분석 중… 약 10초</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Error */}
-        {error && (
-          <div className="flex justify-end mb-2">
-            <div className="bg-red-50 border border-red-600/20 rounded-2xl px-3.5 py-2.5 text-[13px] text-red-600 max-w-[82%]">
-              {error}
-            </div>
-          </div>
-        )}
-
-        {/* Result summary card */}
-        {result && (
-          <div className="flex gap-2 items-end mb-2">
-            <div className="w-8 shrink-0" />
-            <div className="max-w-[88%] w-full">
-              <div className="bg-white border border-gray-200 rounded-[4px_18px_18px_18px] overflow-hidden shadow-md">
-                <div className="px-3.5 py-3 border-b border-gray-200 bg-gradient-to-b from-blue-50 to-white">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-blue-600">✅</span>
-                    <span className="text-[13px] font-bold text-blue-600">정리 완료</span>
-                  </div>
-                  <div className="text-[11.5px] text-gray-500">
-                    {session.period} {session.client_name} 급여 · {result.matched + result.new_hire_suspected}명 접수
-                  </div>
-                </div>
-
-                <div className={`grid py-2.5 px-1 border-b border-gray-200`} style={{
-                  gridTemplateColumns: `repeat(${
-                    2
-                    + (result.resignation_suspected > 0 ? 1 : 0)
-                    + (result.ambiguous > 0 ? 1 : 0)
-                  }, 1fr)`,
-                }}>
-                  {([
-                    ["기존", result.matched, "gray-900"],
-                    ["신규", result.new_hire_suspected, "blue-600"],
-                    ...(result.resignation_suspected > 0 ? [["퇴사", result.resignation_suspected, "gray-500"] as const] : []),
-                    ...(result.ambiguous > 0 ? [["확인", result.ambiguous, "red-600"] as const] : []),
-                  ] as const).map(([label, val, tone], i, arr) => (
-                    <div key={i} className="flex flex-col items-center gap-0.5" style={{ borderRight: i < arr.length - 1 ? "1px solid #E3E3E5" : "none" }}>
-                      <span className={`text-xl font-extrabold tabular-nums text-${tone}`}>{val}</span>
-                      <span className="text-[11px] text-gray-500">{label}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="px-3.5 py-2.5 bg-gray-50 text-[12.5px] text-gray-700">
-                  {(result.unconfirmed ?? 0) > 0 ? (
-                    <>
-                      <span className="text-amber-600 font-semibold">지난달 근무자 중 {result.unconfirmed}명</span>이 이번달 자료에 없어요.
-                      <br />계속 근무 중이라면 해당 직원의 급여도 보내주세요.
-                      <br />퇴사한 직원이 있다면 알려주세요.
-                    </>
-                  ) : (
-                    <>세무사가 검증 후 추가 확인 사항이 있으면 다시 연락드릴게요.</>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 보관함 — 얼마 내야 하나 / 접수증 (§3.1, §3.4) */}
-        {archive.length > 0 && (
-          <div className="pl-10 mb-3">
-            <div className="max-w-[88%] bg-white border border-gray-200 rounded-[14px] overflow-hidden shadow-sm">
-              <div className="px-3.5 py-2.5 border-b border-gray-200 text-[12.5px] font-bold text-gray-900">
-                원천세 납부 내역
-              </div>
-              {archive.map((row) => (
-                <div key={row.period} className="px-3.5 py-2.5 border-b border-gray-100 last:border-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[12.5px] font-semibold text-gray-900">
-                        {row.period.replace("-", "년 ")}월
-                      </div>
-                      <div className="text-[11px] text-gray-500">
-                        {row.settled_tax != null ? "납부" : "예상"}{" "}
-                        <span className="tabular-nums">
-                          {(row.settled_tax ?? row.estimated_tax).toLocaleString()}원
-                        </span>
-                        {row.due_date ? ` · ${row.due_date}까지` : ""}
-                      </div>
-                    </div>
-                    <div className="flex gap-1.5 shrink-0">
-                      {row.has_receipt && (
-                        <a
-                          href={`${API_BASE}/api/v1/public/r/${token}/archive/${row.period}/receipt`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-2.5 py-1 rounded-lg border border-gray-300 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                          접수증
-                        </a>
-                      )}
-                      {row.has_payment_slip && (
-                        <a
-                          href={`${API_BASE}/api/v1/public/r/${token}/archive/${row.period}/payment-slip`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-2.5 py-1 rounded-lg border border-gray-300 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                          납부서
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                  {row.virtual_account && (
-                    <div className="mt-1.5 text-[11px] text-gray-700 bg-gray-50 rounded-lg px-2.5 py-1.5">
-                      가상계좌 <span className="font-medium">{row.virtual_account}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 입·퇴사 등록 — 자료 수집 기간이 아니어도 항상 열려 있다 (§5.2) */}
-        <div className="pl-10 mb-3">
-          {changeDone ? (
-            <div className="max-w-[78%] bg-white border border-gray-200 rounded-[14px] p-3 shadow-sm">
-              <div className="text-[12.5px] font-bold text-gray-900 mb-0.5">✅ 전달했어요</div>
-              <div className="text-[11px] text-gray-500 leading-snug">{changeDone}</div>
-              <button
-                onClick={() => setChangeDone(null)}
-                className="mt-2 text-[11.5px] text-blue-600 underline"
-              >
-                더 알려주기
-              </button>
-            </div>
-          ) : changeMode === "none" ? (
-            <div className="flex flex-col gap-2 max-w-[78%]">
-              <button
-                onClick={() => { setChangeError(null); setChangeMode("hire"); }}
-                className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[12.5px] font-semibold text-gray-700 text-left hover:border-gray-300 transition-colors"
-              >
-                ＋ 새 직원이 들어왔어요
-              </button>
-              <button
-                onClick={openResign}
-                className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[12.5px] font-semibold text-gray-700 text-left hover:border-gray-300 transition-colors"
-              >
-                － 그만둔 직원이 있어요
-              </button>
-            </div>
-          ) : (
-            <div className="max-w-[82%] bg-white border border-gray-200 rounded-[14px] p-3 shadow-sm space-y-2">
-              <div className="text-[12.5px] font-bold text-gray-900">
-                {changeMode === "hire" ? "새 직원 등록" : "퇴사 알리기"}
-              </div>
-
-              {changeMode === "hire" ? (
-                <>
-                  <input
-                    value={hireName}
-                    onChange={(e) => setHireName(e.target.value)}
-                    placeholder="직원 이름"
-                    className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-blue-500"
-                    autoFocus
-                  />
-                  <label className="block">
-                    <span className="text-[11px] text-gray-500">입사일</span>
-                    <input
-                      type="date"
-                      value={hireDate}
-                      onChange={(e) => setHireDate(e.target.value)}
-                      className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-blue-500"
-                    />
-                  </label>
-                  <div className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2.5 py-2 leading-snug">
-                    주민등록번호는 여기 적지 마세요. 필요하면 세무사 사무소에서 따로 요청드려요.
-                  </div>
-                </>
-              ) : (
-                <>
-                  <select
-                    value={resignId}
-                    onChange={(e) => setResignId(e.target.value)}
-                    className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-blue-500"
-                  >
-                    <option value="">그만둔 직원을 골라주세요</option>
-                    {(roster ?? []).map((r) => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </select>
-                  <label className="block">
-                    <span className="text-[11px] text-gray-500">마지막 근무일</span>
-                    <input
-                      type="date"
-                      value={resignDate}
-                      onChange={(e) => setResignDate(e.target.value)}
-                      className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[13.5px] text-gray-900 outline-none focus:border-blue-500"
-                    />
-                  </label>
-                </>
-              )}
-
-              {changeError && (
-                <div className="text-[11.5px] text-red-600 leading-snug">{changeError}</div>
-              )}
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { setChangeMode("none"); setChangeError(null); }}
-                  className="flex-1 py-2 rounded-xl border border-gray-300 text-[12.5px] text-gray-700 hover:bg-gray-50"
-                >
-                  취소
-                </button>
-                <Button
-                  onClick={submitChange}
-                  disabled={
-                    changeBusy ||
-                    (changeMode === "hire" ? !hireName.trim() : !resignId)
-                  }
-                >
-                  {changeBusy ? "전달 중..." : "알리기"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* PIN 게이트 — 금액이 걸린 화면만 자물쇠 뒤 (§4.3.1) */}
-        {session.has_pin && (
-          <div className="pl-10 mb-3">
-            {gate !== "open" ? (
-              <div className="max-w-[78%] bg-white border border-gray-200 rounded-[14px] p-3 shadow-sm">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm">🔒</span>
-                  <span className="text-[12.5px] font-bold text-gray-900">급여 상세 보기</span>
-                </div>
-                <div className="text-[11px] text-gray-500 leading-snug mb-2.5">
-                  직원별 금액은 세무사 사무소에서 받으신 PIN을 넣어야 보여요.
-                </div>
-                {gate === "hidden" ? (
-                  <button
-                    onClick={() => setGate("asking")}
-                    className="w-full py-2 rounded-xl border border-gray-300 text-[12.5px] font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    PIN 입력하고 보기
-                  </button>
-                ) : (
-                  <div className="space-y-2">
-                    <input
-                      inputMode="numeric"
-                      maxLength={8}
-                      value={pin}
-                      onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                      placeholder="PIN 6자리"
-                      className="w-full rounded-xl bg-white border border-gray-300 px-3 py-2 text-[14px] tracking-[0.3em] text-center text-gray-900 outline-none focus:border-blue-500"
-                      autoFocus
-                    />
-                    {pinError && (
-                      <div className="text-[11.5px] text-red-600 leading-snug">{pinError}</div>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => { setGate("hidden"); setPin(""); setPinError(null); }}
-                        className="flex-1 py-2 rounded-xl border border-gray-300 text-[12.5px] text-gray-700 hover:bg-gray-50"
-                      >
-                        취소
-                      </button>
-                      <Button onClick={unlock} disabled={pinBusy || pin.length < 4}>
-                        {pinBusy ? "확인 중..." : "확인"}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+        {tab === "filings" && (
+          <Section title="원천세 신고 내역" desc="월별 납부세액과 접수증·납부서를 보관합니다.">
+            {archive.length === 0 ? (
+              <Empty>아직 신고 내역이 없어요.</Empty>
             ) : (
-              <div className="max-w-[88%] bg-white border border-gray-200 rounded-[14px] overflow-hidden shadow-sm">
-                <div className="px-3.5 py-2.5 border-b border-gray-200 flex items-center justify-between">
-                  <span className="text-[12.5px] font-bold text-gray-900">
-                    {session.period} 급여 상세
-                  </span>
-                  <button onClick={lockAgain} className="text-[11px] text-gray-500 underline">
-                    닫기
-                  </button>
-                </div>
-                {payroll && payroll.length > 0 ? (
-                  <table className="w-full text-[12.5px]">
-                    <thead>
-                      <tr className="text-[11px] text-gray-500">
-                        <th className="text-left px-3.5 py-1.5 font-medium">이름</th>
-                        <th className="text-right px-2 py-1.5 font-medium">전월</th>
-                        <th className="text-right px-3.5 py-1.5 font-medium">이번 달</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {payroll.map((row, i) => (
-                        <tr key={i} className="border-t border-gray-100">
-                          <td className="px-3.5 py-2 text-gray-900">{row.name}</td>
-                          <td className="px-2 py-2 text-right tabular-nums text-gray-500">
-                            {row.prev_amount != null ? row.prev_amount.toLocaleString() : "—"}
-                          </td>
-                          <td className="px-3.5 py-2 text-right tabular-nums font-semibold text-gray-900">
-                            {row.total_amount.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="px-3.5 py-3 text-[12px] text-gray-500">
-                    아직 이번 달 자료가 없어요.
+              <div className="divide-y divide-gray-100">
+                {archive.map((row) => (
+                  <div key={row.period} className="py-3.5 first:pt-0 last:pb-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[14.5px] font-semibold text-gray-900">{periodLabel(row.period)}</div>
+                        <div className="mt-0.5 text-[13px] text-gray-600 tabular-nums">
+                          {row.settled_tax != null ? (
+                            <>납부세액 <strong className="text-gray-900">{formatKrw(row.settled_tax)}</strong></>
+                          ) : (
+                            <>예상세액 {formatKrw(row.estimated_tax)}</>
+                          )}
+                        </div>
+                        {row.due_date && (
+                          <div className="mt-0.5 text-[12px] text-gray-500 tabular-nums">납부기한 {row.due_date}</div>
+                        )}
+                        {row.virtual_account && (
+                          <div className="mt-0.5 text-[12px] text-gray-500">가상계좌 {row.virtual_account}</div>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-1.5">
+                        <DocLink token={token} period={row.period} kind="receipt" enabled={row.has_receipt} label="접수증" />
+                        <DocLink token={token} period={row.period} kind="payment-slip" enabled={row.has_payment_slip} label="납부서" />
+                      </div>
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
             )}
-          </div>
+          </Section>
         )}
 
-        <div className="h-2" />
-      </div>
+        {tab === "payslips" && (
+          <Section title="급여명세서" desc="직원별 지급·공제 내역입니다. PIN 확인 후 내려받을 수 있어요.">
+            {gate !== "open" ? (
+              <GatedPayroll
+                hasPin={session.has_pin} gate={gate} setGate={setGate}
+                pin={pin} setPin={setPin} pinError={pinError} pinBusy={pinBusy}
+                unlock={unlock} payroll={null} lockAgain={lockAgain} payslipMode />
+            ) : archive.length === 0 ? (
+              <Empty>아직 명세서가 없어요.</Empty>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {archive.map((row) => (
+                  <div key={row.period} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                    <div className="text-[14px] font-semibold text-gray-900">{periodLabel(row.period)}</div>
+                    <Button variant="secondary" className="!text-[12.5px] !px-3 !py-1.5"
+                      onClick={() => downloadPayslips(row.period)}
+                      disabled={downloading === row.period}>
+                      {downloading === row.period ? "받는 중…" : "내려받기"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+        )}
 
-      {/* Bottom input bar */}
-      <div className={`px-3 py-2 bg-white border-t border-gray-200 items-center gap-2 shrink-0 ${session.accepting ? "flex" : "hidden"}`}>
-        <label className="w-9 h-9 rounded-full bg-gray-50 flex items-center justify-center text-gray-700 cursor-pointer shrink-0 hover:bg-gray-200 transition-colors">
-          <span className="text-lg">+</span>
-          <input type="file" className="hidden" accept="audio/*,.mp3,.m4a,.wav,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
-        </label>
-        <div
-          onClick={() => setMode("text")}
-          className="flex-1 h-9 bg-gray-50 rounded-full px-3.5 flex items-center text-[13.5px] text-gray-500 cursor-text"
-        >
-          메시지 입력…
+        <p className="pt-2 text-center text-[11.5px] text-gray-400">
+          이 링크는 {session.client_name} 전용입니다. 보내주신 내용은 세무사 사무소만 확인합니다.
+        </p>
+      </div>
+    </main>
+  );
+}
+
+/* ═══ 조각 ═══ */
+
+function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 className="text-[15.5px] font-bold tracking-tight text-gray-900">{title}</h2>
+      {desc && <p className="mt-1 mb-3.5 text-[12.5px] leading-relaxed text-gray-500">{desc}</p>}
+      {children}
+    </section>
+  );
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-6 text-center text-[13px] text-gray-500">
+      {children}
+    </div>
+  );
+}
+
+function DocLink({ token, period, kind, enabled, label }: {
+  token: string; period: string; kind: "receipt" | "payment-slip"; enabled: boolean; label: string;
+}) {
+  if (!enabled) {
+    return (
+      <span className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-center text-[12px] text-gray-400">
+        {label} 준비중
+      </span>
+    );
+  }
+  return (
+    <a href={`${API_BASE}/api/v1/public/r/${token}/archive/${period}/${kind}`}
+      target="_blank" rel="noreferrer"
+      className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-center text-[12px] font-semibold text-blue-700 hover:bg-blue-100">
+      {label} 보기
+    </a>
+  );
+}
+
+function GatedPayroll({
+  hasPin, gate, setGate, pin, setPin, pinError, pinBusy, unlock, payroll, lockAgain, payslipMode,
+}: {
+  hasPin: boolean;
+  gate: "hidden" | "asking" | "open";
+  setGate: (g: "hidden" | "asking" | "open") => void;
+  pin: string;
+  setPin: (v: string) => void;
+  pinError: string | null;
+  pinBusy: boolean;
+  unlock: () => void;
+  payroll: PayrollRow[] | null;
+  lockAgain: () => void;
+  payslipMode?: boolean;
+}) {
+  if (!hasPin) {
+    return <Empty>PIN이 아직 발급되지 않았어요. 세무사 사무소에 요청해 주세요.</Empty>;
+  }
+
+  if (gate !== "open") {
+    return gate === "asking" ? (
+      <div className="space-y-2">
+        <input inputMode="numeric" value={pin} maxLength={8}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+          onKeyDown={(e) => { if (e.key === "Enter") unlock(); }}
+          placeholder="PIN 6자리"
+          className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-center text-[16px] tracking-[0.3em] outline-none focus:border-blue-500" />
+        {pinError && <p className="text-[12.5px] text-red-600">{pinError}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => { setGate("hidden"); setPin(""); }}>취소</Button>
+          <Button onClick={unlock} disabled={pinBusy || pin.length < 4}>{pinBusy ? "확인 중…" : "확인"}</Button>
         </div>
-        <button
-          onClick={() => { if (text.trim()) submit(); else setMode("text"); }}
-          className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-[0_4px_12px_-4px_rgba(19,112,206,0.5)]"
-        >
-          <span className="text-sm">↑</span>
-        </button>
+      </div>
+    ) : (
+      <button onClick={() => setGate("asking")}
+        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 text-[13.5px] font-medium text-gray-700 hover:border-blue-300 hover:bg-blue-50/40">
+        🔒 PIN 입력하고 {payslipMode ? "명세서 보기" : "급여 확인하기"}
+      </button>
+    );
+  }
+
+  if (payslipMode) return null;
+
+  return (
+    <div>
+      {payroll && payroll.length > 0 ? (
+        <table className="w-full text-[13.5px]">
+          <thead>
+            <tr className="border-b border-gray-200 text-[11.5px] uppercase tracking-wider text-gray-500">
+              <th className="py-2 text-left font-semibold">이름</th>
+              <th className="py-2 text-right font-semibold">지난달</th>
+              <th className="py-2 text-right font-semibold">이번 달</th>
+            </tr>
+          </thead>
+          <tbody>
+            {payroll.map((r) => (
+              <tr key={r.name} className="border-b border-gray-100 last:border-0">
+                <td className="py-2 font-medium text-gray-900">{r.name}</td>
+                <td className="py-2 text-right tabular-nums text-gray-400">
+                  {r.prev_amount != null ? formatKrw(r.prev_amount) : "—"}
+                </td>
+                <td className="py-2 text-right tabular-nums font-semibold text-gray-900">
+                  {formatKrw(r.total_amount)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <Empty>아직 등록된 급여가 없어요.</Empty>
+      )}
+      <div className="mt-2.5 text-right">
+        <button onClick={lockAgain} className="text-[12px] text-gray-400 hover:text-gray-700">다시 잠그기</button>
       </div>
     </div>
   );
 }
 
-function ChatBubbleThem({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex gap-2 items-end mb-1">
-      <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-blue-600 to-blue-600 text-white flex items-center justify-center shrink-0 text-[13px] font-extrabold">
-        조
-      </div>
-      <div className="max-w-[78%]">
-        <div className="bg-white border border-gray-200 rounded-[4px_16px_16px_16px] px-3.5 py-2.5 text-[14px] text-gray-900 leading-relaxed shadow-sm">
-          {children}
-        </div>
-      </div>
-    </div>
-  );
+function periodLabel(period: string): string {
+  const [y, m] = period.split("-");
+  return `${y}년 ${Number(m)}월`;
+}
+
+function formatKrw(n: number): string {
+  return `${n.toLocaleString("ko-KR")}원`;
 }
