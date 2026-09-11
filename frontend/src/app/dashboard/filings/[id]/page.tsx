@@ -456,6 +456,19 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
       <div className="flex-1 min-w-0 bg-white flex flex-col min-h-0">
         {selectedSession ? (
           <>
+            {/* 급여자료 입력 바 — 탭 위 */}
+            <PayrollInputBar
+              session={selectedSession}
+              showComm={mainTab === "received"}
+              commOpen={commOpen}
+              onToggleComm={() => setCommOpen((v) => !v)}
+              onRequestAll={onRequestAll}
+              requestAllPending={requestAllPending}
+              onRequestSelected={onRequestSelected}
+              requestSelectedPending={requestSelectedPending}
+              onPreview={(data, meta) => setPreview({ data, meta })}
+            />
+
             {/* Tab bar */}
             <div className="flex items-end gap-1 px-3 md:px-5 border-b border-gray-200 bg-white shrink-0">
               <MainTabButton active={mainTab === "received"} onClick={() => setMainTab("received")}>
@@ -504,18 +517,6 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
               )}
             </div>
 
-            {/* 급여자료 입력 바 */}
-            <PayrollInputBar
-              session={selectedSession}
-              showComm={mainTab === "received"}
-              commOpen={commOpen}
-              onToggleComm={() => setCommOpen((v) => !v)}
-              onRequestAll={onRequestAll}
-              requestAllPending={requestAllPending}
-              onRequestSelected={onRequestSelected}
-              requestSelectedPending={requestSelectedPending}
-              onPreview={(data, meta) => setPreview({ data, meta })}
-            />
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
@@ -647,8 +648,7 @@ function PayrollInputBar({
   }
 
   return (
-    <div className="shrink-0 border-t border-gray-200 bg-white px-3 md:px-5 py-2 space-y-1.5">
-      {/* 1줄 — 자료 수집 메뉴 */}
+    <div className="shrink-0 border-b border-gray-200 bg-white px-3 md:px-5 py-2">
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mr-0.5">급여자료 입력</span>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.pdf" className="hidden"
@@ -657,26 +657,26 @@ function PayrollInputBar({
             e.target.value = "";
             if (f) runFile(f);
           }} />
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
-          {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
-        </Button>
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={runCarryForward}
-          title="전월 급여자료를 이번 달 후보로 불러옵니다">
-          {previewCarryForward.isPending ? "불러오는 중..." : "전월자료 불러오기"}
-        </Button>
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestAll} disabled={requestAllPending}>
           {requestAllPending ? "발송중..." : "자료요청 (전체)"}
         </Button>
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestSelected} disabled={requestSelectedPending}>
           {requestSelectedPending ? "발송중..." : "자료요청 (선택)"}
         </Button>
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={runCarryForward}
+          title="전월 급여자료를 이번 달 후보로 불러옵니다">
+          {previewCarryForward.isPending ? "불러오는 중..." : "전월자료 불러오기"}
+        </Button>
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
+          {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
+        </Button>
+        <EmployeeActionButtons />
+        <div className="flex-1" />
         {showComm && (
           <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
             고객소통내역 {commOpen ? "▶" : "◀"}
           </Button>
         )}
-        <div className="flex-1" />
-        <EmployeeActionButtons />
       </div>
     </div>
   );
@@ -1397,7 +1397,6 @@ function EmployeeActionButtons() {
   return (
     <>
       <DisabledActionButton title={tip}>직원 추가</DisabledActionButton>
-      <DisabledActionButton title={tip}>신규지정</DisabledActionButton>
       <DisabledActionButton title={tip} danger>퇴사처리</DisabledActionButton>
       <span className="text-[10.5px] text-gray-400">· 준비중</span>
     </>
