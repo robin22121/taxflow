@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useClients, useCreateFiling, useFilings } from "@/lib/queries";
 import { Badge, Button } from "@/components/ui";
+import { koreanPeriod, previousPeriod } from "@/lib/format";
 
 export default function DashboardHomePage() {
   const router = useRouter();
@@ -193,18 +194,6 @@ export default function DashboardHomePage() {
       </div>
     </div>
   );
-}
-
-function previousPeriod(): string {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function koreanPeriod(period: string): string {
-  const [y, m] = period.split("-");
-  return `${y}년 ${Number(m)}월분`;
 }
 
 function statusKo(s: string): string {

@@ -24,6 +24,7 @@ import type {
   PayrollDefault,
   PayrollDefaultPatch,
   PayrollEntry,
+  PayrollHistoryPeriod,
   PortalLink,
   PortalPinStatus,
   Promotion,
@@ -282,7 +283,20 @@ export function useImportPayroll(clientId: string) {
         `/api/v1/clients/${clientId}/import-payroll?period=${vars.period}`,
         vars.file,
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["filings"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["filings"] });
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "payroll-history"] });
+    },
+  });
+}
+
+export function useClientPayrollHistory(clientId: string) {
+  return useQuery({
+    queryKey: ["clients", clientId, "payroll-history"],
+    queryFn: () =>
+      api<PayrollHistoryPeriod[]>(
+        `/api/v1/clients/${clientId}/payroll-history`,
+      ),
   });
 }
 
