@@ -24,6 +24,13 @@ class CollectionSession(Base, IdMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_collection_filing", "monthly_filing_id"),
         Index("ix_collection_client", "client_id"),
+        # 거래처당 신고 하나에 세션 하나. 없을 때 동시 요청이 중복 행을 만들었다.
+        Index(
+            "uq_collection_sessions_filing_client",
+            "monthly_filing_id",
+            "client_id",
+            unique=True,
+        ),
     )
 
     monthly_filing_id: Mapped[str] = mapped_column(ForeignKey("monthly_filings.id"))
