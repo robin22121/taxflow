@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Literal
 
@@ -16,6 +17,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, U
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.collect import _ingest_message
 from app.core.deps import get_db
@@ -25,11 +27,14 @@ from app.models import (
     Employee,
     EmployeeChangeRequest,
     EmploymentStatus,
+    MonthlyFiling,
     PayrollEntry,
 )
+from app.models.payroll import IncomeType
 from app.schemas.filings import CollectMessageOut
 from app.services.crypto import encrypt_rrn, mask_rrn
 from app.services.file_intake import intake_file
+from app.services.payslip_excel import generate_payslips
 from app.services.portal import (
     GRANT_TTL,
     PinLockedError,
@@ -46,6 +51,8 @@ from app.services.secure_tokens import consume_token, get_active_token
 from app.services.storage import get_storage
 
 router = APIRouter()
+
+_PERIOD_RE = re.compile(r"\d{4}-\d{2}")
 
 
 class CollectionSessionPublic(BaseModel):
@@ -275,6 +282,55 @@ async def gated_payroll(
         )
         for row in rows
     ]
+
+
+@router.get("/r/{token_str}/payslips/{period}")
+async def portal_payslips(
+    token_str: str,
+    period: str,
+    x_portal_grant: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """게이트 뒤 — 해당 월 급여명세서(전 직원) 엑셀 다운로드 (§3.4 보관함).
+
+    직원별 지급·공제 내역이라 직원별 금액과 같은 등급으로 보고 PIN 뒤에 둔다.
+    사무소 전체가 아니라 **이 거래처 직원만** 담는다.
+    """
+    if not _PERIOD_RE.fullmatch(period):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "기간 형식이 올바르지 않습니다")
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    if not grant_is_valid(x_portal_grant, link.client.id):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "PIN 확인이 필요합니다")
+
+    entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .join(MonthlyFiling, MonthlyFiling.id == PayrollEntry.monthly_filing_id)
+                .where(
+                    PayrollEntry.client_id == link.client.id,
+                    MonthlyFiling.period == period,
+                    PayrollEntry.income_type == IncomeType.WAGE,
+                    PayrollEntry.employee_id.isnot(None),
+                )
+                .options(selectinload(PayrollEntry.employee))
+                .order_by(PayrollEntry.raw_name)
+            )
+        ).scalars().all()
+    )
+    if not entries:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{period} 급여명세서가 없습니다")
+
+    blob = generate_payslips(entries, period=period)
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="payslips_{period}.xlsx"',
+        },
+    )
 
 
 @router.get("/r/{token_str}/archive", response_model=list[ArchiveRowOut])
