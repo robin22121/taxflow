@@ -98,6 +98,33 @@ async def test_receipt_upload_then_owner_download(http: AsyncClient, auth_header
 
 
 @pytest.mark.asyncio
+async def test_tax_office_sees_same_archive_as_owner(http: AsyncClient, auth_headers: dict):
+    """세무사 보관함 목록은 사장님 화면과 같은 데이터여야 한다 — 어긋나면 채울 칸을 못 찾는다."""
+    client_id = await _client_id(http, auth_headers, 4)
+    token = await _portal_token(http, auth_headers, client_id)
+
+    await http.put(
+        f"/api/v1/clients/{client_id}/filing-results/2026-04",
+        headers=auth_headers,
+        json={"settled_tax": 777_000, "due_date": "2026-05-11"},
+    )
+
+    mine = await http.get(f"/api/v1/clients/{client_id}/filing-results", headers=auth_headers)
+    assert mine.status_code == 200, mine.text
+    owner = (await http.get(f"/api/v1/public/r/{token}/archive")).json()
+    assert mine.json() == owner
+
+    april = next(row for row in mine.json() if row["period"] == "2026-04")
+    assert april["settled_tax"] == 777_000
+
+
+@pytest.mark.asyncio
+async def test_archive_list_requires_auth(http: AsyncClient):
+    client_id = "whatever"
+    assert (await http.get(f"/api/v1/clients/{client_id}/filing-results")).status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_non_pdf_upload_is_rejected(http: AsyncClient, auth_headers: dict):
     client_id = await _client_id(http, auth_headers, 3)
     r = await http.post(

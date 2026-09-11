@@ -47,7 +47,7 @@ from app.services.insurance_excel import (
     generate_loss_report,
     generate_remuneration_change_report,
 )
-from app.services.portal import portal_link_for
+from app.services.portal import OPEN_FILING_STATUSES, portal_link_for
 from app.services.payslip_excel import generate_payslips
 from app.services.simple_statement_excel import (
     generate_business_statement,
@@ -842,8 +842,11 @@ async def download_wehago_excel(
         )
 
     blob = generate_wehago_excel(list(entries), period=filing.period)
-    filing.status = MonthlyFilingStatus.EXCEL_GENERATED
-    await db.commit()
+    # 진행 중인 신고만 상태를 전진시킨다. 과거 신고를 다시 뽑았다고 해서
+    # 끝난 신고가 EXCEL_GENERATED로 되돌아가면 안 된다.
+    if filing.status in OPEN_FILING_STATUSES:
+        filing.status = MonthlyFilingStatus.EXCEL_GENERATED
+        await db.commit()
 
     return Response(
         content=blob,

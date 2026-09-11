@@ -53,6 +53,8 @@ export default function FilingDetailPage({
   const [showCertificate, setShowCertificate] = useState(false);
   const [showUnifiedPicker, setShowUnifiedPicker] = useState(false);
   const [unifiedClientIds, setUnifiedClientIds] = useState<string[]>([]);
+  const [showSingleDownload, setShowSingleDownload] = useState(false);
+  const [singleClientId, setSingleClientId] = useState<string>("");
   const headerSlots = useHeaderSlots();
 
   const allEntries = entries ?? [];
@@ -95,13 +97,13 @@ export default function FilingDetailPage({
   const deadlineDate = new Date(month === 12 ? year + 1 : year, month === 12 ? 0 : month, deadlineDay);
   const daysLeft = Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
-  async function downloadPayslips() {
+  async function saveBlob(path: string, filename: string) {
     try {
-      const blob = await apiBlob(`/api/v1/filings/${id}/payslips`);
+      const blob = await apiBlob(path);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `급여명세서_${filing.period}.xlsx`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -110,6 +112,45 @@ export default function FilingDetailPage({
       alert((e as Error).message);
     }
   }
+
+  function downloadPayslips() {
+    return saveBlob(`/api/v1/filings/${id}/payslips`, `급여명세서_${filing.period}.xlsx`);
+  }
+
+  // 개별 서류 — 통합 ZIP에 안 들어가는 것(간이지급명세서·위하고T)이 있어 단독 경로가 필요하다.
+  const singleDocuments = [
+    {
+      key: "payroll-excel",
+      label: "급여대장",
+      hint: "거래처를 고르면 그 업체만, 안 고르면 전체",
+      path: (clientId: string | null) =>
+        clientId
+          ? `/api/v1/filings/${id}/payroll-excel?client_id=${encodeURIComponent(clientId)}`
+          : `/api/v1/filings/${id}/payroll-excel`,
+      filename: `급여대장_${filing.period}.xlsx`,
+    },
+    {
+      key: "statement-wage",
+      label: "간이지급명세서 (근로소득)",
+      hint: "통합 ZIP에는 들어가지 않습니다",
+      path: () => `/api/v1/filings/${id}/statement-wage`,
+      filename: `간이지급명세서_근로_${filing.period}.xlsx`,
+    },
+    {
+      key: "statement-business",
+      label: "지급명세서 (사업소득, SmartA)",
+      hint: "SmartA 업로드용 .xls",
+      path: () => `/api/v1/filings/${id}/statement-business`,
+      filename: `지급명세서_사업소득_${filing.period}.xls`,
+    },
+    {
+      key: "wehago-excel",
+      label: "위하고T 원천세 일괄등록",
+      hint: "양식은 실측 전 best-guess 상태입니다",
+      path: () => `/api/v1/filings/${id}/wehago-excel`,
+      filename: `위하고T_원천세_${filing.period}.xlsx`,
+    },
+  ];
 
   // 통합 다운로드: 거래처를 골라 ZIP 하나로 받는다.
   // ZIP 안은 거래처별 폴더 — 한 파일에 섞으면 SmartA·위하고T 업로드 시 다른 회사 직원이 함께 등록됨.
@@ -190,6 +231,7 @@ export default function FilingDetailPage({
           )}
           <Button variant="primary" onClick={openUnifiedPicker} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
           <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
+          <Button variant="ghost" onClick={() => setShowSingleDownload(true)} className="!text-[12px] !px-2.5 !py-1">개별 서류</Button>
           <Button variant="ghost" onClick={() => setShowCertificate(true)} className="!text-[12px] !px-2.5 !py-1">증명원 발급</Button>
         </>,
         headerSlots.actions,
@@ -234,6 +276,47 @@ export default function FilingDetailPage({
           <label className="block text-[12px] font-medium text-gray-600 mb-1">비밀번호 확인</label>
           <input type="password" value={bulkPassword} onChange={(e) => setBulkPassword(e.target.value)} placeholder="비밀번호를 입력하세요"
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500" />
+        </Modal>
+      )}
+
+      {showSingleDownload && (
+        <Modal open={true} onClose={() => setShowSingleDownload(false)}
+          title={`개별 서류 다운로드 — ${filing.period}`}
+          footer={<Button variant="ghost" onClick={() => setShowSingleDownload(false)}>닫기</Button>}>
+          <p className="text-[13px] text-gray-700 mb-3">
+            한 종류씩 받습니다. 여러 거래처를 한꺼번에 받으려면 <strong>통합 다운로드</strong>를 쓰세요.
+          </p>
+
+          <div className="mb-3">
+            <label className="block text-[12px] font-medium text-gray-600 mb-1">
+              거래처 (급여대장에만 적용)
+            </label>
+            <select
+              value={singleClientId}
+              onChange={(e) => setSingleClientId(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500"
+            >
+              <option value="">전체 거래처</option>
+              {sessions.map((s) => (
+                <option key={s.client_id} value={s.client_id}>{s.client_name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            {singleDocuments.map((doc) => (
+              <div key={doc.key} className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-gray-200">
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium text-gray-900">{doc.label}</div>
+                  <div className="text-[11px] text-gray-500">{doc.hint}</div>
+                </div>
+                <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1 shrink-0"
+                  onClick={() => saveBlob(doc.path(singleClientId || null), doc.filename)}>
+                  받기
+                </Button>
+              </div>
+            ))}
+          </div>
         </Modal>
       )}
 

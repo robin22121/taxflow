@@ -305,6 +305,25 @@ export type PayrollHistoryPeriod = {
   rows: PayrollHistoryRow[];
 };
 
+/** 보관함 한 줄 — 세무사 화면과 사장님 포털이 같은 데이터를 본다. */
+export type ArchivePeriod = {
+  period: string;
+  estimated_tax: number;
+  settled_tax: number | null;
+  due_date: string | null;
+  virtual_account: string | null;
+  epayment_number: string | null;
+  has_receipt: boolean;
+  has_payment_slip: boolean;
+};
+
+export type FilingResultPatch = {
+  settled_tax: number | null;
+  virtual_account: string | null;
+  epayment_number: string | null;
+  due_date: string | null;
+};
+
 export type EmployeeChangeRequest = {
   id: string;
   client_id: string;

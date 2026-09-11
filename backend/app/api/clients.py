@@ -41,6 +41,7 @@ from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
 from app.services.storage import get_storage
 from app.services.invite import get_or_create_session, send_invite_to_client
 from app.services.portal import (
+    client_archive,
     get_or_issue_portal_token,
     pin_is_set,
     pin_locked_until,
@@ -353,6 +354,46 @@ async def _filing_result(
         db.add(row)
         await db.flush()
     return row
+
+
+class ArchivePeriodOut(BaseModel):
+    """보관함 한 줄 — 사장님 화면(`/r/{token}/archive`)과 같은 데이터."""
+
+    period: str
+    estimated_tax: int
+    settled_tax: int | None
+    due_date: date | None
+    virtual_account: str | None
+    epayment_number: str | None
+    has_receipt: bool
+    has_payment_slip: bool
+
+
+@router.get("/{client_id}/filing-results", response_model=list[ArchivePeriodOut])
+async def list_filing_results(
+    client_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[ArchivePeriodOut]:
+    """보관함 월별 현황. 세무사가 채울 칸을 보려면 먼저 읽을 수 있어야 한다.
+
+    사장님 화면과 같은 `client_archive`를 쓴다 — 세무사가 보는 것과 사장님이
+    보는 것이 어긋나면 안 된다.
+    """
+    client = await _client_or_404(db, client_id, user)
+    return [
+        ArchivePeriodOut(
+            period=row.period,
+            estimated_tax=row.estimated_tax,
+            settled_tax=row.settled_tax,
+            due_date=row.due_date,
+            virtual_account=row.virtual_account,
+            epayment_number=row.epayment_number,
+            has_receipt=row.has_receipt,
+            has_payment_slip=row.has_payment_slip,
+        )
+        for row in await client_archive(db, client)
+    ]
 
 
 @router.put("/{client_id}/filing-results/{period}", response_model=FilingResultOut)

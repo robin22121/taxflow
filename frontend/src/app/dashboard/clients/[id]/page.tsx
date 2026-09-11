@@ -4,6 +4,7 @@ import { Fragment, use, useRef, useState } from "react";
 import Link from "next/link";
 
 import {
+  useClientArchive,
   useClientDetail,
   useClientEmployees,
   useClientPayrollHistory,
@@ -17,6 +18,8 @@ import {
   useRotatePortalLink,
   useUpdateClient,
   useUpdatePayrollDefault,
+  useUploadFilingDocument,
+  useUpsertFilingResult,
 } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import {
@@ -28,6 +31,7 @@ import {
   priorPeriod,
 } from "@/lib/format";
 import type {
+  ArchivePeriod,
   Client,
   ImportEmployeeResult,
   ImportPayrollResult,
@@ -315,6 +319,271 @@ export default function ClientDetailPage({
 
       {/* 급여 이력 — 거래처의 전체 월 급여자료 */}
       <PayrollHistorySection clientId={id} />
+
+      {/* 보관함 — 사장님 화면에 뜨는 신고 결과를 세무사가 채운다 */}
+      <ArchiveSection clientId={id} />
+    </div>
+  );
+}
+
+/* ─── 보관함 — 확정세액·가상계좌·접수증 (plan/12-owner-portal.md §3.4) ─── */
+
+function ArchiveSection({ clientId }: { clientId: string }) {
+  const { data: rows, isLoading } = useClientArchive(clientId);
+  const [editPeriod, setEditPeriod] = useState<string | null>(null);
+  const editing = rows?.find((r) => r.period === editPeriod) ?? null;
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">보관함</h2>
+      <p className="text-xs text-gray-500 mb-3">
+        여기 채운 내용이 <strong>사장님 화면에 그대로</strong> 보입니다. 예상세액은 급여자료에서
+        자동 계산되고, 확정세액·가상계좌·접수증은 신고 후 직접 넣으셔야 합니다.
+      </p>
+
+      {isLoading ? (
+        <p className="text-sm text-gray-500">불러오는 중...</p>
+      ) : !rows || rows.length === 0 ? (
+        <p className="text-sm text-gray-500">
+          급여자료가 있는 월이 없어 보관함이 비어 있습니다.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-gray-500 border-b border-gray-300">
+              <tr>
+                <th className="text-left py-2 pr-3">귀속월</th>
+                <th className="text-right py-2 pr-3">예상세액</th>
+                <th className="text-right py-2 pr-3">확정세액</th>
+                <th className="text-left py-2 pr-3">납부기한</th>
+                <th className="text-left py-2 pr-3">가상계좌</th>
+                <th className="text-left py-2 pr-3">접수증</th>
+                <th className="text-left py-2 pr-3">납부서</th>
+                <th className="text-right py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.period} className="border-b border-gray-100">
+                  <td className="py-2 pr-3 font-medium text-gray-900">
+                    {koreanPeriod(r.period)}
+                  </td>
+                  <td className="py-2 pr-3 text-right text-gray-500 tabular-nums">
+                    {r.estimated_tax.toLocaleString()}
+                  </td>
+                  <td className="py-2 pr-3 text-right text-gray-900 tabular-nums">
+                    {r.settled_tax === null ? "—" : r.settled_tax.toLocaleString()}
+                  </td>
+                  <td className="py-2 pr-3 text-gray-700">{r.due_date || "—"}</td>
+                  <td className="py-2 pr-3 text-gray-700">{r.virtual_account || "—"}</td>
+                  <td className="py-2 pr-3">
+                    {r.has_receipt ? <Badge tone="success">있음</Badge> : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {r.has_payment_slip ? <Badge tone="success">있음</Badge> : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="py-2 text-right">
+                    <button
+                      onClick={() => setEditPeriod(r.period)}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      채우기
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing && (
+        <ArchiveEditModal
+          clientId={clientId}
+          row={editing}
+          onClose={() => setEditPeriod(null)}
+        />
+      )}
+    </Card>
+  );
+}
+
+function ArchiveEditModal({
+  clientId,
+  row,
+  onClose,
+}: {
+  clientId: string;
+  row: ArchivePeriod;
+  onClose: () => void;
+}) {
+  const save = useUpsertFilingResult(clientId);
+  const upload = useUploadFilingDocument(clientId);
+  const [settledTax, setSettledTax] = useState(
+    row.settled_tax === null ? "" : String(row.settled_tax),
+  );
+  const [dueDate, setDueDate] = useState(row.due_date ?? "");
+  const [account, setAccount] = useState(row.virtual_account ?? "");
+  const [epayment, setEpayment] = useState(row.epayment_number ?? "");
+  const [err, setErr] = useState<string | null>(null);
+  const receiptRef = useRef<HTMLInputElement>(null);
+  const slipRef = useRef<HTMLInputElement>(null);
+
+  async function pickDocument(kind: "receipt" | "payment-slip", file: File | null) {
+    if (!file) return;
+    setErr(null);
+    try {
+      await upload.mutateAsync({ period: row.period, kind, file });
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={`보관함 — ${koreanPeriod(row.period)}`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
+            닫기
+          </Button>
+          <Button
+            disabled={save.isPending}
+            onClick={async () => {
+              setErr(null);
+              try {
+                await save.mutateAsync({
+                  period: row.period,
+                  patch: {
+                    settled_tax: settledTax.trim() === "" ? null : Number(digitsOnly(settledTax)),
+                    virtual_account: account.trim() || null,
+                    epayment_number: epayment.trim() || null,
+                    due_date: dueDate || null,
+                  },
+                });
+                onClose();
+              } catch (e) {
+                setErr((e as Error).message);
+              }
+            }}
+          >
+            {save.isPending ? "저장 중..." : "저장"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <p className="text-[12px] text-gray-500">
+          예상세액 {row.estimated_tax.toLocaleString()}원 (급여자료 기준 자동 계산)
+        </p>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">확정 납부세액</label>
+          <Input
+            inputMode="numeric"
+            placeholder="1,240,300"
+            value={settledTax === "" ? "" : Number(digitsOnly(settledTax)).toLocaleString()}
+            onChange={(e) => setSettledTax(digitsOnly(e.target.value))}
+          />
+          <p className="text-[11px] text-gray-500 mt-1">
+            비우면 사장님 화면에는 예상세액만 보입니다.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">납부기한</label>
+          <input
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 bg-transparent px-3 py-1.5 text-sm text-gray-900"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">가상계좌</label>
+          <Input
+            placeholder="국민 123456-99-000001"
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">전자납부번호</label>
+          <Input
+            placeholder="1234567890123"
+            value={epayment}
+            onChange={(e) => setEpayment(e.target.value)}
+          />
+        </div>
+
+        <div className="pt-2 border-t border-gray-200">
+          <p className="text-xs text-gray-500 mb-2">
+            PDF 문서 (10MB 이하). 올리는 즉시 사장님 화면에서 받을 수 있습니다.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <DocumentSlot
+              label="접수증"
+              has={row.has_receipt}
+              pending={upload.isPending}
+              inputRef={receiptRef}
+              onPick={(f) => pickDocument("receipt", f)}
+            />
+            <DocumentSlot
+              label="납부서"
+              has={row.has_payment_slip}
+              pending={upload.isPending}
+              inputRef={slipRef}
+              onPick={(f) => pickDocument("payment-slip", f)}
+            />
+          </div>
+        </div>
+
+        {err && <p className="text-red-600">{err}</p>}
+      </div>
+    </Modal>
+  );
+}
+
+function DocumentSlot({
+  label,
+  has,
+  pending,
+  inputRef,
+  onPick,
+}: {
+  label: string;
+  has: boolean;
+  pending: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onPick: (file: File | null) => void;
+}) {
+  return (
+    <div className="p-3 rounded-lg border border-gray-300 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-gray-900">{label}</span>
+        {has ? <Badge tone="success">등록됨</Badge> : <Badge tone="warning">없음</Badge>}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(e) => {
+          onPick(e.target.files?.[0] ?? null);
+          e.target.value = "";
+        }}
+      />
+      <Button
+        variant="secondary"
+        disabled={pending}
+        onClick={() => inputRef.current?.click()}
+      >
+        {pending ? "업로드 중..." : has ? "교체" : "PDF 올리기"}
+      </Button>
     </div>
   );
 }

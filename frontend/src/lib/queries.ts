@@ -11,6 +11,7 @@ import { apiUpload } from "./api";
 import type {
   AdminOffice,
   AdminOfficeDetail,
+  ArchivePeriod,
   Client,
   ClientInviteResult,
   CurrentUser,
@@ -18,6 +19,7 @@ import type {
   EmployeeChangeRequest,
   Filing,
   FilingDashboard,
+  FilingResultPatch,
   ImportEmployeeResult,
   ImportPayrollResult,
   InsuranceSummary,
@@ -297,6 +299,50 @@ export function useClientPayrollHistory(clientId: string) {
       api<PayrollHistoryPeriod[]>(
         `/api/v1/clients/${clientId}/payroll-history`,
       ),
+  });
+}
+
+/* ─── 보관함 — 신고 결과 기입·문서 업로드 (plan/12-owner-portal.md §3.4, §5.4) ─── */
+
+export function useClientArchive(clientId: string) {
+  return useQuery({
+    queryKey: ["clients", clientId, "filing-results"],
+    queryFn: () =>
+      api<ArchivePeriod[]>(`/api/v1/clients/${clientId}/filing-results`),
+  });
+}
+
+export function useUpsertFilingResult(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ period, patch }: { period: string; patch: FilingResultPatch }) =>
+      api(`/api/v1/clients/${clientId}/filing-results/${period}`, {
+        method: "PUT",
+        json: patch,
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "filing-results"] }),
+  });
+}
+
+export function useUploadFilingDocument(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      period,
+      kind,
+      file,
+    }: {
+      period: string;
+      kind: "receipt" | "payment-slip";
+      file: File;
+    }) =>
+      apiUpload(
+        `/api/v1/clients/${clientId}/filing-results/${period}/documents/${kind}`,
+        file,
+      ),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "filing-results"] }),
   });
 }
 
