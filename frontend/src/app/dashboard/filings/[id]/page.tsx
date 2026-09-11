@@ -17,6 +17,7 @@ import {
   usePreviewCarryForward,
   usePreviewUpload,
   useRequestCollection,
+  useResignEmployees,
   useSendInvite,
   useSessionAttachments,
   useSessionTimeline,
@@ -25,7 +26,7 @@ import {
 } from "@/lib/queries";
 import type { CollectPreview, ParsedEntryPreview } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
-import { Badge, BezelCard, Button, Eyebrow, Modal } from "@/components/ui";
+import { Badge, BezelCard, Button, Eyebrow, Input, Modal } from "@/components/ui";
 import { useHeaderSlots } from "@/components/header-slot";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
@@ -384,6 +385,10 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const [mainTab, setMainTab] = useState<MainTab>("received");
   const [commOpen, setCommOpen] = useState(true);
   const [preview, setPreview] = useState<{ data: CollectPreview; meta: PreviewMeta } | null>(null);
+  // 급여항목 표의 체크 상태 — 상단 바의 퇴사처리 버튼이 함께 본다
+  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
+  const [showAddEmployee, setShowAddEmployee] = useState(false);
+  const [showResign, setShowResign] = useState(false);
 
   const isReview = (s: CollectionSession) => {
     const se = entries.filter((e) => e.client_id === s.client_id);
@@ -467,6 +472,9 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
               onRequestSelected={onRequestSelected}
               requestSelectedPending={requestSelectedPending}
               onPreview={(data, meta) => setPreview({ data, meta })}
+              onAddEmployee={() => setShowAddEmployee(true)}
+              onResign={() => setShowResign(true)}
+              selectedCount={selectedEntryIds.size}
             />
 
             {/* Tab bar */}
@@ -494,7 +502,8 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
                   highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
                   forcedTab={mainTab === "insurance" ? "insurance" : "wht"}
-                  summaryMode={mainTab === "received" ? "received" : mainTab === "wht" ? "wht" : undefined} />
+                  summaryMode={mainTab === "received" ? "received" : mainTab === "wht" ? "wht" : undefined}
+                  selected={selectedEntryIds} setSelected={setSelectedEntryIds} />
               </div>
 
               {/* 고객소통내역 (받은 자료 탭 전용, 기본 열림, 슬라이드 개폐) — 급여데이터 열과 같은 높이 */}
@@ -526,6 +535,17 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
       {/* 고객소통내역 모바일 오버레이 배경 */}
       {selectedSession && mainTab === "received" && commOpen && (
         <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setCommOpen(false)} />
+      )}
+
+      {showAddEmployee && selectedSession && (
+        <AddEmployeeModal filingId={filingId} session={selectedSession}
+          onClose={() => setShowAddEmployee(false)} />
+      )}
+
+      {showResign && selectedSession && (
+        <ResignModal filingId={filingId} entries={selectedEntries} entryIds={selectedEntryIds}
+          onClose={() => setShowResign(false)}
+          onDone={() => setSelectedEntryIds(new Set())} />
       )}
 
       {preview && selectedSession && (
@@ -593,7 +613,7 @@ type PreviewMeta = {
 
 function PayrollInputBar({
   session, showComm, commOpen, onToggleComm, onRequestAll, requestAllPending,
-  onRequestSelected, requestSelectedPending, onPreview,
+  onRequestSelected, requestSelectedPending, onPreview, onAddEmployee, onResign, selectedCount,
 }: {
   session: CollectionSession;
   showComm: boolean;
@@ -604,6 +624,9 @@ function PayrollInputBar({
   onRequestSelected: () => void;
   requestSelectedPending: boolean;
   onPreview: (data: CollectPreview, meta: PreviewMeta) => void;
+  onAddEmployee: () => void;
+  onResign: () => void;
+  selectedCount: number;
 }) {
   const previewUpload = usePreviewUpload();
   const previewCarryForward = usePreviewCarryForward();
@@ -670,7 +693,13 @@ function PayrollInputBar({
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
           {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
         </Button>
-        <EmployeeActionButtons />
+        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onAddEmployee}>
+          직원 추가
+        </Button>
+        <Button variant="danger" className="!text-[12px] !px-2.5 !py-1" onClick={onResign} disabled={selectedCount === 0}
+          title={selectedCount === 0 ? "표에서 퇴사할 직원을 선택하세요" : undefined}>
+          퇴사처리{selectedCount > 0 ? ` (${selectedCount})` : ""}
+        </Button>
         <div className="flex-1" />
         {showComm && (
           <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
@@ -1208,7 +1237,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
 
 /* ═══ Right Pane (AI Table) ═══ */
 
-function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab, summaryMode }: {
+function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab, summaryMode, selected, setSelected }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
@@ -1216,12 +1245,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   onHighlight: (id: string | null) => void;
   forcedTab?: "wht" | "insurance";
   summaryMode?: "received" | "wht";
+  // 퇴사처리 버튼이 상단 바에 있어 선택 상태는 DefaultMode 가 들고 있다
+  selected: Set<string>;
+  setSelected: (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
   const [whtSubTab, setWhtSubTab] = useState<WhtSubTab>("WAGE");
   const tab = forcedTab ?? internalTab;
@@ -1390,31 +1421,180 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   );
 }
 
-/* ═══ 직원 관리 액션 (백엔드 미지원 — 준비중) ═══ */
+/* ═══ 직원 추가 ═══ */
 
-function EmployeeActionButtons() {
-  const tip = "준비중 — 다음 업데이트에서 활성화";
+const ADD_INCOME_OPTIONS = [
+  ["WAGE", "상용근로"],
+  ["DAILY", "일용근로"],
+  ["BUSINESS", "사업소득"],
+  ["OTHER", "기타소득"],
+] as const;
+
+function AddEmployeeModal({ filingId, session, onClose }: {
+  filingId: string;
+  session: CollectionSession;
+  onClose: () => void;
+}) {
+  const commit = useCommitEntries(filingId);
+  const [name, setName] = useState("");
+  const [rrn, setRrn] = useState("");
+  const [hiredAt, setHiredAt] = useState(new Date().toISOString().slice(0, 10));
+  const [incomeType, setIncomeType] = useState<string>("WAGE");
+  const [amount, setAmount] = useState(0);
+  const [department, setDepartment] = useState("");
+  const [position, setPosition] = useState("");
+
+  const canSave = name.trim().length > 0 && amount > 0 && !commit.isPending;
+
+  function save() {
+    if (!canSave) return;
+    const today = new Date().toISOString().slice(0, 10);
+    commit.mutate(
+      {
+        sessionId: session.id,
+        text: `직원 추가 — ${name.trim()} (${incomeLabel(incomeType)} ${formatKrw(amount)})`,
+        channel: "manual",
+        sender_name: "직접등록",
+        received_date: today,
+        attachments: null,
+        entries: [{
+          raw_name: name.trim(),
+          employee_id: null,
+          employee_name: null,
+          income_type: incomeType,
+          total_amount: amount,
+          // 비과세·4대보험은 원시자료가 없으므로 거래처 설정·자체 계산에 맡긴다
+          non_taxable: null, meal_amount: null, car_amount: null, childcare_amount: null,
+          national_pension: null, health_insurance: null,
+          employment_insurance: null, longterm_care: null,
+          match_status: "MATCHED",
+          prev_amount: null,
+          needs_followup: false,
+          anomaly_notes: null,
+          mode: "create",
+          entry_id: null,
+          existing_amount: null,
+          new_employee: {
+            rrn: rrn.trim() || null,
+            hired_at: hiredAt || null,
+            department: department.trim() || null,
+            position: position.trim() || null,
+          },
+        }],
+      },
+      { onSuccess: onClose, onError: (e) => alert((e as Error).message) },
+    );
+  }
+
   return (
-    <>
-      <DisabledActionButton title={tip}>직원 추가</DisabledActionButton>
-      <DisabledActionButton title={tip} danger>퇴사처리</DisabledActionButton>
-      <span className="text-[10.5px] text-gray-400">· 준비중</span>
-    </>
+    <Modal open onClose={onClose} title={`직원 추가 — ${session.client_name}`}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button onClick={save} disabled={!canSave}>{commit.isPending ? "등록 중..." : "등록"}</Button>
+      </>}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="이름" required>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" />
+          </Field>
+          <Field label="주민등록번호">
+            <Input value={rrn} onChange={(e) => setRrn(e.target.value)} placeholder="비우면 미수집 상태로 등록" />
+          </Field>
+          <Field label="입사일">
+            <Input type="date" value={hiredAt} onChange={(e) => setHiredAt(e.target.value)} />
+          </Field>
+          <Field label="소득구분">
+            <select value={incomeType} onChange={(e) => setIncomeType(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px]">
+              {ADD_INCOME_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="이번 달 지급총액" required>
+            <Input type="number" min={0} value={amount}
+              onChange={(e) => setAmount(Math.max(0, Number(e.target.value) || 0))} />
+          </Field>
+          <Field label="부서 / 직급">
+            <div className="flex gap-1.5">
+              <Input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="부서" />
+              <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="직급" />
+            </div>
+          </Field>
+        </div>
+        <p className="text-[11px] text-gray-400">
+          직원 마스터에 함께 등록되고, 이번 달 급여항목이 생성됩니다.
+          소득세·4대보험은 거래처 설정값으로 자동 계산되며 표에서 수정할 수 있습니다.
+          주민등록번호를 비우면 미수집(PENDING) 상태로 등록됩니다.
+        </p>
+      </div>
+    </Modal>
   );
 }
 
-function DisabledActionButton({ children, danger, title }: { children: React.ReactNode; danger?: boolean; title: string }) {
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      disabled
-      title={title}
-      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] font-medium border bg-white cursor-not-allowed opacity-50 ${
-        danger ? "border-red-200 text-red-500" : "border-gray-200 text-gray-500"
-      }`}
-    >
+    <div>
+      <label className="block text-[11px] font-medium text-gray-600 mb-1">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
       {children}
-    </button>
+    </div>
+  );
+}
+
+/* ═══ 퇴사처리 ═══ */
+
+function ResignModal({ filingId, entries, entryIds, onClose, onDone }: {
+  filingId: string;
+  entries: PayrollEntry[];
+  entryIds: Set<string>;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const resign = useResignEmployees(filingId);
+  const [resignedAt, setResignedAt] = useState(new Date().toISOString().slice(0, 10));
+  const targets = entries.filter((e) => entryIds.has(e.id));
+
+  function run() {
+    resign.mutate(
+      { entryIds: [...entryIds], resigned_at: resignedAt },
+      {
+        onSuccess: (res) => {
+          if (res.skipped.length > 0) {
+            alert(`퇴사 처리 ${res.resigned.length}명 완료.\n건너뜀 ${res.skipped.length}건: ${res.skipped.join(", ")}`);
+          }
+          onDone();
+          onClose();
+        },
+        onError: (e) => alert((e as Error).message),
+      },
+    );
+  }
+
+  return (
+    <Modal open onClose={onClose} title="퇴사처리"
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button variant="danger" onClick={run} disabled={resign.isPending}>
+          {resign.isPending ? "처리 중..." : `${targets.length}명 퇴사처리`}
+        </Button>
+      </>}>
+      <div className="space-y-3">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 max-h-40 overflow-y-auto">
+          {targets.map((e) => (
+            <div key={e.id} className="text-[12.5px] text-gray-800 py-0.5">
+              {e.raw_name} <span className="text-gray-400 tabular-nums">{formatKrw(e.total_amount)}</span>
+            </div>
+          ))}
+        </div>
+        <Field label="퇴사일">
+          <Input type="date" value={resignedAt} onChange={(e) => setResignedAt(e.target.value)} />
+        </Field>
+        <p className="text-[11px] text-gray-400">
+          직원 마스터가 퇴사 상태로 바뀌어 다음 달 전월자료 불러오기에서 제외됩니다.
+          이번 달 급여항목은 그대로 남습니다 — 퇴사한 달에도 급여는 신고 대상입니다.
+        </p>
+      </div>
+    </Modal>
   );
 }
 
