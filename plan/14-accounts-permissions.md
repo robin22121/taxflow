@@ -1,6 +1,6 @@
 # 사무소 계정·권한 — 세무사(OWNER) / 담당직원(STAFF) 분리
 
-> 2026-09-13 작성 (코드 진단 기준 커밋 `55cb63a`). **상태: 설계안 — §9 결정 대기 2건.**
+> 2026-09-13 작성 (코드 진단 기준 커밋 `9369bf4`). **상태: 설계안 — §9 결정 대기 2건.**
 > 한 세무사사무소 안에서 직원 여럿이 **각자 담당 거래처의 원천세를 독립적으로** 처리하고,
 > 세무사는 **사무소 전 거래처의 신고 현황**을 볼 수 있어야 한다.
 > 사업주(거래처 사장님) 접근은 본 문서 범위 밖 — 로그인 없이 상설 링크+PIN으로 확정([`12-owner-portal.md`](12-owner-portal.md) §4).
@@ -31,7 +31,7 @@
 | 담당 배정 | **없음.** `Client`는 `tax_office_id`만 보유 | `models/client.py:21` |
 | 로그인 ID | `users.email` 컬럼에 **사업자번호** 저장 → 사실상 사무소당 계정 1개 | `api/auth.py:80` |
 | 인증 | JWT(HS256) Bearer, access 60분 / refresh 14일. `get_current_user`는 토큰 클레임이 아니라 **DB의 User를 매 요청 조회**(→ 권한 변경 즉시 반영되는 좋은 구조) | `core/security.py:29-54`, `core/deps.py:24` |
-| 스코핑 | 자동화 없음. 엔드포인트마다 `x.tax_office_id != user.tax_office_id` **수동 비교 37곳** (filings 26 · clients 7 · imports 2 · collect 1 · employee_changes 1) | `api/filings.py:132…1328`, `api/clients.py:247…687` 등 |
+| 스코핑 | 자동화 없음. 엔드포인트마다 `x.tax_office_id != user.tax_office_id` **수동 비교 37곳** (filings 26 · clients 7 · imports 2 · collect 1 · employee_changes 1) | `api/filings.py:132…1328`, `api/clients.py:248…699` 등 |
 | 공용 가드 | `require_same_office` 정의만 있고 **호출처 0건**(dead code) | `core/deps.py:43` |
 | 프론트 | 토큰 `localStorage`, Next.js middleware 라우트 보호 없음 | `frontend/src/lib/api.ts:5-21` |
 
@@ -113,9 +113,9 @@ async def get_scoped_client(client_id: str, user=Depends(get_current_user), db=D
 | 유형 | 대상 | 적용 방식 |
 |------|------|----------|
 | **거래처 단건** | `api/clients.py` 7곳, `api/imports.py` 2곳 | `client_id` 파라미터 → `Depends(get_scoped_client)`로 교체 |
-| **거래처 목록** | `select(Client)` 사무소 필터: `api/clients.py:79`, `api/filings.py:137,562,1338`, `api/employee_changes.py:82` | `visible_clients(user)`에서 출발 |
-| **신고 건 조회(컨테이너)** | `MonthlyFiling` 사무소 필터: `api/clients.py:108,192,514`, `api/filings.py:95,117` | 사무소 필터 유지. 이후 붙는 거래처 행만 visible 집합으로 제한 |
-| **거래처 생성** | 단건 `api/clients.py:92`, 일괄 `api/clients.py:213` | STAFF가 등록 → **본인에게 자동 배정**. OWNER가 등록 → 미배정(§4) |
+| **거래처 목록** | `select(Client)` 사무소 필터: `api/clients.py:80`, `api/filings.py:137,562,1338`, `api/employee_changes.py:82` | `visible_clients(user)`에서 출발 |
+| **신고 건 조회(컨테이너)** | `MonthlyFiling` 사무소 필터: `api/clients.py:109,193,526`, `api/filings.py:95,117` | 사무소 필터 유지. 이후 붙는 거래처 행만 visible 집합으로 제한 |
+| **거래처 생성** | 단건 `api/clients.py:93`, 일괄 `api/clients.py:214` | STAFF가 등록 → **본인에게 자동 배정**. OWNER가 등록 → 미배정(§4) |
 | **세션 단건** | filings `/{filing_id}/sessions/{session_id}/…` 6개 (request · confirm-with-client · attachments GET/DELETE · attachments/raw · timeline · events DELETE), `api/collect.py:71` | `session.client_id`로 게이트 |
 | **엔트리 단건** | filings `/{filing_id}/entries/{entry_id}` PATCH·DELETE, `api/employee_changes.py:67` | 해당 행의 `client_id`로 게이트 |
 | **신고 건 집계·일괄** | filings `/dashboard`, `/entries`, `/entries/resign`, `/request`, `/invite`, 엑셀 2종(`wehago-excel`·`payroll-excel`), 간이지급명세서 2종(`statement-wage`·`statement-business`), 4대보험 5종(`insurance-acquisition`·`-loss`·`-change`·`-combined`·`-summary`), `/unified-download`, `/payslips` | 결과 행·발송 대상을 **visible 거래처 집합으로 필터**. STAFF의 일괄 발송·다운로드는 자기 담당분만 |
