@@ -211,12 +211,14 @@ export function usePortalPinStatus(clientId: string) {
   });
 }
 
+/** PIN 설정 — 값을 주면 그 PIN으로, 비우면 무작위 발급. */
 export function useIssuePortalPin(clientId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (pin?: string) =>
       api<{ pin: string }>(`/api/v1/clients/${clientId}/portal-pin`, {
         method: "POST",
+        json: { pin: pin ?? null },
       }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["clients", clientId, "portal-pin"] }),

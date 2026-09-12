@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -190,6 +191,7 @@ async def resolve_public_link(
 # 신원은 §4.2대로 세무사에게서 상속받으므로 여기서 다시 확인하지 않는다.
 
 PIN_LENGTH = 6
+_PIN_RE = re.compile(r"[0-9]{6}")
 MAX_PIN_ATTEMPTS = 5
 PIN_LOCKOUT = timedelta(hours=24)
 # 게이트 통과 상태는 브라우저 세션 한정 — 장기 쿠키를 두지 않는다 (§4.1).
@@ -223,9 +225,28 @@ def pin_locked_until(client: Client) -> datetime | None:
     return until if until > datetime.now(UTC) else None
 
 
-async def set_portal_pin(db: AsyncSession, client: Client) -> str:
-    """새 PIN을 발급하고 평문을 1회만 돌려준다. 저장은 해시로만 한다."""
-    pin = generate_pin()
+class InvalidPinError(ValueError):
+    """세무사가 지정한 PIN이 형식에 맞지 않는다."""
+
+
+def validate_pin(pin: str) -> str:
+    """지정 PIN 검증 — ASCII 숫자 6자리만 받는다.
+
+    ``str.isdigit()`` 은 전각 숫자('１２３４５６')도 참이라 쓰지 않는다. 전각으로 저장되면
+    사장님이 반각으로 입력했을 때 영영 열리지 않는 PIN이 된다.
+    """
+    cleaned = pin.strip()
+    if not _PIN_RE.fullmatch(cleaned):
+        raise InvalidPinError(f"PIN은 숫자 {PIN_LENGTH}자리여야 합니다")
+    return cleaned
+
+
+async def set_portal_pin(db: AsyncSession, client: Client, pin: str | None = None) -> str:
+    """PIN을 설정하고 평문을 1회만 돌려준다. 저장은 해시로만 한다.
+
+    ``pin`` 을 주면 세무사가 지정한 값을, 없으면 무작위로 만든다.
+    """
+    pin = validate_pin(pin) if pin is not None else generate_pin()
     client.portal_pin_hash = hash_password(pin)
     client.portal_pin_failed_count = 0
     client.portal_pin_locked_until = None
