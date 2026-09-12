@@ -22,6 +22,7 @@
 | [`plan/12-owner-portal.md`](plan/12-owner-portal.md) | 사업주 포털 (거래처 사장님용 무료 화면) — B2C 피벗 기각 근거·인증 모델 |
 | [`plan/13-messaging-activation.md`](plan/13-messaging-activation.md) | 알림톡·SMS 발송 활성화 (Aligo IP 등록 + 카카오 템플릿 심사·코드 변경) |
 | [`plan/14-accounts-permissions.md`](plan/14-accounts-permissions.md) | 사무소 계정·권한 — 세무사(OWNER)/담당직원(STAFF) 분리, 거래처 담당 배정, 스코핑 게이트, 접속기록 |
+| [`plan/15-filing-relay.md`](plan/15-filing-relay.md) | 세무사 신고 릴레이 — 위하고 뒤에 붙는 홈택스 일괄 전송 + 접수증·납부서 거래처 자동 배송 (Phase 4+ 확장 후보) |
 
 ---
 
@@ -47,7 +48,7 @@
 | **Phase 1** | 0~6개월 | 다채널 자료수집 + SmartA 급여대장 엑셀 자동 생성 + 급여명세서 번들 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md) |
 | **Phase 2** | 6~12개월 | SmartA RPA 에이전트(pywinauto) + 접수증·납부서 자동 발송 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md) |
 | **Phase 3** | 12~18개월 | 입·퇴사 자동화 + 4대보험 EDI RPA + 지급명세서 자동화 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md), [`plan/06-insurance.md`](plan/06-insurance.md) |
-| **Phase 4** | 18~24개월 | 부가세·종합소득세·법인세 보조 + 4대보험 인텔리전스 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md) |
+| **Phase 4** | 18~24개월 | 부가세·종합소득세·법인세 보조 + 4대보험 인텔리전스 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md), [`plan/15-filing-relay.md`](plan/15-filing-relay.md) |
 
 ---
 
