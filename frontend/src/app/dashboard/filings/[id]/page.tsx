@@ -55,6 +55,7 @@ export default function FilingDetailPage({
   const [unifiedClientIds, setUnifiedClientIds] = useState<string[]>([]);
   const [showSingleDownload, setShowSingleDownload] = useState(false);
   const [singleClientId, setSingleClientId] = useState<string>("");
+  const [showSmsMenu, setShowSmsMenu] = useState(false);
   const headerSlots = useHeaderSlots();
 
   const allEntries = entries ?? [];
@@ -220,7 +221,7 @@ export default function FilingDetailPage({
         headerSlots.info,
       )}
 
-      {/* 헤더 액션 슬롯 — 통합 다운로드 / 급여명세서 (레이아웃 헤더로 포털) */}
+      {/* 헤더 액션 슬롯 — 문자발송 / 통합 다운로드 / 급여명세서 (레이아웃 헤더로 포털) */}
       {headerSlots.actions && createPortal(
         <>
           {/* Review mode indicator (when active) */}
@@ -229,10 +230,35 @@ export default function FilingDetailPage({
               확인필요만 보기 ✕
             </button>
           )}
+          <div className="relative shrink-0">
+            <Button variant="secondary"
+              onClick={() => setShowSmsMenu((v) => !v)}
+              disabled={sendInvite.isPending || requestCollection.isPending}
+              className="!text-[12px] !px-2.5 !py-1 inline-flex items-center gap-1">
+              {sendInvite.isPending || requestCollection.isPending ? "발송중..." : <>문자발송<svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg></>}
+            </Button>
+            {showSmsMenu && (<>
+              <div className="fixed inset-0 z-40" onClick={() => setShowSmsMenu(false)} />
+              <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-100">원천세 자료요청</div>
+                <button onClick={() => { setShowSmsMenu(false); setShowBulkConfirm(true); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">
+                  전체 업체
+                </button>
+                <button onClick={() => {
+                  setShowSmsMenu(false);
+                  if (selectedSession) setShowSelectedRequestConfirm(true);
+                  else alert("업체를 선택해주세요.");
+                }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">
+                  선택 업체
+                </button>
+              </div>
+            </>)}
+          </div>
           <Button variant="primary" onClick={openUnifiedPicker} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
           <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
           <Button variant="ghost" onClick={() => setShowSingleDownload(true)} className="!text-[12px] !px-2.5 !py-1">개별 서류</Button>
           <Button variant="ghost" onClick={() => setShowCertificate(true)} className="!text-[12px] !px-2.5 !py-1">증명원 발급</Button>
+          <Button variant="ghost" onClick={() => alert("타세목 신고·납부 화면은 준비 중입니다.")} className="!text-[12px] !px-2.5 !py-1">타세목 신고·납부</Button>
         </>,
         headerSlots.actions,
       )}
@@ -254,13 +280,6 @@ export default function FilingDetailPage({
           flaggedCount={flaggedEntries.length}
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}
-          onRequestAll={() => setShowBulkConfirm(true)}
-          requestAllPending={sendInvite.isPending}
-          onRequestSelected={() => {
-            if (selectedSession) setShowSelectedRequestConfirm(true);
-            else alert("업체를 선택해주세요.");
-          }}
-          requestSelectedPending={requestCollection.isPending}
         />
       )}
 
@@ -444,7 +463,7 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
 
 type MainTab = "received" | "wht" | "insurance";
 
-function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar, onRequestAll, requestAllPending, onRequestSelected, requestSelectedPending }: {
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar }: {
   filingId: string;
   sessions: CollectionSession[];
   entries: PayrollEntry[];
@@ -457,10 +476,6 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   flaggedCount: number;
   showSidebar: boolean;
   setShowSidebar: (v: boolean) => void;
-  onRequestAll: () => void;
-  requestAllPending: boolean;
-  onRequestSelected: () => void;
-  requestSelectedPending: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
@@ -550,10 +565,6 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
               showComm={mainTab === "received"}
               commOpen={commOpen}
               onToggleComm={() => setCommOpen((v) => !v)}
-              onRequestAll={onRequestAll}
-              requestAllPending={requestAllPending}
-              onRequestSelected={onRequestSelected}
-              requestSelectedPending={requestSelectedPending}
               onPreview={(data, meta) => setPreview({ data, meta })}
               onAddEmployee={() => setShowAddEmployee(true)}
               onResign={() => setShowResign(true)}
@@ -695,17 +706,12 @@ type PreviewMeta = {
 };
 
 function PayrollInputBar({
-  session, showComm, commOpen, onToggleComm, onRequestAll, requestAllPending,
-  onRequestSelected, requestSelectedPending, onPreview, onAddEmployee, onResign, selectedCount,
+  session, showComm, commOpen, onToggleComm, onPreview, onAddEmployee, onResign, selectedCount,
 }: {
   session: CollectionSession;
   showComm: boolean;
   commOpen: boolean;
   onToggleComm: () => void;
-  onRequestAll: () => void;
-  requestAllPending: boolean;
-  onRequestSelected: () => void;
-  requestSelectedPending: boolean;
   onPreview: (data: CollectPreview, meta: PreviewMeta) => void;
   onAddEmployee: () => void;
   onResign: () => void;
@@ -763,12 +769,6 @@ function PayrollInputBar({
             e.target.value = "";
             if (f) runFile(f);
           }} />
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestAll} disabled={requestAllPending}>
-          {requestAllPending ? "발송중..." : "자료요청 (전체)"}
-        </Button>
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onRequestSelected} disabled={requestSelectedPending}>
-          {requestSelectedPending ? "발송중..." : "자료요청 (선택)"}
-        </Button>
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={runCarryForward}
           title="전월 급여자료를 이번 달 후보로 불러옵니다">
           {previewCarryForward.isPending ? "불러오는 중..." : "전월자료 불러오기"}
