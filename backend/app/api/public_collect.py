@@ -214,6 +214,7 @@ async def public_upload_file(
         channel=f"public_upload_{intake.kind}",
         images=images,
         attachments=attachments_meta,
+        structured_payroll=intake.structured_payroll,
     )
 
 

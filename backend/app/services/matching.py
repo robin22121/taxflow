@@ -19,6 +19,7 @@ from rapidfuzz import fuzz, process
 
 from app.models.payroll import IncomeType, MatchStatus
 from app.services.ai_parser import PayrollParsingResult
+from app.services.wehago_payroll_parser import WehagoPayrollRow
 
 # 매칭 임계값 — fuzzy 매칭에서 이 점수 미만이면 모호 처리
 _FUZZY_MATCH_THRESHOLD = 85
@@ -214,6 +215,139 @@ def reconcile(
     )
 
 
+def reconcile_wehago(
+    rows: list[WehagoPayrollRow],
+    master: list[EmployeeMaster],
+    previous_month: dict[str, int],
+) -> MatchingResult:
+    """위하고T 결정론적 파서 결과를 그대로 MatchingResult 로 변환한다.
+
+    LLM 을 거치지 않으므로 컬럼 시프트 오류가 없다. ``reconcile`` 과 달리 all-or-none
+    for 4대보험 — 원본 값을 그대로 ``PayrollEntryCandidate`` 로 옮기며, ``None``
+    (=값 없음, 자체 계산 대체) 이 될 여지가 없다.
+    """
+    by_id = {e.id: e for e in master}
+    by_code = {e.employee_code: e for e in master if e.employee_code}
+
+    entries: list[PayrollEntryCandidate] = []
+    new_hire_followups: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    for row in rows:
+        emp_id, status = _match_wehago_row(row, by_code, by_id, master)
+        if emp_id:
+            seen_ids.add(emp_id)
+        prev = previous_month.get(emp_id) if emp_id else None
+        anomaly: dict[str, Any] = {}
+        if prev is not None and prev > 0:
+            ratio = row.total_amount / prev if prev else 0
+            diff = abs(row.total_amount - prev)
+            if (
+                diff >= _LARGE_CHANGE_FLOOR_KRW
+                and (ratio >= _LARGE_CHANGE_RATIO or ratio <= 1 / _LARGE_CHANGE_RATIO)
+            ):
+                anomaly["large_change"] = {
+                    "prev": prev,
+                    "current": row.total_amount,
+                    "ratio": round(ratio, 2),
+                }
+        _flag_abnormal_amount(anomaly, row.total_amount, row.name)
+
+        # 위하고T 22컬럼은 4대보험·비과세를 반드시 명시한다. 원본 셀이 0이면 "0원 명시".
+        non_taxable = row.meal_amount + row.car_amount + row.childcare_amount
+        entries.append(
+            PayrollEntryCandidate(
+                raw_name=row.name,
+                employee_id=emp_id,
+                income_type=IncomeType.WAGE,
+                total_amount=row.total_amount,
+                non_taxable=non_taxable,
+                meal_amount=row.meal_amount,
+                car_amount=row.car_amount,
+                childcare_amount=row.childcare_amount,
+                national_pension=row.national_pension,
+                health_insurance=row.health_insurance,
+                employment_insurance=row.employment_insurance,
+                longterm_care=row.longterm_care,
+                match_status=status,
+                prev_amount=prev,
+                anomaly_notes=anomaly,
+                needs_followup=(status == MatchStatus.NEW_HIRE_SUSPECTED) or bool(anomaly),
+                followup_reason=(
+                    "new_hire_rrn" if status == MatchStatus.NEW_HIRE_SUSPECTED
+                    else ("amount_change" if anomaly else None)
+                ),
+            )
+        )
+        if status == MatchStatus.NEW_HIRE_SUSPECTED:
+            new_hire_followups.append({"name": row.name, "amount": row.total_amount})
+
+    # 언급되지 않은 마스터 직원 — reconcile() 과 동일하게 UNCONFIRMED 처리
+    unconfirmed_followups: list[dict[str, Any]] = []
+    for emp in master:
+        if emp.id in seen_ids:
+            continue
+        prev_amt = previous_month.get(emp.id, 0)
+        if prev_amt <= 0:
+            continue
+        entries.append(
+            PayrollEntryCandidate(
+                raw_name=emp.name,
+                employee_id=emp.id,
+                income_type=IncomeType.WAGE,
+                total_amount=0,
+                non_taxable=0,
+                match_status=MatchStatus.UNCONFIRMED,
+                prev_amount=prev_amt,
+                anomaly_notes={"unconfirmed": {
+                    "reason": "이번달 자료에 누락 — 계속근무 여부 확인 필요",
+                    "prev_amount": prev_amt,
+                }},
+                needs_followup=True,
+                followup_reason="unconfirmed_status",
+            )
+        )
+        unconfirmed_followups.append({
+            "employee_id": emp.id,
+            "name": emp.name,
+            "prev_amount": prev_amt,
+        })
+
+    return MatchingResult(
+        entries=entries,
+        new_hire_followups=new_hire_followups,
+        resignation_followups=[],
+        ambiguous_followups=[],
+        unconfirmed_followups=unconfirmed_followups,
+    )
+
+
+def _match_wehago_row(
+    row: WehagoPayrollRow,
+    by_code: dict[str, EmployeeMaster],
+    by_id: dict[str, EmployeeMaster],
+    master: list[EmployeeMaster],
+) -> tuple[str | None, MatchStatus]:
+    """위하고T 행을 마스터 직원과 매칭. code 우선, 실패 시 이름 fuzzy."""
+    # 1. 사원코드 완전 매치 (이름도 어느 정도 유사해야 안전)
+    if row.employee_code and row.employee_code in by_code:
+        emp = by_code[row.employee_code]
+        if fuzz.ratio(emp.name, row.name) >= 70:
+            return emp.id, MatchStatus.MATCHED
+    # 2. 이름 fuzzy 매치
+    if master:
+        candidate = process.extractOne(
+            row.name,
+            choices={e.id: e.name for e in master},
+            scorer=fuzz.ratio,
+        )
+        if candidate is not None:
+            _, score, emp_id = candidate
+            if score >= _FUZZY_MATCH_THRESHOLD:
+                return emp_id, MatchStatus.MATCHED
+    return None, MatchStatus.NEW_HIRE_SUSPECTED
+
+
 def _flag_abnormal_amount(anomaly: dict[str, Any], amount: int, name: str) -> None:
     """비정상 금액 플래그 — 세무사에게 확인 요청."""
     if amount >= _ABNORMAL_HIGH_KRW:
@@ -276,4 +410,5 @@ __all__ = [
     "MatchingResult",
     "PayrollEntryCandidate",
     "reconcile",
+    "reconcile_wehago",
 ]

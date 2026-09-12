@@ -43,7 +43,9 @@ from app.services.matching import (
     MatchingResult,
     PayrollEntryCandidate,
     reconcile,
+    reconcile_wehago,
 )
+from app.services.wehago_payroll_parser import WehagoPayrollRow
 from app.services.payroll_defaults import load_payroll_defaults
 from app.services.storage import get_storage
 from app.services.tax_calc import (
@@ -238,9 +240,13 @@ async def preview_upload(
     client, filing = session.client, session.monthly_filing
     employees, prev_entries = await _build_context(db, client, filing)
     current_entries = await _load_current_entries(db, client, filing)
-    matching = await _parse_and_match(
-        intake.text, client, filing, employees, prev_entries, images=intake.images or None
-    )
+    if intake.structured_payroll:
+        # 위하고T 22컬럼 급여대장 — LLM 없이 결정론적으로 매칭
+        matching = _match_wehago(intake.structured_payroll, employees, prev_entries)
+    else:
+        matching = await _parse_and_match(
+            intake.text, client, filing, employees, prev_entries, images=intake.images or None
+        )
     attachments = (
         [{
             "filename": file.filename or "upload",
@@ -513,6 +519,29 @@ async def _build_context(
         )
 
     return employees, prev_entries
+
+
+def _match_wehago(
+    rows: list[WehagoPayrollRow],
+    employees: list[Employee],
+    prev_entries: list[PayrollEntry],
+) -> MatchingResult:
+    """위하고T 22컬럼 급여대장을 LLM 없이 마스터와 매칭한다.
+
+    ``_parse_and_match`` 와 시그니처가 다른 이유: AI/이미지 처리가 필요 없고
+    이미 구조화된 정수 값을 그대로 옮기면 되므로 async·컨텍스트가 필요 없다.
+    """
+    prev_by_emp = {p.employee_id: p.total_amount for p in prev_entries if p.employee_id}
+    masters = [
+        EmployeeMaster(
+            id=e.id,
+            name=e.name,
+            last_amount=prev_by_emp.get(e.id),
+            employee_code=e.employee_code,
+        )
+        for e in employees
+    ]
+    return reconcile_wehago(rows, masters, prev_by_emp)
 
 
 async def _parse_and_match(
@@ -838,18 +867,23 @@ async def _ingest_message(
     attachments: list[dict] | None = None,
     sender_name: str | None = None,
     received_date: "date | None" = None,
+    structured_payroll: list[WehagoPayrollRow] | None = None,
 ) -> CollectMessageOut:
     """
     attachments: 원본 파일 메타 [{"filename":..., "storage_key":..., "kind":..., "mime":...}]
                  세무사 대시보드에서 AI 결과와 대조하기 위해 저장.
+    structured_payroll: 위하고T 결정론적 파서 결과. 있으면 LLM 우회.
     """
     # Safety net: 텍스트가 placeholder만 있고 이미지도 없으면 AI 환각 방지를 위해 스킵
-    if not images and _is_only_placeholder(text):
+    if not images and not structured_payroll and _is_only_placeholder(text):
         return await _record_unparseable(db, session, text, channel, attachments,
                                          sender_name=sender_name, received_date=received_date)
 
     employees, prev_entries = await _build_context(db, client, filing)
-    matching = await _parse_and_match(text, client, filing, employees, prev_entries, images=images)
+    if structured_payroll:
+        matching = _match_wehago(structured_payroll, employees, prev_entries)
+    else:
+        matching = await _parse_and_match(text, client, filing, employees, prev_entries, images=images)
     return await _persist_results(
         db, session, client, filing, matching, employees, text, channel, attachments,
         sender_name=sender_name, received_date=received_date,

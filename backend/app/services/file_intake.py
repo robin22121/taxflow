@@ -21,6 +21,7 @@ from openpyxl import load_workbook
 
 from app.services.pii import redact_pii
 from app.services.storage import ObjectStorage
+from app.services.wehago_payroll_parser import WehagoPayrollRow, parse_wehago_workbook
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,8 @@ class IntakeResult:
     note: str | None = None
     # Vision 모델로 보낼 (bytes, mime) 리스트. 이미지는 1개, PDF는 페이지 수만큼.
     images: list[tuple[bytes, str]] = field(default_factory=list)
+    # 위하고T 22컬럼 급여대장이 감지되면 결정론적으로 파싱된 행 리스트. LLM 우회 신호.
+    structured_payroll: list[WehagoPayrollRow] | None = None
 
 
 def _is_audio(filename: str) -> bool:
@@ -130,6 +133,16 @@ async def intake_file(
         mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if ext == ".xlsx" else "application/vnd.ms-excel"
         key = storage.make_key("excel", ext)
         storage.put_object(key, content, content_type=mime)
+        # 위하고T 22컬럼 급여대장이면 결정론적 파서로 처리 — LLM 컬럼 매핑 실패 회피.
+        structured = parse_wehago_workbook(content)
+        if structured:
+            summary = f"[위하고T 22컬럼 급여대장 감지 — {len(structured)}명]"
+            return IntakeResult(
+                text=summary,
+                kind="excel",
+                storage_key=key,
+                structured_payroll=structured,
+            )
         return IntakeResult(
             text=redact_pii(_excel_to_text(content)),
             kind="excel",
