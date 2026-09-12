@@ -21,6 +21,7 @@
 | [`plan/10-privacy-security.md`](plan/10-privacy-security.md) | 개인정보(주민번호) 보안 + 추후 결정·심화 검토 |
 | [`plan/12-owner-portal.md`](plan/12-owner-portal.md) | 사업주 포털 (거래처 사장님용 무료 화면) — B2C 피벗 기각 근거·인증 모델 |
 | [`plan/13-messaging-activation.md`](plan/13-messaging-activation.md) | 알림톡·SMS 발송 활성화 (Aligo IP 등록 + 카카오 템플릿 심사·코드 변경) |
+| [`plan/14-accounts-permissions.md`](plan/14-accounts-permissions.md) | 사무소 계정·권한 — 세무사(OWNER)/담당직원(STAFF) 분리, 거래처 담당 배정, 스코핑 게이트, 접속기록 |
 
 ---
 
