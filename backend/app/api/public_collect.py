@@ -48,6 +48,7 @@ from app.services.portal import (
     list_employees,
     monthly_cost_series,
     notify_pin_unlock,
+    pin_gate_enabled,
     pin_is_set,
     resolve_public_link,
     verify_portal_pin,
@@ -68,6 +69,8 @@ class CollectionSessionPublic(BaseModel):
     accepting: bool = True
     # PIN 미발급 거래처는 화면이 게이트 자체를 그리지 않는다 (§4.3.3).
     has_pin: bool = False
+    # PIN 게이트를 끈 운영이면 False — 화면은 게이트 뒤 구역을 PIN 없이 연다.
+    pin_enabled: bool = True
 
 
 class PublicSubmitIn(BaseModel):
@@ -150,7 +153,8 @@ async def resolve_session(token_str: str, db: AsyncSession = Depends(get_db)) ->
         client_name=link.client.business_name,
         period=link.filing.period if link.filing else "",
         accepting=link.filing is not None,
-        has_pin=pin_is_set(link.client),
+        has_pin=pin_gate_enabled() and pin_is_set(link.client),
+        pin_enabled=pin_gate_enabled(),
     )
 
 

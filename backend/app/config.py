@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     rrn_encryption_key: str = ""
 
+    # 사업주 포털 PIN 게이트 (plan/12-owner-portal.md §4.3). 당분간 비활성 —
+    # false면 급여 상세 구역이 PIN 없이 열린다. 다시 켜려면 PORTAL_PIN_ENABLED=true.
+    portal_pin_enabled: bool = False
+
     jwt_secret: str = "change-me-32-bytes"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_min: int = 60

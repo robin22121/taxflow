@@ -11,6 +11,14 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+from app.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def _pin_gate_on(monkeypatch):
+    """게이트 자체를 검증하므로 운영 기본값(비활성)과 무관하게 켠다."""
+    monkeypatch.setattr(get_settings(), "portal_pin_enabled", True)
+
 
 async def _client_id(http: AsyncClient, auth_headers: dict, index: int) -> str:
     clients = (await http.get("/api/v1/clients", headers=auth_headers)).json()
@@ -42,6 +50,21 @@ async def test_gate_absent_when_pin_not_issued(http: AsyncClient, auth_headers: 
 
     assert (await http.post(f"/api/v1/public/r/{token}/unlock", json={"pin": "123456"})).status_code == 404
     assert (await http.get(f"/api/v1/public/r/{token}/payroll")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_gate_disabled_opens_payroll_without_pin(
+    http: AsyncClient, auth_headers: dict, monkeypatch
+):
+    """PORTAL_PIN_ENABLED=false면 PIN 없이 게이트 뒤 구역이 열린다."""
+    monkeypatch.setattr(get_settings(), "portal_pin_enabled", False)
+    client_id = await _client_id(http, auth_headers, 2)
+    token = await _portal_token(http, auth_headers, client_id)
+
+    session = (await http.get(f"/api/v1/public/r/{token}")).json()
+    assert session["pin_enabled"] is False
+    assert session["has_pin"] is False
+    assert (await http.get(f"/api/v1/public/r/{token}/payroll")).status_code == 200
 
 
 @pytest.mark.asyncio

@@ -44,6 +44,7 @@ from app.services.portal import (
     InvalidPinError,
     client_archive,
     get_or_issue_portal_token,
+    pin_gate_enabled,
     pin_is_set,
     pin_locked_until,
     portal_url,
@@ -460,6 +461,8 @@ async def upload_filing_document(
 class PortalPinStatus(BaseModel):
     is_set: bool
     locked_until: datetime | None
+    # PIN 게이트 운영 여부(PORTAL_PIN_ENABLED). False면 대시보드는 발급 UI 대신 비활성 안내를 보인다.
+    enabled: bool = True
 
 
 class PortalPinIssued(BaseModel):
@@ -479,7 +482,11 @@ async def get_portal_pin_status(
     user: User = Depends(get_current_user),
 ) -> PortalPinStatus:
     client = await _client_or_404(db, client_id, user)
-    return PortalPinStatus(is_set=pin_is_set(client), locked_until=pin_locked_until(client))
+    return PortalPinStatus(
+        is_set=pin_is_set(client),
+        locked_until=pin_locked_until(client),
+        enabled=pin_gate_enabled(),
+    )
 
 
 @router.post("/{client_id}/portal-pin", response_model=PortalPinIssued)

@@ -11,6 +11,14 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+from app.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def _pin_gate_on(monkeypatch):
+    """공개/PIN 뒤 구분을 검증하므로 운영 기본값(비활성)과 무관하게 켠다."""
+    monkeypatch.setattr(get_settings(), "portal_pin_enabled", True)
+
 
 async def _client_id(http: AsyncClient, auth_headers: dict, index: int) -> str:
     clients = (await http.get("/api/v1/clients", headers=auth_headers)).json()

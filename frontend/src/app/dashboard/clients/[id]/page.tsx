@@ -830,6 +830,14 @@ function PortalSection({ clientId }: { clientId: string }) {
         </div>
       </div>
 
+      {pin?.enabled === false ? (
+        <div className="mt-5 pt-4 border-t border-gray-200">
+          <h3 className="text-sm font-medium text-gray-900">급여 상세 열람 PIN</h3>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            현재 비활성화되어 있습니다. 사장님 화면의 급여 상세가 PIN 없이 열립니다.
+          </p>
+        </div>
+      ) : (
       <div className="mt-5 pt-4 border-t border-gray-200">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
@@ -898,6 +906,7 @@ function PortalSection({ clientId }: { clientId: string }) {
           </div>
         )}
       </div>
+      )}
 
       {err && <p className="text-sm text-red-600 mt-3">{err}</p>}
     </Card>

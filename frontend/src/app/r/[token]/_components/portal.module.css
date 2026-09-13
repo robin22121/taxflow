@@ -14,17 +14,18 @@
   --blue-2: #1d4ed8;
   --palepill: #e8f0fe;
 
-  /* 신호등 */
-  --amber-bg: #fffbeb;
-  --amber-fg: #b45309;
+  /* 상태 톤 — 옅은 푸른색 계열로 통일. amber·mint·violet은 호출부 호환용 이름일 뿐
+     모두 파랑 농도 차이로만 구분하고, 미납·오류(red)만 경고 신호로 남긴다. */
+  --amber-bg: #f0f7ff;
+  --amber-fg: #2563eb;
   --blue-bg: #dbeafe;
   --blue-fg: #1e40af;
-  --mint-bg: #ecfdf5;
-  --mint-fg: #047857;
+  --mint-bg: #e8f1fd;
+  --mint-fg: #1d4ed8;
   --red-bg: #fef2f2;
   --red-fg: #b91c1c;
-  --violet-bg: #ede9fe;
-  --violet-fg: #5b21b6;
+  --violet-bg: #e0ecff;
+  --violet-fg: #1e3a8a;
 
   background: var(--bg);
   color: var(--text);
@@ -77,7 +78,7 @@
 .badgeMint  { background: var(--mint-bg);  color: var(--mint-fg); }
 .badgeRed   { background: var(--red-bg);   color: var(--red-fg); }
 .badgeViolet{ background: var(--violet-bg); color: var(--violet-fg); }
-.badgeSlate { background: #f1f5f9; color: #475569; }
+.badgeSlate { background: #eef3f9; color: #52637a; }
 
 /* 아이콘 박스 (파스텔 백그라운드) */
 .iconBox {
@@ -91,12 +92,12 @@
 }
 .iconBoxSm { width: 36px; height: 36px; border-radius: 10px; }
 .iconBoxLg { width: 56px; height: 56px; border-radius: 14px; }
-.iconBoxBlue   { background: #e0f2fe; color: #075985; }
-.iconBoxMint   { background: #dcfce7; color: #047857; }
-.iconBoxViolet { background: #ede9fe; color: #5b21b6; }
-.iconBoxAmber  { background: #fef3c7; color: #92400e; }
-.iconBoxRose   { background: #ffe4e6; color: #9f1239; }
-.iconBoxSlate  { background: #f1f5f9; color: #475569; }
+.iconBoxBlue,
+.iconBoxMint,
+.iconBoxViolet,
+.iconBoxAmber,
+.iconBoxRose   { background: #e8f1fd; color: #1d4ed8; }
+.iconBoxSlate  { background: #eef3f9; color: #52637a; }
 
 /* 아바타 */
 .avatar {
@@ -112,10 +113,10 @@
   flex: none;
 }
 .avatarBlue   { background: linear-gradient(135deg, #60a5fa, #2563eb); }
-.avatarMint   { background: linear-gradient(135deg, #34d399, #059669); }
-.avatarViolet { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
-.avatarAmber  { background: linear-gradient(135deg, #fbbf24, #d97706); }
-.avatarRose   { background: linear-gradient(135deg, #fb7185, #e11d48); }
+.avatarMint   { background: linear-gradient(135deg, #5b9bf0, #1d4ed8); }
+.avatarViolet { background: linear-gradient(135deg, #7aa7e0, #3b6fc4); }
+.avatarAmber  { background: linear-gradient(135deg, #4f8fe8, #1e40af); }
+.avatarRose   { background: linear-gradient(135deg, #6ea8f5, #2f6fd6); }
 
 /* 사이드바 (데스크톱) */
 .sidebar {

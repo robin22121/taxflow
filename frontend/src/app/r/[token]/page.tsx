@@ -69,7 +69,8 @@ export default function OwnerPortalPage({
   const archive = archiveQ.data ?? [];
   const employees = employeesQ.data ?? [];
   const linkError = sessionQ.error ?? statusQ.error ?? null;
-  const gateOpen = grant != null;
+  // PIN 게이트를 끈 운영이면 grant 없이도 게이트 뒤 구역을 연다.
+  const gateOpen = grant != null || session?.pin_enabled === false;
 
   // 기존 grant 재사용 — sessionStorage에서 부활. `session` 로드 후 시도.
   useEffect(() => {

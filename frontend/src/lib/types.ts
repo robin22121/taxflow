@@ -79,6 +79,7 @@ export type PortalLink = {
 };
 
 export type PortalPinStatus = {
+  enabled: boolean;
   is_set: boolean;
   locked_until: string | null;
 };

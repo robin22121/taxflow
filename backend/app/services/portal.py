@@ -295,7 +295,14 @@ def issue_grant(client_id: str) -> str:
     )
 
 
+def pin_gate_enabled() -> bool:
+    """PIN 게이트 사용 여부 — 꺼져 있으면 게이트 뒤 구역이 grant 없이 열린다."""
+    return get_settings().portal_pin_enabled
+
+
 def grant_is_valid(token: str | None, client_id: str) -> bool:
+    if not pin_gate_enabled():
+        return True
     if not token:
         return False
     try:

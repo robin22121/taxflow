@@ -3,10 +3,10 @@ import styles from "./portal.module.css";
 import type { MonthlyCostPoint } from "./types";
 
 const SERIES = [
-  { key: "wage" as const, label: "근로", color: "#3b82f6" },
-  { key: "business" as const, label: "사업", color: "#8b5cf6" },
-  { key: "daily" as const, label: "일용", color: "#f59e0b" },
-  { key: "other" as const, label: "기타", color: "#94a3b8" },
+  { key: "wage" as const, label: "근로", color: "#2563eb" },
+  { key: "business" as const, label: "사업", color: "#60a5fa" },
+  { key: "daily" as const, label: "일용", color: "#a5c8f5" },
+  { key: "other" as const, label: "기타", color: "#d5e3f5" },
 ];
 
 export function StackedBarChart({ data }: { data: MonthlyCostPoint[] }) {

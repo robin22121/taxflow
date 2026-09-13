@@ -11,6 +11,7 @@ export type SessionInfo = {
   period: string;
   accepting: boolean;
   has_pin: boolean;
+  pin_enabled: boolean;
 };
 
 export type PortalStatusInfo = {
