@@ -2196,7 +2196,7 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
           {fieldChanges && !expanded && (
             <div className="flex flex-wrap gap-0.5 mt-0.5 justify-end">
               {Object.keys(fieldChanges).map((k) => (
-                <span key={k} className="text-[9px] px-1 py-px rounded bg-red-100 text-red-600 font-medium" title={`전월 ${formatKrw(fieldChanges[k].prev)} → ${formatKrw(fieldChanges[k].curr)}`}>
+                <span key={k} className={`text-[9px] px-1 py-px rounded bg-red-100 font-medium ${e.approved ? "text-gray-900" : "text-red-600"}`} title={`전월 ${formatKrw(fieldChanges[k].prev)} → ${formatKrw(fieldChanges[k].curr)}`}>
                   {FIELD_LABELS[k] ?? k}
                 </span>
               ))}
@@ -2204,14 +2204,13 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
           )}
         </td>
         <td className="py-2.5 pr-3.5 text-right">
-          {hasFlag ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums bg-red-50 text-red-600 hover:bg-red-100" title="클릭해 분석 결과 보기">
+          {reasons.length > 0 ? (
+            // 검토완료(승인) 후에도 사유 표시는 유지하고 글자색만 검은색으로
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums bg-red-50 hover:bg-red-100 ${hasFlag ? "text-red-600" : "text-gray-900"}`} title="클릭해 분석 결과 보기">
               {reasons[0].label}
-              {reasons.length > 1 && <span className="text-red-400">· 사유 {reasons.length}</span>}
+              {reasons.length > 1 && <span className={hasFlag ? "text-red-400" : "text-gray-900"}>· 사유 {reasons.length}</span>}
               <span className="text-[9px]">{expanded ? "▲" : "▼"}</span>
             </span>
-          ) : e.approved && reasons.length > 0 ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-50 text-green-600">✓ 검토완료</span>
           ) : diff ? (
             <DiffPill diff={diff} />
           ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
@@ -2287,6 +2286,8 @@ function V3Spreadsheet({
 }) {
   // v3 의도: 펼친 상태 = 편집 모드. pending/approved 모두 인라인 편집 가능.
   const editing = true;
+  // 검토완료(승인)된 행은 이상치 칸 표시는 유지하되 글자색을 검은색으로
+  const reviewed = mode === "approved";
   const v = (k: keyof PayrollEntry): number => Number(draft[k] ?? 0) || 0;
   const set = (k: keyof PayrollEntry, val: number) => setDraft({ ...draft, [k]: val });
 
@@ -2347,7 +2348,7 @@ function V3Spreadsheet({
           }}
           className={`w-full font-mono tabular-nums text-right text-[13.5px] font-semibold py-0.5 px-1 rounded outline-none ${
             anomaly
-              ? "bg-red-50 border border-red-300 text-red-700"
+              ? `bg-red-50 border border-red-300 ${reviewed ? "text-gray-900" : "text-red-700"}`
               : "bg-amber-50 border border-amber-200 focus:bg-white focus:border-amber-400"
           }`}
         />
@@ -2356,7 +2357,7 @@ function V3Spreadsheet({
     return (
       <span
         className={`font-mono tabular-nums text-[13.5px] font-semibold ${
-          anomaly ? "text-red-700" : value === 0 ? "text-gray-400 font-normal" : "text-gray-900"
+          anomaly ? (reviewed ? "text-gray-900" : "text-red-700") : value === 0 ? "text-gray-400 font-normal" : "text-gray-900"
         }`}
       >
         {value.toLocaleString("ko-KR")}
@@ -2576,7 +2577,7 @@ function AnalysisPanel({ reasons, approved, onApprove, approving }: {
         {reasons.map((r, i) => (
           <li key={r.key} className="text-[12px] leading-relaxed">
             <div className="text-gray-800">
-              <span className={`font-semibold mr-1 ${approved ? "text-gray-700" : "text-red-600"}`}>{i + 1}. {r.label}</span>
+              <span className={`font-semibold mr-1 ${approved ? "text-gray-900" : "text-red-600"}`}>{i + 1}. {r.label}</span>
               — {r.detail}
             </div>
             <div className="text-gray-600 pl-3">
