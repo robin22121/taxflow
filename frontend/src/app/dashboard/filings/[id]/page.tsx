@@ -91,6 +91,14 @@ export default function FilingDetailPage({
       (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) ||
       e.match_status === "AMBIGUOUS",
   );
+  // 거래처별 미승인 엔트리 수 — 통합 다운로드는 전부 승인된 거래처만 받을 수 있다.
+  const unapprovedCounts = new Map<string, number>();
+  for (const e of allEntries) {
+    if (!e.approved) unapprovedCounts.set(e.client_id, (unapprovedCounts.get(e.client_id) ?? 0) + 1);
+  }
+  const unapprovedSessions = sessions.filter((s) => unapprovedCounts.has(s.client_id));
+  const downloadableSessions = sessions.filter((s) => !unapprovedCounts.has(s.client_id));
+  const unifiedDownloadIds = unifiedClientIds.filter((c) => !unapprovedCounts.has(c));
 
   // Deadline calculation
   const deadlineDay = 10;
@@ -157,18 +165,18 @@ export default function FilingDetailPage({
   // ZIP 안은 거래처별 폴더 — 한 파일에 섞으면 SmartA·위하고T 업로드 시 다른 회사 직원이 함께 등록됨.
   // (파일을 따로 내려받으면 브라우저의 다중 다운로드 차단에 걸려 조용히 유실됨)
   function openUnifiedPicker() {
-    // 자료가 들어온 거래처를 기본 선택
-    const withEntries = sessions.filter((s) => s.entry_count > 0).map((s) => s.client_id);
-    setUnifiedClientIds(withEntries.length > 0 ? withEntries : sessions.map((s) => s.client_id));
+    // 자료가 들어온 거래처를 기본 선택 (미승인 거래처 제외)
+    const withEntries = downloadableSessions.filter((s) => s.entry_count > 0).map((s) => s.client_id);
+    setUnifiedClientIds(withEntries.length > 0 ? withEntries : downloadableSessions.map((s) => s.client_id));
     setShowUnifiedPicker(true);
   }
 
   async function runUnifiedDownload() {
-    if (unifiedClientIds.length === 0) return;
+    if (unifiedDownloadIds.length === 0) return;
     setShowUnifiedPicker(false);
     try {
       const blob = await apiBlob(
-        `/api/v1/filings/${id}/unified-download?client_ids=${encodeURIComponent(unifiedClientIds.join(","))}`,
+        `/api/v1/filings/${id}/unified-download?client_ids=${encodeURIComponent(unifiedDownloadIds.join(","))}`,
       );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -344,8 +352,8 @@ export default function FilingDetailPage({
           title="통합 다운로드 — 거래처 선택"
           footer={<>
             <Button variant="ghost" onClick={() => setShowUnifiedPicker(false)}>취소</Button>
-            <Button disabled={unifiedClientIds.length === 0} onClick={runUnifiedDownload}>
-              {unifiedClientIds.length}곳 다운로드
+            <Button disabled={unifiedDownloadIds.length === 0} onClick={runUnifiedDownload}>
+              {unifiedDownloadIds.length}곳 다운로드
             </Button>
           </>}>
           <p className="text-[13px] text-gray-700 mb-3">
@@ -353,25 +361,40 @@ export default function FilingDetailPage({
             ZIP 안은 거래처별 폴더로 나뉩니다.
           </p>
 
+          {unapprovedSessions.length > 0 && (
+            <p className="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[12px] text-red-700">
+              ⚠️ 미승인 자료가 있는 거래처 {unapprovedSessions.length}곳은 선택할 수 없습니다.
+              검증·승인을 완료한 뒤 다시 받으세요.
+              <span className="block mt-1 text-red-600">
+                {unapprovedSessions.map((s) => s.client_name).join(", ")}
+              </span>
+            </p>
+          )}
+
           <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-1">
             <button type="button"
+              disabled={downloadableSessions.length === 0}
               onClick={() => setUnifiedClientIds(
-                unifiedClientIds.length === sessions.length ? [] : sessions.map((s) => s.client_id),
+                unifiedDownloadIds.length === downloadableSessions.length
+                  ? []
+                  : downloadableSessions.map((s) => s.client_id),
               )}
-              className="text-[12px] font-medium text-blue-600 hover:text-blue-700">
-              {unifiedClientIds.length === sessions.length ? "전체 해제" : "전체 선택"}
+              className="text-[12px] font-medium text-blue-600 hover:text-blue-700 disabled:text-gray-300">
+              {downloadableSessions.length > 0 && unifiedDownloadIds.length === downloadableSessions.length
+                ? "전체 해제" : "전체 선택"}
             </button>
             <span className="text-[12px] text-gray-500">전체 {sessions.length}곳</span>
           </div>
 
           <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-100">
             {sessions.map((s) => {
-              const checked = unifiedClientIds.includes(s.client_id);
+              const unapproved = unapprovedCounts.get(s.client_id) ?? 0;
+              const checked = unapproved === 0 && unifiedClientIds.includes(s.client_id);
               const unreceived = s.status === "PENDING" || s.status === "SENT";
               return (
                 <label key={s.client_id}
-                  className="flex items-center gap-2.5 py-2 cursor-pointer hover:bg-gray-50 px-1">
-                  <input type="checkbox" checked={checked}
+                  className={`flex items-center gap-2.5 py-2 px-1 ${unapproved > 0 ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50"}`}>
+                  <input type="checkbox" checked={checked} disabled={unapproved > 0}
                     onChange={() => setUnifiedClientIds(
                       checked
                         ? unifiedClientIds.filter((c) => c !== s.client_id)
@@ -384,13 +407,14 @@ export default function FilingDetailPage({
                   )}
                   {unreceived && <Badge tone="warning">미수신</Badge>}
                   {s.has_anomalies && <Badge tone="danger">확인필요</Badge>}
+                  {unapproved > 0 && <Badge tone="danger">미승인 {unapproved}건</Badge>}
                 </label>
               );
             })}
           </div>
 
           {sessions.some(
-            (s) => unifiedClientIds.includes(s.client_id)
+            (s) => unifiedDownloadIds.includes(s.client_id)
               && (s.status === "PENDING" || s.status === "SENT" || s.has_anomalies),
           ) && (
             <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">

@@ -1195,6 +1195,34 @@ async def download_unified(
     if not requested:
         raise HTTPException(status.HTTP_409_CONFLICT, "거래처가 없습니다.")
 
+    # 미승인 엔트리가 하나라도 있는 거래처는 검증 전 자료가 신고서로 나가므로 막는다.
+    unapproved_ids = set(
+        (
+            await db.execute(
+                select(PayrollEntry.client_id)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.client_id.in_(requested),
+                    PayrollEntry.approved.is_(False),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if unapproved_ids:
+        names = (
+            await db.execute(
+                select(Client.business_name).where(Client.id.in_(unapproved_ids))
+            )
+        ).scalars().all()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"미승인 자료가 있는 거래처는 받을 수 없습니다: {', '.join(names)}. "
+            "먼저 검증·승인을 완료하세요.",
+        )
+
     period = filing.period
     buf = BytesIO()
     used_folders: set[str] = set()
