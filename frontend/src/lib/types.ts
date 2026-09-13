@@ -76,6 +76,7 @@ export type Client = {
 export type PortalLink = {
   url: string;
   issued_at: string;
+  expires_at: string;
 };
 
 export type PortalPinStatus = {

@@ -165,6 +165,81 @@ async def test_invite_carries_portal_link_not_session_token(
     assert link in event.raw_text
 
 
+async def _new_client(db, name: str):
+    from app.models import Client, TaxOffice
+
+    office = TaxOffice(name=f"{name}사무소")
+    db.add(office)
+    await db.flush()
+    client = Client(tax_office_id=office.id, business_name=name)
+    db.add(client)
+    await db.flush()
+    return client
+
+
+@pytest.mark.asyncio
+async def test_link_near_expiry_is_renewed_with_grace(http: AsyncClient):
+    """만료 30일 이내면 새 링크를 싣고, 옛 링크는 7일 유예 동안 계속 열린다 (§4.3.4)."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.db import SessionLocal
+    from app.services.portal import get_or_issue_portal_token
+
+    async with SessionLocal() as db:
+        client = await _new_client(db, "갱신거래처")
+        old = await get_or_issue_portal_token(db, client)
+        old.expires_at = datetime.now(UTC) + timedelta(days=20)
+        await db.flush()
+
+        new = await get_or_issue_portal_token(db, client)
+        old_token, new_token, old_expires = old.token, new.token, old.expires_at
+        await db.commit()
+
+    assert new_token != old_token
+    assert old_expires <= datetime.now(UTC) + timedelta(days=7)
+    assert (await http.get(f"/api/v1/public/r/{old_token}")).status_code == 200
+    assert (await http.get(f"/api/v1/public/r/{new_token}")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_legacy_permanent_link_is_clamped_to_90_days():
+    """만료 없이 발급됐던 기존 링크는 URL은 그대로 두고 지금부터 90일로 전환한다."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.db import SessionLocal
+    from app.services.portal import PORTAL_PURPOSE, get_or_issue_portal_token
+    from app.services.secure_tokens import issue_token
+
+    async with SessionLocal() as db:
+        client = await _new_client(db, "기존링크거래처")
+        legacy = await issue_token(
+            db, client_id=client.id, purpose=PORTAL_PURPOSE, ttl=timedelta(days=36_500)
+        )
+        same = await get_or_issue_portal_token(db, client)
+        legacy_token, same_token, expires = legacy.token, same.token, same.expires_at
+        await db.commit()
+
+    assert same_token == legacy_token
+    assert expires <= datetime.now(UTC) + timedelta(days=90)
+
+
+@pytest.mark.asyncio
+async def test_expired_link_is_404(http: AsyncClient):
+    from datetime import UTC, datetime, timedelta
+
+    from app.db import SessionLocal
+    from app.services.portal import get_or_issue_portal_token
+
+    async with SessionLocal() as db:
+        client = await _new_client(db, "만료거래처")
+        token = await get_or_issue_portal_token(db, client)
+        token.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        token_str = token.token
+        await db.commit()
+
+    assert (await http.get(f"/api/v1/public/r/{token_str}")).status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_unknown_token_is_404(http: AsyncClient):
     assert (await http.get("/api/v1/public/r/nope-not-a-real-token")).status_code == 404

@@ -815,7 +815,9 @@ function PortalSection({ clientId }: { clientId: string }) {
         </div>
         <div className="flex items-center justify-between gap-3 mt-1">
           <p className="text-[11px] text-gray-500">
-            {link ? `${new Date(link.issued_at).toLocaleDateString("ko-KR")} 발급 · 만료 없음` : ""}
+            {link
+              ? `${new Date(link.issued_at).toLocaleDateString("ko-KR")} 발급 · ${new Date(link.expires_at).toLocaleDateString("ko-KR")} 만료 (30일 전부터 알림톡에 새 링크 자동 반영)`
+              : ""}
           </p>
           <Button
             variant="ghost"

@@ -148,7 +148,11 @@ async def _require_open_link(db: AsyncSession, token_str: str) -> ResolvedLink:
 async def resolve_session(token_str: str, db: AsyncSession = Depends(get_db)) -> CollectionSessionPublic:
     link = await resolve_public_link(db, token_str, create_session=False)
     if not link:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+        # 만료·무효화·잘못된 토큰을 구분해 알려주지 않는다 — 화면 안내는 하나로 충분하다.
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "링크가 만료되었거나 유효하지 않습니다. 가장 최근에 받은 알림톡의 링크로 다시 열어 주세요.",
+        )
     return CollectionSessionPublic(
         client_name=link.client.business_name,
         period=link.filing.period if link.filing else "",

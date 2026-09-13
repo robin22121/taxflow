@@ -274,6 +274,7 @@ async def update_client(
 class PortalLinkOut(BaseModel):
     url: str
     issued_at: datetime
+    expires_at: datetime
 
 
 async def _client_or_404(db: AsyncSession, client_id: str, user: User) -> Client:
@@ -293,7 +294,9 @@ async def get_portal_link(
     client = await _client_or_404(db, client_id, user)
     token = await get_or_issue_portal_token(db, client)
     await db.commit()
-    return PortalLinkOut(url=portal_url(token), issued_at=token.created_at)
+    return PortalLinkOut(
+        url=portal_url(token), issued_at=token.created_at, expires_at=token.expires_at
+    )
 
 
 @router.post("/{client_id}/portal-link/rotate", response_model=PortalLinkOut)
@@ -306,7 +309,9 @@ async def rotate_portal_link(
     client = await _client_or_404(db, client_id, user)
     token = await rotate_portal_token(db, client)
     await db.commit()
-    return PortalLinkOut(url=portal_url(token), issued_at=token.created_at)
+    return PortalLinkOut(
+        url=portal_url(token), issued_at=token.created_at, expires_at=token.expires_at
+    )
 
 
 class FilingResultIn(BaseModel):

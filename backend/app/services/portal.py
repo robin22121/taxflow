@@ -41,9 +41,11 @@ logger = logging.getLogger(__name__)
 
 PORTAL_PURPOSE = "CLIENT_PORTAL"
 
-# 상설 링크는 만료가 아니라 재발급(rotate)으로 회수한다 (§4.3.1).
-# expires_at이 NOT NULL이라 먼 미래값을 넣어 사실상 만료를 끈다.
-_PORTAL_TTL = timedelta(days=36_500)
+# 상설 링크는 90일 뒤 만료된다. 링크를 내보낼 때 만료가 30일 이내면 새 링크로 갈아 싣고,
+# 밀려난 옛 링크는 7일 유예 후 죽는다. 유출 시에는 rotate로 즉시 회수한다 (§4.3.4).
+_PORTAL_TTL = timedelta(days=90)
+_PORTAL_RENEW_WITHIN = timedelta(days=30)
+_PORTAL_GRACE = timedelta(days=7)
 
 # 자료를 아직 받을 수 있는 신고 상태. app/api/clients.py의 _ACTIVE_FILING_STATUSES와
 # 같은 기준이다 — 제출·완료된 신고에 늦게 온 자료가 조용히 섞이면 안 된다.
@@ -63,12 +65,16 @@ class ResolvedLink:
     session: CollectionSession | None
 
 
-def _is_expired(token: SecureToken) -> bool:
+def _expires_at(token: SecureToken) -> datetime:
     # SQLite는 timezone-aware 컬럼도 naive datetime으로 돌려준다.
     expires = token.expires_at
     if expires.tzinfo is None:
         expires = expires.replace(tzinfo=UTC)
-    return expires < datetime.now(UTC)
+    return expires
+
+
+def _is_expired(token: SecureToken) -> bool:
+    return _expires_at(token) < datetime.now(UTC)
 
 
 async def _active_portal_tokens(db: AsyncSession, client_id: str) -> list[SecureToken]:
@@ -87,10 +93,26 @@ async def _active_portal_tokens(db: AsyncSession, client_id: str) -> list[Secure
 
 
 async def get_or_issue_portal_token(db: AsyncSession, client: Client) -> SecureToken:
-    """거래처의 상설 토큰을 반환하고, 없으면 발급한다. 거래처당 활성 토큰 1개."""
+    """거래처의 상설 토큰을 반환하고, 없거나 만료가 임박하면 새로 발급한다.
+
+    알림톡 발송·대시보드 조회가 모두 여기를 거치므로 밖으로 나가는 링크는 항상 30일 넘게
+    남아 있다. 갈아탄 옛 링크는 이미 발송된 알림톡이 바로 죽지 않도록 7일 유예한다.
+    """
+    now = datetime.now(UTC)
     active = await _active_portal_tokens(db, client.id)
     if active:
-        return active[0]
+        current = active[0]
+        # 만료 없이(100년) 발급됐던 기존 링크는 지금부터 90일로 전환한다.
+        if _expires_at(current) > now + _PORTAL_TTL:
+            current.expires_at = now + _PORTAL_TTL
+            await db.flush()
+        if _expires_at(current) - now > _PORTAL_RENEW_WITHIN:
+            return current
+        grace_end = now + _PORTAL_GRACE
+        for token in active:
+            if _expires_at(token) > grace_end:
+                token.expires_at = grace_end
+        await db.flush()
     return await issue_token(
         db, client_id=client.id, purpose=PORTAL_PURPOSE, ttl=_PORTAL_TTL
     )
