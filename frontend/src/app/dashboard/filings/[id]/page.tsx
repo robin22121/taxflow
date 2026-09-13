@@ -1491,7 +1491,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                     <th className="text-left py-2.5 pl-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">직원 · 구분</th>
                     <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">전월</th>
                     <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">이번달</th>
-                    <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">변동</th>
+                    <th className="text-right py-2.5 pr-3.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">분석</th>
                     <th className="text-right py-2.5 pr-3 text-[11px] font-medium text-gray-500 uppercase tracking-wider">액션</th>
                   </tr>
                 </thead>
@@ -2163,7 +2163,9 @@ type EntryRowProps = {
 };
 
 function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onToggleExpand, expanded, update, remove }: EntryRowProps) {
-  const hasFlag = !!(e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved);
+  // 메모(anomaly_notes.memo)만 있는 행은 이상치가 아니다 — 분석 사유 기준으로 판정
+  const reasons = anomalyReasons(e);
+  const hasFlag = reasons.length > 0 && !e.approved;
   const fieldChanges = (e.anomaly_notes?.field_changes ?? null) as Record<string, { prev: number; curr: number }> | null;
   const diff = computeDiff(e);
 
@@ -2202,8 +2204,16 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
           )}
         </td>
         <td className="py-2.5 pr-3.5 text-right">
-          {diff ? (
-            <DiffPill diff={diff} hasFlag={hasFlag} />
+          {hasFlag ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums bg-red-50 text-red-600 hover:bg-red-100" title="클릭해 분석 결과 보기">
+              {reasons[0].label}
+              {reasons.length > 1 && <span className="text-red-400">· 사유 {reasons.length}</span>}
+              <span className="text-[9px]">{expanded ? "▲" : "▼"}</span>
+            </span>
+          ) : e.approved && reasons.length > 0 ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-50 text-green-600">✓ 검토완료</span>
+          ) : diff ? (
+            <DiffPill diff={diff} />
           ) : e.match_status === "NEW_HIRE_SUSPECTED" ? (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600">신규</span>
           ) : e.match_status === "RESIGNATION_SUSPECTED" ? (
@@ -2230,6 +2240,14 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
       {expanded && (
         <tr className="bg-stone-50/50">
           <td colSpan={6} className="px-0 py-0" onClick={(ev) => ev.stopPropagation()}>
+            {reasons.length > 0 && (
+              <AnalysisPanel
+                reasons={reasons}
+                approved={e.approved}
+                onApprove={mode === "pending" ? onApprove : undefined}
+                approving={update.isPending}
+              />
+            )}
             <V3Spreadsheet
               draft={draft}
               setDraft={setDraft}
@@ -2534,13 +2552,49 @@ function V3MultiCell({
   );
 }
 
+/* ═══ 분석 결과 (펼친 행 상단) ═══ */
+
+function AnalysisPanel({ reasons, approved, onApprove, approving }: {
+  reasons: AnomalyReason[];
+  approved: boolean;
+  onApprove?: () => void;
+  approving: boolean;
+}) {
+  return (
+    <div className={`border-t px-5 py-3 ${approved ? "bg-green-50/40 border-green-100" : "bg-red-50/40 border-red-100"}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className={`text-[10.5px] font-bold uppercase tracking-wider ${approved ? "text-green-700" : "text-red-600"}`}>
+          분석 결과 · 사유 {reasons.length}건{approved && " · 검토완료"}
+        </span>
+        {onApprove && !approved && (
+          <button onClick={onApprove} disabled={approving} className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 disabled:opacity-50">
+            확인 완료 · 승인
+          </button>
+        )}
+      </div>
+      <ol className="space-y-1.5">
+        {reasons.map((r, i) => (
+          <li key={r.key} className="text-[12px] leading-relaxed">
+            <div className="text-gray-800">
+              <span className={`font-semibold mr-1 ${approved ? "text-gray-700" : "text-red-600"}`}>{i + 1}. {r.label}</span>
+              — {r.detail}
+            </div>
+            <div className="text-gray-600 pl-3">
+              → {r.action}
+              {r.rule && <span className="text-[11px] text-gray-400 ml-2">({r.rule})</span>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 /* ═══ Diff Pill ═══ */
 
-function DiffPill({ diff, hasFlag }: { diff: string; hasFlag: boolean }) {
+function DiffPill({ diff }: { diff: string }) {
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums ${
-      hasFlag ? "bg-red-50 text-red-600" : "bg-gray-100 text-gray-500"
-    }`}>
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums bg-gray-100 text-gray-500">
       {diff}
     </span>
   );
@@ -2613,22 +2667,11 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
           const prev = e.prev_amount ?? 0;
           const curr = e.total_amount;
           const pctChange = prev ? Math.round(((curr - prev) / prev) * 100) : null;
-          const anomalyType = e.match_status === "UNCONFIRMED"
-            ? "미확인"
-            : e.anomaly_notes?.abnormal_amount
-              ? "비정상 금액"
-              : e.anomaly_notes?.large_change
-                ? `이상치 ${pctChange != null && pctChange > 0 ? "+" : ""}${pctChange}%`
-                : e.match_status === "AMBIGUOUS" ? "이름매칭" : "확인필요";
-          const reason = e.match_status === "UNCONFIRMED"
-            ? `전월에 ₩${(e.prev_amount ?? 0).toLocaleString()} 지급. 이번달 자료에 없음 — 계속근무 시 정확한 급여를, 퇴사 시 퇴사일을 확인하세요.`
-            : e.anomaly_notes?.abnormal_amount
-              ? (e.anomaly_notes.abnormal_amount as { reason?: string }).reason ?? "금액을 확인해주세요."
-              : e.anomaly_notes?.large_change
-                ? `전월 대비 임계치(±30%) 초과. 변동 비율: ${pctChange}%`
-                : e.match_status === "AMBIGUOUS"
-                  ? "기존 직원 목록에서 정확히 매칭되는 이름을 찾지 못했습니다."
-                  : "확인이 필요한 항목입니다.";
+          const reasons = anomalyReasons(e);
+          const anomalyType = reasons[0]?.label ?? (e.match_status === "AMBIGUOUS" ? "이름매칭" : "확인필요");
+          const fallbackReason = e.match_status === "AMBIGUOUS"
+            ? "기존 직원 목록에서 정확히 매칭되는 이름을 찾지 못했습니다."
+            : "확인이 필요한 항목입니다.";
 
           if (e.approved) {
             return (
@@ -2695,7 +2738,14 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
                 {/* Reason */}
                 <div className="rounded-[12px] bg-gray-50 border border-gray-200 p-3.5">
                   <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500 mb-1 block">판단 근거</span>
-                  <div className="text-[13px] text-gray-700 leading-relaxed">{reason}</div>
+                  <div className="text-[13px] text-gray-700 leading-relaxed space-y-1">
+                    {reasons.length > 0 ? reasons.map((r) => (
+                      <div key={r.key}>
+                        {r.detail} → {r.action}
+                        {r.rule && <span className="text-[12px] text-gray-400"> ({r.rule})</span>}
+                      </div>
+                    )) : fallbackReason}
+                  </div>
                 </div>
 
                 {/* Quick actions */}
@@ -3042,6 +3092,84 @@ function computeDiff(e: PayrollEntry): string | null {
   if (e.total_amount === e.prev_amount) return "동일";
   const pct = Math.round(((e.total_amount - e.prev_amount) / e.prev_amount) * 100);
   return pct > 0 ? `+${pct}%` : `${pct}%`;
+}
+
+/* ═══ 이상치 분석 사유 ═══ */
+
+// 판정 기준 문구 — backend matching.py(_LARGE_CHANGE_*)·collect.py(_detect_field_anomalies)와 같게 유지할 것
+const RULE_LARGE_CHANGE = "기준: 전월 대비 1.5배 이상 또는 2/3 이하이면서 30만원 이상 변동";
+const RULE_FIELD_CHANGE: Record<string, string> = {
+  national_pension: "기준: 전월과 1,000원 초과 차이",
+  health_insurance: "기준: 전월과 1,000원 초과 차이",
+  income_tax: "기준: 전월 대비 20% 초과 변동",
+};
+const FIELD_CHANGE_ACTION: Record<string, string> = {
+  national_pension: "보수월액 변경(정기결정·변경신고) 반영 여부 확인",
+  health_insurance: "보수월액 변경(정기결정·변경신고) 반영 여부 확인",
+  income_tax: "과세급여 변동에 따른 정상 변동인지 확인",
+};
+
+type AnomalyReason = { key: string; label: string; detail: string; action: string; rule?: string };
+
+function won(v: number): string {
+  return `₩${v.toLocaleString("ko-KR")}`;
+}
+
+/** anomaly_notes → 화면용 사유 목록 (우선순위: 미확인 > 비정상 금액 > 총지급 변동 > 항목별 변동). memo 등 기타 키는 무시. */
+function anomalyReasons(e: PayrollEntry): AnomalyReason[] {
+  const n = e.anomaly_notes ?? {};
+  const reasons: AnomalyReason[] = [];
+
+  const unconfirmed = n.unconfirmed as { prev_amount?: number } | undefined;
+  if (unconfirmed) {
+    reasons.push({
+      key: "unconfirmed",
+      label: "미확인",
+      detail: `전월 ${won(unconfirmed.prev_amount ?? e.prev_amount ?? 0)} 지급, 이번달 자료에 없음`,
+      action: "계속근무면 이번달 급여를, 퇴사면 퇴사일을 확인",
+    });
+  }
+
+  const abnormal = n.abnormal_amount as { amount?: number; reason?: string } | undefined;
+  if (abnormal) {
+    const amt = abnormal.amount ?? e.total_amount;
+    reasons.push({
+      key: "abnormal_amount",
+      label: "비정상 금액",
+      detail: abnormal.reason ?? "금액을 확인해주세요.",
+      action: amt === 0
+        ? "무급휴직·지급 누락 여부 확인"
+        : amt >= 100_000_000
+          ? "단위(천원/원) 입력 오류, 퇴직금·성과급 포함 여부 확인"
+          : "단위(천원/원) 입력 오류 여부 확인",
+    });
+  }
+
+  const lc = n.large_change as { prev: number; current: number; ratio: number } | undefined;
+  if (lc && lc.prev > 0) {
+    const up = lc.current > lc.prev;
+    const pct = Math.round((lc.current / lc.prev - 1) * 100);
+    reasons.push({
+      key: "large_change",
+      label: `총지급 ${up ? "+" : ""}${pct}%`,
+      detail: `전월 ${won(lc.prev)} → 이번달 ${won(lc.current)} (${lc.ratio}배, ${up ? "+" : "−"}${won(Math.abs(lc.current - lc.prev))})`,
+      action: up ? "상여·소급분·수당 포함 여부 확인" : "중도 입·퇴사 일할계산, 무급휴가 여부 확인",
+      rule: RULE_LARGE_CHANGE,
+    });
+  }
+
+  const fc = n.field_changes as Record<string, { prev: number; curr: number }> | undefined;
+  for (const [k, v] of Object.entries(fc ?? {})) {
+    reasons.push({
+      key: `field_changes.${k}`,
+      label: `${FIELD_LABELS[k] ?? k} 변동`,
+      detail: `전월 ${won(v.prev)} → 이번달 ${won(v.curr)}`,
+      action: FIELD_CHANGE_ACTION[k] ?? "전월과 달라진 사유 확인",
+      rule: RULE_FIELD_CHANGE[k],
+    });
+  }
+
+  return reasons;
 }
 
 void getToken;
