@@ -40,8 +40,13 @@ from app.services.portal import (
     PinLockedError,
     ResolvedLink,
     client_archive,
+    derive_status,
+    employee_detail,
     grant_is_valid,
     issue_grant,
+    last_month_summary,
+    list_employees,
+    monthly_cost_series,
     notify_pin_unlock,
     pin_is_set,
     resolve_public_link,
@@ -426,6 +431,282 @@ async def portal_employees(
         )
     ).scalars().all()
     return [PortalEmployee(id=row.id, name=row.name) for row in rows]
+
+
+# --- §8 리디자인 — 상태·지난달·인건비·직원 상세 ------------------------------
+
+
+class PortalStatusOut(BaseModel):
+    """상태 스트립·납부 카드 공용 응답 (plan §8.7)."""
+
+    state: Literal["NONE", "COLLECTING", "REVIEWING", "FILED", "PAID", "OVERDUE"]
+    period: str | None
+    due_date: date | None
+    estimated_tax: int
+    settled_tax: int | None
+    virtual_account: str | None
+    epayment_number: str | None
+    has_receipt: bool
+    has_payment_slip: bool
+    tax_office_name: str
+
+
+class LastMonthEntryOut(BaseModel):
+    name: str
+    income_type: str
+    total_amount: int
+
+
+class LastMonthOut(BaseModel):
+    period: str | None
+    employee_count: int
+    total_amount: int
+    total_tax: int
+    net_amount: int
+    entries: list[LastMonthEntryOut] | None
+
+
+class MonthlyCostPointOut(BaseModel):
+    period: str
+    wage: int
+    business: int
+    daily: int
+    other: int
+    total: int
+
+
+class MonthlyCostKpis(BaseModel):
+    total: int
+    monthly_avg: int
+    yoy_pct: float | None
+
+
+class MonthlyCostOut(BaseModel):
+    kpis: MonthlyCostKpis
+    series: list[MonthlyCostPointOut]
+
+
+class EmployeeHistoryOut(BaseModel):
+    period: str
+    total_amount: int
+    tax: int
+    net_amount: int
+
+
+class EmployeeDetailOut(BaseModel):
+    id: str
+    name: str
+    position: str | None
+    department: str | None
+    hired_at: date | None
+    resigned_at: date | None
+    status: str
+    income_type: str | None
+    total_ytd: int | None
+    monthly_avg: int | None
+    tax_ytd: int | None
+    history: list[EmployeeHistoryOut] | None
+
+
+class PortalEmployeeRow(BaseModel):
+    id: str
+    name: str
+    status: str
+    position: str | None
+    department: str | None
+    income_type: str | None
+    hired_at: date | None
+
+
+@router.get("/r/{token_str}/status", response_model=PortalStatusOut)
+async def portal_status(
+    token_str: str,
+    db: AsyncSession = Depends(get_db),
+) -> PortalStatusOut:
+    """상단 상태 스트립 + 납부 카드용 (plan §8.3, §8.4).
+
+    5-단계 상태와 귀속 기간·기한·예상 세액을 함께 돌려준다.
+    """
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    info = await derive_status(db, link.client, link.filing)
+    return PortalStatusOut(
+        state=info.state.value,  # type: ignore[arg-type]
+        period=info.period,
+        due_date=info.due_date,
+        estimated_tax=info.estimated_tax,
+        settled_tax=info.settled_tax,
+        virtual_account=info.virtual_account,
+        epayment_number=info.epayment_number,
+        has_receipt=info.has_receipt,
+        has_payment_slip=info.has_payment_slip,
+        tax_office_name=info.tax_office_name,
+    )
+
+
+@router.get("/r/{token_str}/last-month", response_model=LastMonthOut)
+async def portal_last_month(
+    token_str: str,
+    x_portal_grant: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> LastMonthOut:
+    """지난달 지급명세 — 요약은 공개, 개별 직원 명세는 PIN 뒤 (plan §8.3)."""
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    gated = grant_is_valid(x_portal_grant, link.client.id)
+    period = link.filing.period if link.filing else None
+    summary = await last_month_summary(db, link.client, period, gated=gated)
+    return LastMonthOut(
+        period=summary.period,
+        employee_count=summary.employee_count,
+        total_amount=summary.total_amount,
+        total_tax=summary.total_tax,
+        net_amount=summary.net_amount,
+        entries=(
+            [
+                LastMonthEntryOut(
+                    name=e.name,
+                    income_type=e.income_type,
+                    total_amount=e.total_amount,
+                )
+                for e in summary.entries
+            ]
+            if summary.entries is not None
+            else None
+        ),
+    )
+
+
+@router.get("/r/{token_str}/monthly-cost", response_model=MonthlyCostOut)
+async def portal_monthly_cost(
+    token_str: str,
+    months: int = 12,
+    db: AsyncSession = Depends(get_db),
+) -> MonthlyCostOut:
+    """월별 인건비 12개월 스택 (plan §8.5). 금액 합계라 게이트 앞에 둔다."""
+    if months not in (3, 6, 12, 24):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "기간은 3·6·12·24개월 중 하나입니다")
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    report = await monthly_cost_series(db, link.client, months)
+    return MonthlyCostOut(
+        kpis=MonthlyCostKpis(
+            total=int(report.kpis["total"] or 0),
+            monthly_avg=int(report.kpis["monthly_avg"] or 0),
+            yoy_pct=(
+                float(report.kpis["yoy_pct"])
+                if report.kpis["yoy_pct"] is not None
+                else None
+            ),
+        ),
+        series=[
+            MonthlyCostPointOut(
+                period=p.period,
+                wage=p.wage,
+                business=p.business,
+                daily=p.daily,
+                other=p.other,
+                total=p.total,
+            )
+            for p in report.series
+        ],
+    )
+
+
+@router.get("/r/{token_str}/employees-v2", response_model=list[PortalEmployeeRow])
+async def portal_employees_v2(
+    token_str: str,
+    include_resigned: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> list[PortalEmployeeRow]:
+    """§8.6 리스트 — 재직/퇴사 세그먼트와 카드 렌더링에 쓸 부가 필드까지.
+
+    기존 ``/employees``(id·name만)를 유지한 채 확장 응답을 v2로 낸다. 옛 UI가 물고 있어서다.
+    """
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    employees = await list_employees(
+        db, link.client, include_resigned=include_resigned
+    )
+    if not employees:
+        return []
+
+    # 각 직원 최근 급여의 소득종류를 한 번에 뽑아서 붙인다.
+    ids = [e.id for e in employees]
+    latest_rows = (
+        await db.execute(
+            select(PayrollEntry.employee_id, PayrollEntry.income_type)
+            .where(PayrollEntry.employee_id.in_(ids))
+            .order_by(PayrollEntry.employee_id, PayrollEntry.created_at.desc())
+        )
+    ).all()
+    latest_income: dict[str, str] = {}
+    for eid, income_type in latest_rows:
+        if eid not in latest_income:
+            latest_income[eid] = income_type.value
+
+    return [
+        PortalEmployeeRow(
+            id=e.id,
+            name=e.name,
+            status=e.status.value,
+            position=e.position,
+            department=e.department,
+            income_type=latest_income.get(e.id),
+            hired_at=e.hired_at,
+        )
+        for e in employees
+    ]
+
+
+@router.get(
+    "/r/{token_str}/employees/{employee_id}",
+    response_model=EmployeeDetailOut,
+)
+async def portal_employee_detail(
+    token_str: str,
+    employee_id: str,
+    x_portal_grant: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> EmployeeDetailOut:
+    """직원 카드 상세 — 급여 이력·KPI는 PIN 게이트 뒤 (plan §8.6)."""
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+    gated = grant_is_valid(x_portal_grant, link.client.id)
+    detail = await employee_detail(db, link.client, employee_id, gated=gated)
+    if detail is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "직원을 찾을 수 없습니다")
+    return EmployeeDetailOut(
+        id=detail.id,
+        name=detail.name,
+        position=detail.position,
+        department=detail.department,
+        hired_at=detail.hired_at,
+        resigned_at=detail.resigned_at,
+        status=detail.status,
+        income_type=detail.income_type,
+        total_ytd=detail.total_ytd,
+        monthly_avg=detail.monthly_avg,
+        tax_ytd=detail.tax_ytd,
+        history=(
+            [
+                EmployeeHistoryOut(
+                    period=h.period,
+                    total_amount=h.total_amount,
+                    tax=h.tax,
+                    net_amount=h.net_amount,
+                )
+                for h in detail.history
+            ]
+            if detail.history is not None
+            else None
+        ),
+    )
 
 
 @router.post(

@@ -1,0 +1,331 @@
+/* 사업주 포털 디자인 토큰 (plan/12-owner-portal.md §8.7).
+   .portal 래퍼에 스코프해 세무사 대시보드 토큰과 섞이지 않도록 격리한다. */
+.portal {
+  --bg: #f5f7fa;
+  --card: #ffffff;
+  --line: #e5e9f0;
+  --line-strong: #dde1e6;
+  --text: #0b1220;
+  --text-2: #1f2937;
+  --muted: #6b7280;
+  --muted-2: #94a3b8;
+  --navy: #1e3a5f;
+  --blue: #2563eb;
+  --blue-2: #1d4ed8;
+  --palepill: #e8f0fe;
+
+  /* 신호등 */
+  --amber-bg: #fffbeb;
+  --amber-fg: #b45309;
+  --blue-bg: #dbeafe;
+  --blue-fg: #1e40af;
+  --mint-bg: #ecfdf5;
+  --mint-fg: #047857;
+  --red-bg: #fef2f2;
+  --red-fg: #b91c1c;
+  --violet-bg: #ede9fe;
+  --violet-fg: #5b21b6;
+
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 카드 */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+}
+.cardTight {
+  padding: 16px;
+}
+.cardHero {
+  background: linear-gradient(180deg, #ffffff, #fafcff);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 12px 32px -20px rgba(30, 58, 95, 0.12);
+}
+
+/* 뱃지 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.badgeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: none;
+}
+.badgeAmber { background: var(--amber-bg); color: var(--amber-fg); }
+.badgeBlue  { background: var(--blue-bg);  color: var(--blue-fg); }
+.badgeMint  { background: var(--mint-bg);  color: var(--mint-fg); }
+.badgeRed   { background: var(--red-bg);   color: var(--red-fg); }
+.badgeViolet{ background: var(--violet-bg); color: var(--violet-fg); }
+.badgeSlate { background: #f1f5f9; color: #475569; }
+
+/* 아이콘 박스 (파스텔 백그라운드) */
+.iconBox {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.iconBoxSm { width: 36px; height: 36px; border-radius: 10px; }
+.iconBoxLg { width: 56px; height: 56px; border-radius: 14px; }
+.iconBoxBlue   { background: #e0f2fe; color: #075985; }
+.iconBoxMint   { background: #dcfce7; color: #047857; }
+.iconBoxViolet { background: #ede9fe; color: #5b21b6; }
+.iconBoxAmber  { background: #fef3c7; color: #92400e; }
+.iconBoxRose   { background: #ffe4e6; color: #9f1239; }
+.iconBoxSlate  { background: #f1f5f9; color: #475569; }
+
+/* 아바타 */
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: #ffffff;
+  flex: none;
+}
+.avatarBlue   { background: linear-gradient(135deg, #60a5fa, #2563eb); }
+.avatarMint   { background: linear-gradient(135deg, #34d399, #059669); }
+.avatarViolet { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
+.avatarAmber  { background: linear-gradient(135deg, #fbbf24, #d97706); }
+.avatarRose   { background: linear-gradient(135deg, #fb7185, #e11d48); }
+
+/* 사이드바 (데스크톱) */
+.sidebar {
+  width: 256px;
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  padding: 20px 12px;
+  min-height: 100dvh;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+}
+.sidebarItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--text-2);
+  font-weight: 500;
+  font-size: 14px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.sidebarItem:hover { background: #f3f6fb; }
+.sidebarItemActive {
+  background: var(--palepill);
+  color: var(--blue-2);
+}
+
+/* 하단 탭바 (모바일 전용 — 데스크톱 사이드바와 이중 노출 방지) */
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  border-top: 1px solid var(--line);
+  display: flex;
+  z-index: 30;
+  padding: 6px 4px calc(env(safe-area-inset-bottom, 0) + 6px);
+}
+@media (min-width: 1024px) {
+  .tabbar { display: none; }
+}
+.tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tabActive { color: var(--blue-2); }
+
+/* 상태 스트립 */
+.statusStrip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font-size: 13px;
+}
+
+/* 모달 */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  z-index: 60;
+}
+.modalSheet {
+  margin: auto;
+  background: var(--bg);
+  border-radius: 24px 24px 0 0;
+  width: 100%;
+  max-width: 640px;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+@media (min-width: 768px) {
+  .modalSheet { border-radius: 24px; }
+  .modalBackdrop { padding: 24px; }
+}
+
+/* 셸 그리드 */
+.shell {
+  display: flex;
+  gap: 0;
+  align-items: flex-start;
+}
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: 24px 20px 96px;
+  max-width: 1024px;
+  margin: 0 auto;
+}
+@media (min-width: 1024px) {
+  .content { padding: 32px 40px 40px; }
+}
+
+.title { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.subtitle { font-size: 12.5px; color: var(--muted); }
+.h2 { font-size: 15.5px; font-weight: 700; letter-spacing: -0.005em; }
+.h3 { font-size: 13.5px; font-weight: 600; color: var(--text-2); }
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .kpiGrid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* 카드 그리드 (결정 카드 2개) */
+.decisionGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .decisionGrid { grid-template-columns: 1fr 1fr; }
+}
+
+.ctaPrimary {
+  background: var(--blue);
+  color: #ffffff;
+  border: 1px solid var(--blue);
+  border-radius: 14px;
+  padding: 14px 18px;
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 120ms;
+  box-shadow: 0 8px 20px -10px rgba(37, 99, 235, 0.55);
+}
+.ctaPrimary:hover:not(:disabled) { filter: brightness(1.05); }
+.ctaPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ctaSecondary {
+  background: #ffffff;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 14px 18px;
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+}
+.ctaSecondary:hover:not(:disabled) { border-color: var(--blue); background: #f8fbff; }
+.ctaSecondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 120ms;
+  color: var(--text);
+}
+.input:focus { border-color: var(--blue); }
+
+/* 스택 바 차트 */
+.chartWrap { display: flex; gap: 8px; align-items: flex-end; height: 160px; padding: 8px 0; }
+.chartBar {
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  min-width: 0;
+}
+.chartSeg { width: 100%; border-radius: 2px; }
+.chartLabel { text-align: center; font-size: 10.5px; color: var(--muted); margin-top: 6px; }
+
+.legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.legendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
