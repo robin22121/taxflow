@@ -1159,7 +1159,7 @@ async def download_unified(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """통합 다운로드 — 거래처별 폴더로 급여대장 + 4대보험 + 사업소득(SmartA)을 ZIP으로 묶는다.
+    """통합 다운로드 — 거래처별 폴더로 급여대장을 ZIP으로 묶는다 (4대보험·사업소득은 당분간 제외).
 
     거래처를 한 파일에 섞으면 SmartA·위하고T 업로드 시 다른 회사 직원이 함께
     등록되므로 항상 거래처 단위로 파일을 분리한다.
@@ -1272,18 +1272,19 @@ async def download_unified(
                     payroll_entries, period=period, client_name=client.business_name
                 ),
             )
-            zf.writestr(
-                f"{folder}/4대보험_통합_{period}.xlsx",
-                generate_combined_insurance_report(
-                    await _wage_entries_for_filing(filing_id, db, target_id), period=period
-                ),
-            )
-            business_entries = await _business_entries_for_filing(filing_id, db, target_id)
-            if business_entries:
-                zf.writestr(
-                    f"{folder}/사업소득_지급명세서_{period}.xls",
-                    generate_smarta_business_xls(business_entries, period=period),
-                )
+            # 당분간 급여대장만 내려준다 — 4대보험·사업소득은 복구 시 아래 주석 해제.
+            # zf.writestr(
+            #     f"{folder}/4대보험_통합_{period}.xlsx",
+            #     generate_combined_insurance_report(
+            #         await _wage_entries_for_filing(filing_id, db, target_id), period=period
+            #     ),
+            # )
+            # business_entries = await _business_entries_for_filing(filing_id, db, target_id)
+            # if business_entries:
+            #     zf.writestr(
+            #         f"{folder}/사업소득_지급명세서_{period}.xls",
+            #         generate_smarta_business_xls(business_entries, period=period),
+            #     )
             written += 1
 
     if not written:
