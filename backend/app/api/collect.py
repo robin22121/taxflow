@@ -39,9 +39,12 @@ from app.services.ai_parser import parse_payroll_message
 from app.services.crypto import encrypt_rrn, normalize_rrn, rrn_last4
 from app.services.file_intake import intake_file
 from app.services.matching import (
+    _LARGE_CHANGE_FLOOR_KRW,
+    _LARGE_CHANGE_RATIO,
     EmployeeMaster,
     MatchingResult,
     PayrollEntryCandidate,
+    _flag_abnormal_amount,
     reconcile,
     reconcile_wehago,
 )
@@ -49,6 +52,10 @@ from app.services.wehago_payroll_parser import WehagoPayrollRow
 from app.services.payroll_defaults import load_payroll_defaults
 from app.services.storage import get_storage
 from app.services.tax_calc import (
+    _NPS_MAX_BASE,
+    _NPS_MIN_BASE,
+    DEFAULT_HI_RATE,
+    DEFAULT_NPS_RATE,
     SocialInsurance,
     calculate_withholding_tax,
     income_type_to_a_code,
@@ -591,30 +598,60 @@ async def _parse_and_match(
     return reconcile(parsed, masters, prev_by_emp)
 
 
+def _insurance_basis(source_value: int | None, base: int, rate: float) -> dict:
+    """4대보험 변동 사유 설명용 — 이번달 금액이 원시자료 값인지, 보수월액×요율 계산값인지."""
+    if source_value is not None:
+        return {"source": "raw"}
+    return {"source": "computed", "base": base, "rate": rate}
+
+
 def _detect_field_anomalies(
     anomaly: dict,
     cand,
     prev: PayrollEntry,
     tax,
     si_np: int, si_hi: int, si_ei: int, si_ltc: int,
+    *,
+    taxable: int,
+    defaults,
 ) -> None:
-    """전월 대비 필드별 이상치를 anomaly_notes에 기록."""
-    fields: dict[str, tuple[int, int]] = {}
+    """전월 대비 필드별 이상치를 anomaly_notes에 기록.
+
+    대시보드 분석 사유가 "지난달 얼마로 신고했는데 이번달은 보수월액×요율로 얼마"를
+    설명할 수 있도록 계산 근거(과세급여·요율·전월 과세급여)를 함께 남긴다.
+    """
+    fields: dict[str, dict] = {}
     # 총액 변동은 기존 large_change로 이미 처리됨
     # 4대보험 변동 감지 (전월과 다르면 기록)
     if prev.national_pension > 0 and abs(si_np - prev.national_pension) > 1000:
-        fields["national_pension"] = (prev.national_pension, si_np)
+        nps_base = max(_NPS_MIN_BASE, min(_NPS_MAX_BASE, taxable))
+        nps_rate = defaults.nps_rate if defaults.nps_rate is not None else DEFAULT_NPS_RATE
+        fields["national_pension"] = {
+            "prev": prev.national_pension,
+            "curr": si_np,
+            "prev_base": prev.taxable,
+            **_insurance_basis(cand.national_pension, nps_base, nps_rate),
+        }
     if prev.health_insurance > 0 and abs(si_hi - prev.health_insurance) > 1000:
-        fields["health_insurance"] = (prev.health_insurance, si_hi)
+        hi_rate = defaults.hi_rate if defaults.hi_rate is not None else DEFAULT_HI_RATE
+        fields["health_insurance"] = {
+            "prev": prev.health_insurance,
+            "curr": si_hi,
+            "prev_base": prev.taxable,
+            **_insurance_basis(cand.health_insurance, taxable, hi_rate),
+        }
     # 소득세 변동 (20% 이상이면 기록)
     if prev.income_tax and prev.income_tax > 0:
         tax_change = abs(tax.income_tax - prev.income_tax) / prev.income_tax
         if tax_change > 0.2:
-            fields["income_tax"] = (prev.income_tax, tax.income_tax)
+            fields["income_tax"] = {
+                "prev": prev.income_tax,
+                "curr": tax.income_tax,
+                "prev_base": prev.taxable,
+                "base": taxable,
+            }
     if fields:
-        anomaly["field_changes"] = {
-            k: {"prev": v[0], "curr": v[1]} for k, v in fields.items()
-        }
+        anomaly["field_changes"] = fields
 
 
 def _pick(source_value: int | None, computed: int) -> int:
@@ -787,6 +824,8 @@ async def _persist_results(
                 anomaly, cand, prev, tax,
                 si.national_pension, si.health_insurance,
                 si.employment_insurance, si.longterm_care,
+                taxable=fields["taxable"],
+                defaults=defaults,
             )
 
         entry = PayrollEntry(
@@ -888,6 +927,126 @@ async def _ingest_message(
         db, session, client, filing, matching, employees, text, channel, attachments,
         sender_name=sender_name, received_date=received_date,
         prev_entries=prev_entries,
+    )
+
+
+async def _ingest_amounts(
+    *,
+    db: AsyncSession,
+    session: CollectionSession,
+    client: Client,
+    filing: MonthlyFiling,
+    amounts: dict[str, int],
+    channel: str,
+) -> CollectMessageOut:
+    """직원을 골라 금액만 바꾼 제출 — AI 없이 저장한다 (plan/12-owner-portal.md §8.3).
+
+    고른 직원은 새 금액으로 세액·4대보험을 다시 계산하고, 고르지 않은 직원은 지난달
+    명세를 그대로 옮긴다. ``amounts``가 비어 있으면 "지난달과 동일"이다.
+    이번 달에 이미 항목이 있으면 고른 직원만 갱신하고 나머지는 건드리지 않는다.
+    """
+    employees, prev_entries = await _build_context(db, client, filing)
+    emp_by_id = {e.id: e for e in employees}
+    if any(emp_id not in emp_by_id for emp_id in amounts):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "직원 목록에 없는 직원이 포함되어 있습니다")
+    if not amounts and not prev_entries:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "지난달 자료가 없어 그대로 보낼 수 없습니다. 금액을 입력해 주세요.",
+        )
+
+    current_entries = await _load_current_entries(db, client, filing)
+    prev_by_emp = {p.employee_id: p for p in prev_entries if p.employee_id}
+    candidates: list[PayrollEntryCandidate] = []
+    updates: list[tuple[PayrollEntry, PayrollEntryCandidate]] = []
+    changed: list[str] = []
+
+    for emp_id, amount in amounts.items():
+        emp = emp_by_id[emp_id]
+        prev = prev_by_emp.get(emp_id)
+        anomaly: dict = {}
+        if prev and prev.total_amount > 0:
+            ratio = amount / prev.total_amount
+            if abs(amount - prev.total_amount) >= _LARGE_CHANGE_FLOOR_KRW and (
+                ratio >= _LARGE_CHANGE_RATIO or ratio <= 1 / _LARGE_CHANGE_RATIO
+            ):
+                anomaly["large_change"] = {
+                    "prev": prev.total_amount,
+                    "current": amount,
+                    "ratio": round(ratio, 2),
+                }
+        _flag_abnormal_amount(anomaly, amount, emp.name)
+        cand = PayrollEntryCandidate(
+            raw_name=emp.name,
+            employee_id=emp_id,
+            income_type=prev.income_type if prev else IncomeType.WAGE,
+            total_amount=amount,
+            # 비과세 지급항목은 지난달 값을 유지하고, 4대보험·세액은 새 금액으로 다시 계산한다
+            meal_amount=prev.meal_amount if prev else None,
+            car_amount=prev.car_amount if prev else None,
+            childcare_amount=prev.childcare_amount if prev else None,
+            match_status=MatchStatus.MATCHED,
+            prev_amount=prev.total_amount if prev else None,
+            anomaly_notes=anomaly,
+            needs_followup=bool(anomaly),
+        )
+        existing = current_entries.get(_entry_key(emp_id, emp.name))
+        if existing is not None:
+            updates.append((existing, cand))
+        else:
+            candidates.append(cand)
+        changed.append(f"{emp.name} {amount:,}원")
+
+    carried = 0
+    for pe in prev_entries:
+        if pe.employee_id in amounts:
+            continue
+        # 퇴사 처리된 직원은 이번 달로 넘기지 않는다
+        if pe.employee_id and pe.employee_id not in emp_by_id:
+            continue
+        # 이번 달 항목이 이미 있으면 _persist_results가 중복으로 걸러낸다
+        candidates.append(
+            PayrollEntryCandidate(
+                raw_name=pe.raw_name,
+                employee_id=pe.employee_id,
+                income_type=pe.income_type,
+                total_amount=pe.total_amount,
+                # 전월 확정치는 그 자체가 원시자료 — 기본값으로 덮어쓰지 않도록 값을 그대로 넘긴다
+                non_taxable=pe.non_taxable or 0,
+                meal_amount=pe.meal_amount or 0,
+                car_amount=pe.car_amount or 0,
+                childcare_amount=pe.childcare_amount or 0,
+                national_pension=pe.national_pension,
+                health_insurance=pe.health_insurance,
+                employment_insurance=pe.employment_insurance,
+                longterm_care=pe.longterm_care,
+                match_status=MatchStatus.MATCHED if pe.employee_id else MatchStatus.AMBIGUOUS,
+                prev_amount=pe.total_amount,
+            )
+        )
+        carried += 1
+
+    if changed:
+        text = f"직원 선택 입력 — {', '.join(changed)}"
+        if carried:
+            text += f" / 나머지 {carried}명 지난달과 동일"
+    else:
+        text = f"지난달과 동일 — {carried}명"
+
+    matching = MatchingResult(
+        entries=candidates,
+        new_hire_followups=[],
+        resignation_followups=[],
+        ambiguous_followups=[
+            {"name": c.raw_name}
+            for c in candidates
+            if c.match_status == MatchStatus.AMBIGUOUS
+        ],
+    )
+    return await _persist_results(
+        db, session, client, filing, matching, employees, text, channel,
+        prev_entries=prev_entries,
+        updates=updates,
     )
 
 

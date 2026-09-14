@@ -89,6 +89,7 @@ export default function FilingDetailPage({
   const flaggedEntries = allEntries.filter(
     (e) =>
       (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) ||
+      (isPortalAiText(e) && !e.approved) ||
       e.match_status === "AMBIGUOUS",
   );
   // 거래처별 미승인 엔트리 수 — 통합 다운로드는 전부 승인된 거래처만 받을 수 있다.
@@ -1443,11 +1444,16 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
             <div className="flex gap-1.5">
               <Button variant="primary" className="text-xs px-3 py-1.5"
                 onClick={() => {
+                  let skipped = 0;
                   selected.forEach((id) => {
                     const entry = entries.find((e) => e.id === id);
-                    if (entry && !entry.approved) update.mutate({ id, patch: { approved: true } });
+                    if (!entry || entry.approved) return;
+                    // 사장님 직접 입력(AI 파싱) 항목은 일괄 승인하지 않는다 — 한 건씩 확인 후 개별 승인
+                    if (isPortalAiText(entry)) { skipped += 1; return; }
+                    update.mutate({ id, patch: { approved: true } });
                   });
                   setSelected(new Set());
+                  if (skipped > 0) alert(`직접 입력(AI 파싱) ${skipped}건은 일괄 승인에서 제외했습니다. 한 건씩 확인 후 개별 승인해 주세요.`);
                 }}
                 disabled={update.isPending}>
                 {update.isPending ? "승인중..." : selected.size === 1 ? "승인" : `일괄 승인 (${selected.size})`}
@@ -2580,6 +2586,7 @@ function AnalysisPanel({ reasons, approved, onApprove, approving }: {
               <span className={`font-semibold mr-1 ${approved ? "text-gray-900" : "text-red-600"}`}>{i + 1}. {r.label}</span>
               — {r.detail}
             </div>
+            {r.calc && <div className="text-gray-700 pl-3 tabular-nums">{r.calc}</div>}
             <div className="text-gray-600 pl-3">
               → {r.action}
               {r.rule && <span className="text-[11px] text-gray-400 ml-2">({r.rule})</span>}
@@ -2742,7 +2749,7 @@ function ReviewOnlyMode({ filingId, entries, sessions }: {
                   <div className="text-[13px] text-gray-700 leading-relaxed space-y-1">
                     {reasons.length > 0 ? reasons.map((r) => (
                       <div key={r.key}>
-                        {r.detail} → {r.action}
+                        {r.detail}{r.calc && <span className="block text-[12.5px] text-gray-600 tabular-nums">{r.calc}</span>} → {r.action}
                         {r.rule && <span className="text-[12px] text-gray-400"> ({r.rule})</span>}
                       </div>
                     )) : fallbackReason}
@@ -3006,7 +3013,7 @@ function formatKrw(n: number | null | undefined): string {
 
 function channelLabel(ch: string | null): string {
   if (!ch) return "—";
-  return { kakao: "카톡", email: "이메일", sms: "문자", voice: "전화", manual: "직접입력", public_url: "URL폼" }[ch] ?? ch;
+  return { kakao: "카톡", email: "이메일", sms: "문자", voice: "전화", manual: "직접입력", public_url: "URL폼", public_select: "직원선택", public_same: "지난달동일" }[ch] ?? ch;
 }
 
 const CHANNEL_KO_MAP: Record<string, string> = {
@@ -3028,6 +3035,8 @@ const CHANNEL_KO_MAP: Record<string, string> = {
   "manual": "직접",
   "url": "URL폼",
   "public_url": "URL폼",
+  "public_select": "직원선택",
+  "public_same": "지난달동일",
 };
 
 const CHANNEL_COLOR_MAP: Record<string, string> = {
@@ -3110,16 +3119,91 @@ const FIELD_CHANGE_ACTION: Record<string, string> = {
   income_tax: "과세급여 변동에 따른 정상 변동인지 확인",
 };
 
-type AnomalyReason = { key: string; label: string; detail: string; action: string; rule?: string };
+type AnomalyReason = { key: string; label: string; detail: string; calc?: string; action: string; rule?: string };
+
+// 백엔드 collect.py(_detect_field_anomalies)가 남기는 항목별 변동 + 계산 근거
+type FieldChange = { prev: number; curr: number; prev_base?: number; base?: number; rate?: number; source?: "raw" | "computed" };
+
+// 계산 근거가 기록되기 전 항목용 — backend tax_calc.py 기본 요율·기준소득월액 상하한과 같게 유지할 것
+const SYSTEM_RATE: Record<string, number> = { national_pension: 0.045, health_insurance: 0.03545 };
+const NPS_BASE_MIN = 370_000;
+const NPS_BASE_MAX = 5_900_000;
 
 function won(v: number): string {
   return `₩${v.toLocaleString("ko-KR")}`;
 }
 
-/** anomaly_notes → 화면용 사유 목록 (우선순위: 미확인 > 비정상 금액 > 총지급 변동 > 항목별 변동). memo 등 기타 키는 무시. */
+function pct(rate: number): string {
+  return `${+(rate * 100).toFixed(3)}%`;
+}
+
+/** 사장님 포털 '직접 입력'(텍스트) — AI가 읽은 값이라 세무사 사무소가 한 건씩 확인해야 한다. */
+function isPortalAiText(e: PayrollEntry): boolean {
+  return e.source_event?.channel === "public_url";
+}
+
+/** 항목별 변동 → "지난달 얼마로 신고했으나 이번달 요율로 계산하면 얼마" + 계산근거 문장. */
+function fieldChangeExplain(k: string, v: FieldChange, e: PayrollEntry): { detail: string; calc?: string } {
+  const label = FIELD_LABELS[k] ?? k;
+  const prevPart = `지난달 ${label} ${won(v.prev)}으로 신고했으나${v.prev_base ? ` (지난달 과세급여 ${won(v.prev_base)})` : ""}`;
+
+  if (k === "income_tax") {
+    const base = v.base ?? e.taxable;
+    return {
+      detail: `${prevPart} 이번달 계산한 금액은 ${won(v.curr)}입니다.`,
+      calc: base ? `계산근거: 과세급여 ${won(base)} 기준 근로소득 간이세액표(부양가족 1명) 적용` : undefined,
+    };
+  }
+  if (v.source === "raw") {
+    return {
+      detail: `${prevPart} 이번달 제출 자료에 적힌 공제액은 ${won(v.curr)}입니다.`,
+      calc: "계산근거: 제출 자료의 공제액을 그대로 사용 (요율 계산 아님)",
+    };
+  }
+
+  let base = v.base;
+  let rate = v.rate;
+  if (base == null || rate == null) {
+    // 근거 기록 이전 항목 — 시스템 기본 요율로 다시 계산해 금액이 일치할 때만 근거를 보여준다
+    const sysRate = SYSTEM_RATE[k];
+    const taxable = e.taxable ?? 0;
+    const b = k === "national_pension" ? Math.max(NPS_BASE_MIN, Math.min(NPS_BASE_MAX, taxable)) : taxable;
+    if (sysRate && taxable > 0 && Math.floor((b * sysRate) / 10) * 10 === v.curr) {
+      base = b;
+      rate = sysRate;
+    }
+  }
+  if (base == null || rate == null) {
+    return { detail: `전월 ${won(v.prev)} → 이번달 ${won(v.curr)}` };
+  }
+
+  const baseLabel = k === "national_pension" ? "기준소득월액" : "보수월액(과세급여)";
+  const capNote =
+    k === "national_pension" && e.taxable != null && base !== e.taxable
+      ? ` — 과세급여 ${won(e.taxable)}에 ${base > e.taxable ? "하한" : "상한"} 적용`
+      : "";
+  return {
+    detail: `${prevPart} 이번달 ${label} 요율 ${pct(rate)}로 계산한 금액은 ${won(v.curr)}입니다.`,
+    calc: `계산근거: ${baseLabel} ${won(base)} × ${pct(rate)} = ${won(v.curr)} (10원 미만 절사)${capNote}`,
+  };
+}
+
+/** anomaly_notes → 화면용 사유 목록 (우선순위: AI 파싱 > 미확인 > 비정상 금액 > 총지급 변동 > 항목별 변동). memo 등 기타 키는 무시. */
 function anomalyReasons(e: PayrollEntry): AnomalyReason[] {
   const n = e.anomaly_notes ?? {};
   const reasons: AnomalyReason[] = [];
+
+  if (isPortalAiText(e)) {
+    const raw = e.source_event?.raw_text?.trim();
+    reasons.push({
+      key: "portal_ai_text",
+      label: "AI 파싱 · 개별확인",
+      detail: raw
+        ? `사장님이 직접 입력한 문장을 AI가 읽은 값입니다 — 원문 “${raw.length > 80 ? `${raw.slice(0, 80)}…` : raw}”`
+        : "사장님이 직접 입력한 문장을 AI가 읽은 값입니다",
+      action: "원문과 이름·금액을 대조한 뒤 이 항목만 개별 승인 (일괄 승인 제외)",
+    });
+  }
 
   const unconfirmed = n.unconfirmed as { prev_amount?: number } | undefined;
   if (unconfirmed) {
@@ -3159,12 +3243,14 @@ function anomalyReasons(e: PayrollEntry): AnomalyReason[] {
     });
   }
 
-  const fc = n.field_changes as Record<string, { prev: number; curr: number }> | undefined;
+  const fc = n.field_changes as Record<string, FieldChange> | undefined;
   for (const [k, v] of Object.entries(fc ?? {})) {
+    const { detail, calc } = fieldChangeExplain(k, v, e);
     reasons.push({
       key: `field_changes.${k}`,
       label: `${FIELD_LABELS[k] ?? k} 변동`,
-      detail: `전월 ${won(v.prev)} → 이번달 ${won(v.curr)}`,
+      detail,
+      calc,
       action: FIELD_CHANGE_ACTION[k] ?? "전월과 달라진 사유 확인",
       rule: RULE_FIELD_CHANGE[k],
     });

@@ -8,6 +8,7 @@ import { Badge } from "../_components/Badge";
 import { Card, SectionHeader } from "../_components/Card";
 import { IconBox } from "../_components/IconBox";
 import { Modal } from "../_components/Modal";
+import { SendFeedback } from "../_components/SendFeedback";
 import { StatusStrip } from "../_components/StatusStrip";
 import styles from "../_components/portal.module.css";
 import { formatKrw, incomeTypeLabel, periodLabel } from "../_components/format";
@@ -17,6 +18,9 @@ import type {
   PortalStatusInfo,
   SubmitResult,
 } from "../_components/types";
+
+/** 제출 요청을 감싸 "보내는 중" 오버레이와 완료 팝업을 띄운다. 실패하면 그대로 throw. */
+type Send = <T>(request: () => Promise<T>) => Promise<T>;
 
 type Props = {
   token: string;
@@ -44,6 +48,21 @@ export function FilingView({
   const [showResign, setShowResign] = useState(false);
 
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // 모든 제출 모달이 공유 — 보내는 동안 오버레이, 끝나면 완료 팝업
+  const [sending, setSending] = useState(false);
+  const [sentOpen, setSentOpen] = useState(false);
+
+  async function send<T>(request: () => Promise<T>): Promise<T> {
+    setSending(true);
+    try {
+      const res = await request();
+      setSentOpen(true);
+      return res;
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
     <>
@@ -146,7 +165,7 @@ export function FilingView({
                 </svg>
               }
               title="직접 입력"
-              desc="변동 있는 경우 파일이나 텍스트로 보내기"
+              desc="변동 있는 경우 파일·직원 선택·텍스트로 보내기"
               onClick={() => setShowEntry(true)}
             />
           </div>
@@ -204,6 +223,7 @@ export function FilingView({
           setShowPreview(false);
           onSubmitted();
         }}
+        send={send}
       />
 
       {/* 직접 입력 모달 */}
@@ -211,14 +231,16 @@ export function FilingView({
         token={token}
         open={showEntry}
         onClose={() => setShowEntry(false)}
-        onSubmitted={() => {
-          setShowEntry(false);
-          onSubmitted();
-        }}
+        onSubmitted={onSubmitted}
+        employees={employees}
+        lastMonth={lastMonth}
+        gateOpen={gateOpen}
+        onNeedPin={onNeedPin}
+        send={send}
       />
 
       {/* 신입 등록 모달 */}
-      <HireModal token={token} open={showHire} onClose={() => setShowHire(false)} />
+      <HireModal token={token} open={showHire} onClose={() => setShowHire(false)} send={send} />
 
       {/* 퇴사 등록 모달 */}
       <ResignModal
@@ -226,7 +248,10 @@ export function FilingView({
         open={showResign}
         onClose={() => setShowResign(false)}
         employees={employees}
+        send={send}
       />
+
+      <SendFeedback sending={sending} sentOpen={sentOpen} onCloseSent={() => setSentOpen(false)} />
     </>
   );
 }
@@ -288,6 +313,7 @@ function PreviewModal({
   gateOpen,
   onNeedPin,
   onSubmitted,
+  send,
 }: {
   token: string;
   open: boolean;
@@ -296,6 +322,7 @@ function PreviewModal({
   gateOpen: boolean;
   onNeedPin: () => void;
   onSubmitted: () => void;
+  send: Send;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -304,10 +331,13 @@ function PreviewModal({
     setBusy(true);
     setError(null);
     try {
-      await api(`/api/v1/public/r/${token}/submit`, {
-        method: "POST",
-        json: { text: "지난달과 동일" },
-      });
+      // 항목 없이 보내면 서버가 지난달 명세를 AI 없이 그대로 옮긴다
+      await send(() =>
+        api(`/api/v1/public/r/${token}/submit-amounts`, {
+          method: "POST",
+          json: { items: [] },
+        }),
+      );
       onSubmitted();
     } catch (e) {
       setError((e as Error).message);
@@ -394,34 +424,71 @@ function PreviewModal({
   );
 }
 
+type EntryMode = "file" | "pick" | "text";
+
+const ENTRY_MODES: [EntryMode, string][] = [
+  ["file", "파일 올리기"],
+  ["pick", "직원 골라 수정"],
+  ["text", "직접 입력"],
+];
+
 function DirectEntryModal({
   token,
   open,
   onClose,
   onSubmitted,
+  employees,
+  lastMonth,
+  gateOpen,
+  onNeedPin,
+  send,
 }: {
   token: string;
   open: boolean;
   onClose: () => void;
   onSubmitted: () => void;
+  employees: EmployeeRow[];
+  lastMonth: LastMonthInfo | null;
+  gateOpen: boolean;
+  onNeedPin: () => void;
+  send: Send;
 }) {
+  const [mode, setMode] = useState<EntryMode>("file");
   const [text, setText] = useState("");
+  // 고른 직원만 키가 있다 — employee_id → 이번 달 금액(숫자만)
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SubmitResult | null>(null);
 
-  async function submit() {
-    if (!text.trim()) return;
+  const activeEmployees = employees.filter((e) => e.status === "ACTIVE");
+  // 지난달 금액은 PIN 게이트 뒤에서만 내려온다 (entries === null이면 게이트 앞)
+  const prevByName = new Map((lastMonth?.entries ?? []).map((e) => [e.name, e.total_amount]));
+  const picked = Object.entries(amounts);
+  const pickReady = picked.length > 0 && picked.every(([, v]) => v !== "");
+
+  function close() {
+    setText("");
+    setAmounts({});
+    setError(null);
+    onClose();
+  }
+
+  function togglePick(id: string) {
+    setAmounts((prev) => {
+      const next = { ...prev };
+      if (id in next) delete next[id];
+      else next[id] = "";
+      return next;
+    });
+  }
+
+  async function run(request: () => Promise<SubmitResult>) {
     setBusy(true);
     setError(null);
     try {
-      const res = await api<SubmitResult>(`/api/v1/public/r/${token}/submit`, {
-        method: "POST",
-        json: { text },
-      });
-      setResult(res);
-      setText("");
+      await send(request);
       onSubmitted();
+      close();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -429,78 +496,168 @@ function DirectEntryModal({
     }
   }
 
-  async function handleFile(f: File) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await apiUpload<SubmitResult>(`/api/v1/public/r/${token}/upload`, f);
-      setResult(res);
-      onSubmitted();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
+  function submit() {
+    if (mode === "text" && text.trim()) {
+      run(() =>
+        api<SubmitResult>(`/api/v1/public/r/${token}/submit`, {
+          method: "POST",
+          json: { text },
+        }),
+      );
+    }
+    if (mode === "pick" && pickReady) {
+      run(() =>
+        api<SubmitResult>(`/api/v1/public/r/${token}/submit-amounts`, {
+          method: "POST",
+          json: {
+            items: picked.map(([employee_id, v]) => ({ employee_id, total_amount: Number(v) })),
+          },
+        }),
+      );
     }
   }
+
+  const canSubmit = mode === "text" ? !!text.trim() : mode === "pick" ? pickReady : false;
 
   return (
     <Modal
       open={open}
-      onClose={() => {
-        setText("");
-        setError(null);
-        setResult(null);
-        onClose();
-      }}
+      onClose={close}
       title="이번 달 급여 자료 보내기"
       footer={
         <>
-          <button type="button" className={styles.ctaSecondary} onClick={onClose}>
+          <button type="button" className={styles.ctaSecondary} onClick={close}>
             닫기
           </button>
-          <button
-            type="button"
-            className={styles.ctaPrimary}
-            onClick={submit}
-            disabled={busy || !text.trim()}
-          >
-            {busy ? "보내는 중…" : "보내기"}
-          </button>
+          {mode !== "file" && (
+            <button
+              type="button"
+              className={styles.ctaPrimary}
+              onClick={submit}
+              disabled={busy || !canSubmit}
+            >
+              {busy ? "보내는 중…" : "보내기"}
+            </button>
+          )}
         </>
       }
     >
-      <label className="block rounded-xl border border-dashed border-[var(--line-strong)] bg-white p-4 text-center hover:border-[var(--blue)] cursor-pointer">
-        <input
-          type="file"
-          className="hidden"
-          disabled={busy}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) handleFile(f);
-          }}
-        />
-        <div className="text-[22px]">📄</div>
-        <div className="mt-1 text-[13.5px] font-semibold">파일 올리기</div>
-        <div className="text-[11.5px] text-[var(--muted)]">엑셀 · 사진 · PDF</div>
-      </label>
-      <div className="mt-4">
-        <div className={styles.h3}>또는 텍스트로 적기</div>
-        <textarea
-          className={styles.input}
-          rows={5}
-          style={{ marginTop: 8 }}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="예) 김연호 320만원, 박지훈 250만원"
-        />
-        <p className="mt-1 text-[11px] text-[var(--muted)]">
-          &lsquo;지난달과 동일&rsquo;이라고만 적으셔도 됩니다.
-        </p>
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-[#eef3f9] p-1" role="tablist">
+        {ENTRY_MODES.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={mode === key}
+            onClick={() => {
+              setMode(key);
+              setError(null);
+            }}
+            className={`rounded-lg py-2 text-[12.5px] font-semibold transition-colors ${
+              mode === key ? "bg-white text-[var(--navy)] shadow-sm" : "text-[var(--muted)]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      {result && (
-        <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--mint-bg)] px-4 py-3 text-[13px] text-[var(--mint-fg)]">
-          보내주셔서 감사합니다. 세무사 사무소에서 확인 후 신고합니다.
+
+      {mode === "file" && (
+        <label className="mt-4 block rounded-xl border border-dashed border-[var(--line-strong)] bg-white p-4 text-center hover:border-[var(--blue)] cursor-pointer">
+          <input
+            type="file"
+            className="hidden"
+            disabled={busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) run(() => apiUpload<SubmitResult>(`/api/v1/public/r/${token}/upload`, f));
+            }}
+          />
+          <div className="text-[22px]">📄</div>
+          <div className="mt-1 text-[13.5px] font-semibold">{busy ? "올리는 중…" : "파일 올리기"}</div>
+          <div className="text-[11.5px] text-[var(--muted)]">엑셀 · 사진 · PDF</div>
+        </label>
+      )}
+
+      {mode === "pick" && (
+        <div className="mt-4">
+          <p className="text-[12.5px] text-[var(--muted)]">
+            금액이 바뀐 직원만 골라 이번 달 금액을 적어 주세요. 고르지 않은 직원은 지난달과 같게 접수됩니다.
+          </p>
+          {!gateOpen && lastMonth?.period && (
+            <button
+              type="button"
+              onClick={onNeedPin}
+              className="mt-2 text-[12.5px] text-[var(--blue)] font-semibold underline underline-offset-2"
+            >
+              PIN 입력하고 지난달 금액 함께 보기
+            </button>
+          )}
+          {activeEmployees.length === 0 ? (
+            <div className="mt-3 text-[12.5px] text-[var(--muted)]">
+              등록된 직원이 없어요. 파일이나 직접 입력으로 보내 주세요.
+            </div>
+          ) : (
+            <ul className="mt-3 max-h-[46vh] overflow-y-auto">
+              {activeEmployees.map((e) => {
+                const on = e.id in amounts;
+                const prev = prevByName.get(e.name);
+                return (
+                  <li key={e.id} className="border-b border-[var(--line)] py-2.5 last:border-0">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => togglePick(e.id)}
+                        className="h-4 w-4 accent-[var(--blue)]"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="text-[13.5px] font-medium">{e.name}</span>
+                        {e.income_type && (
+                          <span className="ml-1.5 text-[11.5px] text-[var(--muted)]">
+                            {incomeTypeLabel(e.income_type)}
+                          </span>
+                        )}
+                      </span>
+                      {prev != null && (
+                        <span className="text-[12px] tabular-nums text-[var(--muted)]">
+                          지난달 {formatKrw(prev)}
+                        </span>
+                      )}
+                    </label>
+                    {on && (
+                      <input
+                        className={styles.input}
+                        style={{ marginTop: 6 }}
+                        inputMode="numeric"
+                        placeholder="이번 달 금액 (원)"
+                        value={amounts[e.id] ? Number(amounts[e.id]).toLocaleString("ko-KR") : ""}
+                        onChange={(ev) =>
+                          setAmounts((a) => ({ ...a, [e.id]: ev.target.value.replace(/[^0-9]/g, "") }))
+                        }
+                      />
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {mode === "text" && (
+        <div className="mt-4">
+          <textarea
+            className={styles.input}
+            rows={5}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="예) 김연호 320만원, 박지훈 250만원"
+          />
+          <p className="mt-1 text-[11px] text-[var(--muted)]">
+            적어 주신 내용은 AI가 정리하고, 세무사 사무소에서 한 건씩 확인한 뒤 반영됩니다.
+          </p>
         </div>
       )}
       {error && <p className="mt-3 text-[12.5px] text-red-600">{error}</p>}
@@ -512,32 +669,35 @@ function HireModal({
   token,
   open,
   onClose,
+  send,
 }: {
   token: string;
   open: boolean;
   onClose: () => void;
+  send: Send;
 }) {
   const [name, setName] = useState("");
   const [hiredAt, setHiredAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
 
   async function submit() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api<{ name: string }>(`/api/v1/public/r/${token}/employee-change`, {
-        method: "POST",
-        json: {
-          change_type: "HIRE",
-          name: name.trim(),
-          hired_at: hiredAt || null,
-        },
-      });
-      setDone(`${res.name} 님 입사를 세무사 사무소에 알렸어요.`);
+      await send(() =>
+        api(`/api/v1/public/r/${token}/employee-change`, {
+          method: "POST",
+          json: {
+            change_type: "HIRE",
+            name: name.trim(),
+            hired_at: hiredAt || null,
+          },
+        }),
+      );
       setName("");
       setHiredAt("");
+      onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -550,7 +710,6 @@ function HireModal({
       open={open}
       onClose={() => {
         setError(null);
-        setDone(null);
         onClose();
       }}
       title="새 직원 등록"
@@ -589,11 +748,6 @@ function HireModal({
       <p className="mt-3 text-[11.5px] text-[var(--muted)]">
         주민등록번호는 여기에 적지 마세요. 사무소에서 따로 안전하게 받습니다.
       </p>
-      {done && (
-        <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--mint-bg)] px-3 py-2 text-[12.5px] text-[var(--mint-fg)]">
-          {done}
-        </div>
-      )}
       {error && <p className="mt-3 text-[12.5px] text-red-600">{error}</p>}
     </Modal>
   );
@@ -604,33 +758,36 @@ function ResignModal({
   open,
   onClose,
   employees,
+  send,
 }: {
   token: string;
   open: boolean;
   onClose: () => void;
   employees: EmployeeRow[];
+  send: Send;
 }) {
   const [employeeId, setEmployeeId] = useState("");
   const [resignedAt, setResignedAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
 
   async function submit() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api<{ name: string }>(`/api/v1/public/r/${token}/employee-change`, {
-        method: "POST",
-        json: {
-          change_type: "RESIGN",
-          employee_id: employeeId,
-          resigned_at: resignedAt || null,
-        },
-      });
-      setDone(`${res.name} 님 퇴사를 세무사 사무소에 알렸어요.`);
+      await send(() =>
+        api(`/api/v1/public/r/${token}/employee-change`, {
+          method: "POST",
+          json: {
+            change_type: "RESIGN",
+            employee_id: employeeId,
+            resigned_at: resignedAt || null,
+          },
+        }),
+      );
       setEmployeeId("");
       setResignedAt("");
+      onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -643,7 +800,6 @@ function ResignModal({
       open={open}
       onClose={() => {
         setError(null);
-        setDone(null);
         onClose();
       }}
       title="퇴사 직원 등록"
@@ -687,11 +843,6 @@ function ResignModal({
         value={resignedAt}
         onChange={(e) => setResignedAt(e.target.value)}
       />
-      {done && (
-        <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--mint-bg)] px-3 py-2 text-[12.5px] text-[var(--mint-fg)]">
-          {done}
-        </div>
-      )}
       {error && <p className="mt-3 text-[12.5px] text-red-600">{error}</p>}
     </Modal>
   );

@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.collect import _ingest_message
+from app.api.collect import _ingest_amounts, _ingest_message
 from app.core.deps import get_db
 from app.models import (
     ChangeType,
@@ -75,6 +75,16 @@ class CollectionSessionPublic(BaseModel):
 
 class PublicSubmitIn(BaseModel):
     text: str = Field(min_length=1, max_length=20_000)
+
+
+class PublicAmountItem(BaseModel):
+    employee_id: str
+    total_amount: int = Field(ge=0, le=10_000_000_000)
+
+
+class PublicAmountsIn(BaseModel):
+    # 비어 있으면 "지난달과 동일" — 지난달 명세를 그대로 접수한다.
+    items: list[PublicAmountItem] = Field(default_factory=list, max_length=500)
 
 
 class PortalUnlockIn(BaseModel):
@@ -176,6 +186,28 @@ async def public_submit_message(
         filing=link.filing,
         text=payload.text,
         channel="public_url",
+    )
+
+
+@router.post("/r/{token_str}/submit-amounts", response_model=CollectMessageOut)
+async def public_submit_amounts(
+    token_str: str,
+    payload: PublicAmountsIn,
+    db: AsyncSession = Depends(get_db),
+) -> CollectMessageOut:
+    """직원을 골라 금액만 바꿔 보내기 — AI를 거치지 않는다 (plan/12-owner-portal.md §8.3).
+
+    고르지 않은 직원은 지난달과 동일. 항목이 없으면 "지난달과 동일" 원탭 확정이다.
+    """
+    link = await _require_open_link(db, token_str)
+    amounts = {item.employee_id: item.total_amount for item in payload.items}
+    return await _ingest_amounts(
+        db=db,
+        session=link.session,
+        client=link.client,
+        filing=link.filing,
+        amounts=amounts,
+        channel="public_select" if amounts else "public_same",
     )
 
 
