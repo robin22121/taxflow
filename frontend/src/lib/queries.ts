@@ -447,6 +447,12 @@ export type ParsedEntryPreview = {
   health_insurance: number | null;
   employment_insurance: number | null;
   longterm_care: number | null;
+  // 원천징수 세액·기타 공제 확정치 (전월자료 불러오기) — 있으면 재계산하지 않는다
+  income_tax?: number | null;
+  local_tax?: number | null;
+  student_loan?: number | null;
+  settlement_insurance?: number | null;
+  rent_support?: number | null;
   match_status: string;
   prev_amount: number | null;
   needs_followup: boolean;

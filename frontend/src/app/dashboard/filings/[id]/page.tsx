@@ -1002,7 +1002,10 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
             <span className="tabular-nums font-semibold text-gray-900">{formatKrw(total)}</span>
           </div>
           <p className="text-[11px] text-gray-400">
-            비과세·4대보험·소득세는 거래처 설정값으로 자동 계산됩니다. 반영 후 표에서 수정할 수 있습니다.
+            {meta.channel === "carry_forward"
+              ? "전월 값을 그대로 불러옵니다. 자체 계산값과 다른 항목은 반영 후 빨간색으로 표시됩니다."
+              : "비과세·4대보험·소득세는 거래처 설정값으로 자동 계산됩니다."}{" "}
+            반영 후 표에서 수정할 수 있습니다.
             {updateCount > 0 && " 기존 항목을 수정하면 금액이 바뀌므로 승인 상태는 해제됩니다."}
           </p>
         </div>
@@ -2167,6 +2170,7 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
   const reasons = anomalyReasons(e);
   const hasFlag = reasons.length > 0 && !e.approved;
   const fieldChanges = (e.anomaly_notes?.field_changes ?? null) as Record<string, { prev: number; curr: number }> | null;
+  const calcDiffs = (e.anomaly_notes?.calc_diffs ?? null) as Record<string, { actual: number; computed: number }> | null;
   const diff = computeDiff(e);
 
   return (
@@ -2251,6 +2255,7 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
               draft={draft}
               setDraft={setDraft}
               fieldChanges={fieldChanges}
+              calcDiffs={calcDiffs}
               mode={mode}
               onSave={onSave}
               onCancel={onToggleExpand}
@@ -2271,6 +2276,7 @@ function V3Spreadsheet({
   draft,
   setDraft,
   fieldChanges,
+  calcDiffs,
   mode,
   onSave,
   onCancel,
@@ -2279,6 +2285,7 @@ function V3Spreadsheet({
   draft: Partial<PayrollEntry>;
   setDraft: (d: Partial<PayrollEntry>) => void;
   fieldChanges: Record<string, { prev: number; curr: number }> | null;
+  calcDiffs: Record<string, { actual: number; computed: number }> | null;
   mode: "pending" | "approved";
   onSave: () => void;
   onCancel: () => void;
@@ -2335,12 +2342,16 @@ function V3Spreadsheet({
     );
   }
 
-  function v3Num(field: keyof PayrollEntry, value: number, anomaly?: boolean) {
+  function v3Num(field: keyof PayrollEntry, value: number, fieldChanged?: boolean) {
+    // 전월 대비 변동 또는 불러온 값이 자체 계산값과 다른 칸은 빨간색
+    const calc = calcDiffs?.[field];
+    const anomaly = fieldChanged || !!calc;
     if (editing) {
       return (
         <input
           type="text"
           inputMode="numeric"
+          title={calc ? `계산값 ${calc.computed.toLocaleString("ko-KR")}` : undefined}
           value={value.toLocaleString("ko-KR")}
           onChange={(e) => {
             const digits = e.target.value.replace(/[^\d-]/g, "");
@@ -3109,6 +3120,12 @@ const FIELD_CHANGE_ACTION: Record<string, string> = {
   health_insurance: "보수월액 변경(정기결정·변경신고) 반영 여부 확인",
   income_tax: "과세급여 변동에 따른 정상 변동인지 확인",
 };
+// 전월자료 불러오기 — collect.py(_calc_diffs)와 같게 유지할 것
+const RULE_CALC_DIFF = "기준: 불러온 값이 자체 계산값과 다름";
+const CALC_DIFF_ACTION: Record<string, string> = {
+  income_tax: "공제대상가족 수·원천징수 비율(80·100·120%) 반영 여부 확인",
+  local_tax: "소득세의 10%(10원 미만 절사)인지 확인",
+};
 
 type AnomalyReason = { key: string; label: string; detail: string; action: string; rule?: string };
 
@@ -3167,6 +3184,17 @@ function anomalyReasons(e: PayrollEntry): AnomalyReason[] {
       detail: `전월 ${won(v.prev)} → 이번달 ${won(v.curr)}`,
       action: FIELD_CHANGE_ACTION[k] ?? "전월과 달라진 사유 확인",
       rule: RULE_FIELD_CHANGE[k],
+    });
+  }
+
+  const cd = n.calc_diffs as Record<string, { actual: number; computed: number }> | undefined;
+  for (const [k, v] of Object.entries(cd ?? {})) {
+    reasons.push({
+      key: `calc_diffs.${k}`,
+      label: `${FIELD_LABELS[k] ?? k} 계산차이`,
+      detail: `불러온 값 ${won(v.actual)} · 계산값 ${won(v.computed)}`,
+      action: CALC_DIFF_ACTION[k] ?? "보수월액·요율 적용이 맞는지 확인",
+      rule: RULE_CALC_DIFF,
     });
   }
 

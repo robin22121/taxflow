@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from app.api.collect import _computed_fields
+from app.api.collect import _calc_diffs, _computed_fields
 from app.models.payroll import IncomeType
 from app.services.matching import PayrollEntryCandidate
 from app.services.payroll_defaults import ResolvedPayrollDefaults
@@ -114,6 +114,49 @@ def test_partially_supplied_social_insurance():
     )
     assert fields["employment_insurance"] == 0
     assert fields["national_pension"] == 94_500
+
+
+# ── 소득세·기타 공제 (전월자료 불러오기) ─────────────────────
+
+
+def test_source_income_tax_wins_and_calc_diff_is_reported():
+    """전월 확정 소득세는 그대로 쓰고, 간이세액표 계산값과 다르면 차이로 남긴다."""
+    cand = _cand(
+        total_amount=3_900_000, meal_amount=200_000, car_amount=0, childcare_amount=0,
+        income_tax=111_000, local_tax=11_100,
+    )
+    fields, tax, _si = _computed_fields(cand, _client(), _defaults(), None)
+    assert fields["income_tax"] == 111_000
+    assert fields["local_tax"] == 11_100
+    assert tax.income_tax == 151_670  # 과세 370만, 1인
+
+    diffs = _calc_diffs(cand, fields, tax, _defaults())
+    assert diffs == {"income_tax": {"actual": 111_000, "computed": 151_670}}
+
+
+def test_calc_diff_flags_local_tax_not_ten_percent_of_income_tax():
+    cand = _cand(income_tax=111_000, local_tax=15_160)
+    fields, tax, _si = _computed_fields(cand, _client(), _defaults(), None)
+    diffs = _calc_diffs(cand, fields, tax, _defaults())
+    assert diffs["local_tax"] == {"actual": 15_160, "computed": 11_100}
+
+
+def test_source_social_insurance_diff_is_reported():
+    cand = _cand(meal_amount=200_000, car_amount=200_000, childcare_amount=0, national_pension=91_440)
+    fields, tax, _si = _computed_fields(cand, _client(), _defaults(), None)
+    diffs = _calc_diffs(cand, fields, tax, _defaults())
+    assert diffs["national_pension"] == {"actual": 91_440, "computed": 94_500}
+    assert "health_insurance" not in diffs  # 계산값을 그대로 쓴 항목은 차이 없음
+
+
+def test_other_deductions_are_carried_only_when_supplied():
+    fields, _tax, _si = _computed_fields(
+        _cand(student_loan=50_000, settlement_insurance=0), _client(), _defaults(), None,
+    )
+    assert fields["student_loan"] == 50_000
+    assert fields["settlement_insurance"] == 0
+    # 값이 없으면 키를 넣지 않아 기존 항목 수정 시 입력값을 지우지 않는다
+    assert "rent_support" not in fields
 
 
 def _client():

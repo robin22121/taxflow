@@ -55,6 +55,12 @@ class PayrollEntryCandidate:
     health_insurance: int | None = None
     employment_insurance: int | None = None
     longterm_care: int | None = None
+    # 원천징수 세액·기타 공제 확정치 (전월자료 불러오기). 있으면 재계산하지 않고 그대로 쓴다.
+    income_tax: int | None = None
+    local_tax: int | None = None
+    student_loan: int | None = None
+    settlement_insurance: int | None = None
+    rent_support: int | None = None
     match_status: MatchStatus = MatchStatus.AMBIGUOUS
     prev_amount: int | None = None
     anomaly_notes: dict[str, Any] = field(default_factory=dict)
