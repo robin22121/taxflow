@@ -50,3 +50,20 @@ async def test_unapproved_client_is_blocked_until_approved(http: AsyncClient, au
     )
     assert res.status_code == 200, res.text
     assert res.headers["content-type"] == "application/zip"
+
+
+@pytest.mark.asyncio
+async def test_client_without_entries_is_blocked(http: AsyncClient, auth_headers: dict):
+    filing = (await http.get("/api/v1/filings", headers=auth_headers)).json()[0]
+    created = await http.post(
+        "/api/v1/clients", json={"business_name": "자료없는상사"}, headers=auth_headers
+    )
+    assert created.status_code == 201, created.text
+
+    res = await http.get(
+        f"/api/v1/filings/{filing['id']}/unified-download",
+        params={"client_ids": created.json()["id"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 409, res.text
+    assert "자료가 없는" in res.json()["detail"]

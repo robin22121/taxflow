@@ -1223,6 +1223,33 @@ async def download_unified(
             "먼저 검증·승인을 완료하세요.",
         )
 
+    # 자료가 없는 거래처는 빈 신고서만 나가므로 막는다.
+    with_entries = set(
+        (
+            await db.execute(
+                select(PayrollEntry.client_id)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.client_id.in_(requested),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    empty_ids = set(requested) - with_entries
+    if empty_ids:
+        names = (
+            await db.execute(
+                select(Client.business_name).where(Client.id.in_(empty_ids))
+            )
+        ).scalars().all()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"자료가 없는 거래처는 받을 수 없습니다: {', '.join(names)}.",
+        )
+
     period = filing.period
     buf = BytesIO()
     used_folders: set[str] = set()

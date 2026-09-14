@@ -92,14 +92,16 @@ export default function FilingDetailPage({
       (isPortalAiText(e) && !e.approved) ||
       e.match_status === "AMBIGUOUS",
   );
-  // 거래처별 미승인 엔트리 수 — 통합 다운로드는 전부 승인된 거래처만 받을 수 있다.
+  // 거래처별 미승인 엔트리 수 — 통합 다운로드는 자료가 있고 전부 승인된 거래처만 받을 수 있다.
   const unapprovedCounts = new Map<string, number>();
   for (const e of allEntries) {
     if (!e.approved) unapprovedCounts.set(e.client_id, (unapprovedCounts.get(e.client_id) ?? 0) + 1);
   }
   const unapprovedSessions = sessions.filter((s) => unapprovedCounts.has(s.client_id));
-  const downloadableSessions = sessions.filter((s) => !unapprovedCounts.has(s.client_id));
-  const unifiedDownloadIds = unifiedClientIds.filter((c) => !unapprovedCounts.has(c));
+  const emptySessions = sessions.filter((s) => s.entry_count === 0);
+  const blockedClientIds = new Set([...unapprovedSessions, ...emptySessions].map((s) => s.client_id));
+  const downloadableSessions = sessions.filter((s) => !blockedClientIds.has(s.client_id));
+  const unifiedDownloadIds = unifiedClientIds.filter((c) => !blockedClientIds.has(c));
 
   // Deadline calculation
   const deadlineDay = 10;
@@ -166,9 +168,8 @@ export default function FilingDetailPage({
   // ZIP 안은 거래처별 폴더 — 한 파일에 섞으면 SmartA·위하고T 업로드 시 다른 회사 직원이 함께 등록됨.
   // (파일을 따로 내려받으면 브라우저의 다중 다운로드 차단에 걸려 조용히 유실됨)
   function openUnifiedPicker() {
-    // 자료가 들어온 거래처를 기본 선택 (미승인 거래처 제외)
-    const withEntries = downloadableSessions.filter((s) => s.entry_count > 0).map((s) => s.client_id);
-    setUnifiedClientIds(withEntries.length > 0 ? withEntries : downloadableSessions.map((s) => s.client_id));
+    // 받을 수 있는 거래처(자료 있음·전부 승인)를 기본 선택
+    setUnifiedClientIds(downloadableSessions.map((s) => s.client_id));
     setShowUnifiedPicker(true);
   }
 
@@ -372,6 +373,15 @@ export default function FilingDetailPage({
             </p>
           )}
 
+          {emptySessions.length > 0 && (
+            <p className="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[12px] text-red-700">
+              ⚠️ 자료가 없는 거래처 {emptySessions.length}곳은 선택할 수 없습니다.
+              <span className="block mt-1 text-red-600">
+                {emptySessions.map((s) => s.client_name).join(", ")}
+              </span>
+            </p>
+          )}
+
           <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-1">
             <button type="button"
               disabled={downloadableSessions.length === 0}
@@ -390,12 +400,13 @@ export default function FilingDetailPage({
           <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-100">
             {sessions.map((s) => {
               const unapproved = unapprovedCounts.get(s.client_id) ?? 0;
-              const checked = unapproved === 0 && unifiedClientIds.includes(s.client_id);
+              const blocked = blockedClientIds.has(s.client_id);
+              const checked = !blocked && unifiedClientIds.includes(s.client_id);
               const unreceived = s.status === "PENDING" || s.status === "SENT";
               return (
                 <label key={s.client_id}
-                  className={`flex items-center gap-2.5 py-2 px-1 ${unapproved > 0 ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50"}`}>
-                  <input type="checkbox" checked={checked} disabled={unapproved > 0}
+                  className={`flex items-center gap-2.5 py-2 px-1 ${blocked ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50"}`}>
+                  <input type="checkbox" checked={checked} disabled={blocked}
                     onChange={() => setUnifiedClientIds(
                       checked
                         ? unifiedClientIds.filter((c) => c !== s.client_id)
@@ -407,6 +418,7 @@ export default function FilingDetailPage({
                     <span className="text-[11px] text-gray-500">{s.entry_count}건</span>
                   )}
                   {unreceived && <Badge tone="warning">미수신</Badge>}
+                  {!unreceived && s.entry_count === 0 && <Badge tone="danger">자료없음</Badge>}
                   {s.has_anomalies && <Badge tone="danger">확인필요</Badge>}
                   {unapproved > 0 && <Badge tone="danger">미승인 {unapproved}건</Badge>}
                 </label>
@@ -419,7 +431,7 @@ export default function FilingDetailPage({
               && (s.status === "PENDING" || s.status === "SENT" || s.has_anomalies),
           ) && (
             <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-              ⚠️ 선택 항목에 미수신·확인필요 거래처가 있습니다. 자료가 비었거나 검증 전 상태로 받게 됩니다.
+              ⚠️ 선택 항목에 미수신·확인필요 거래처가 있습니다. 받은 뒤 내용을 한 번 더 확인하세요.
             </p>
           )}
         </Modal>
