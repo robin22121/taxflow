@@ -171,6 +171,12 @@ class ParsedEntryPreview(BaseModel):
     health_insurance: int | None = Field(default=None, ge=0)
     employment_insurance: int | None = Field(default=None, ge=0)
     longterm_care: int | None = Field(default=None, ge=0)
+    # 원천징수 세액·기타 공제 확정치 (전월자료 불러오기) — 있으면 재계산하지 않는다.
+    income_tax: int | None = Field(default=None, ge=0)
+    local_tax: int | None = Field(default=None, ge=0)
+    student_loan: int | None = Field(default=None, ge=0)
+    settlement_insurance: int | None = Field(default=None, ge=0)
+    rent_support: int | None = Field(default=None, ge=0)
     match_status: str
     prev_amount: int | None = None
     needs_followup: bool = False

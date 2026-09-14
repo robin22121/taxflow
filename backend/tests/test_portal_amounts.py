@@ -103,7 +103,7 @@ def test_insurance_change_records_rate_basis():
     cand = SimpleNamespace(national_pension=None, health_insurance=None)
     anomaly: dict = {}
     _detect_field_anomalies(
-        anomaly, cand, prev, SimpleNamespace(income_tax=0),
+        anomaly, cand, prev, 0,
         144_000, 113_440, 0, 0,
         taxable=3_200_000,
         defaults=ResolvedPayrollDefaults(),
@@ -133,7 +133,7 @@ def test_insurance_change_from_source_value_is_marked_raw():
     cand = SimpleNamespace(national_pension=None, health_insurance=113_440)
     anomaly: dict = {}
     _detect_field_anomalies(
-        anomaly, cand, prev, SimpleNamespace(income_tax=0),
+        anomaly, cand, prev, 0,
         0, 113_440, 0, 0,
         taxable=3_200_000,
         defaults=ResolvedPayrollDefaults(),

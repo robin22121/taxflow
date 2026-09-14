@@ -168,6 +168,11 @@ def _preview_row(
         health_insurance=_non_negative(cand.health_insurance),
         employment_insurance=_non_negative(cand.employment_insurance),
         longterm_care=_non_negative(cand.longterm_care),
+        income_tax=_non_negative(cand.income_tax),
+        local_tax=_non_negative(cand.local_tax),
+        student_loan=_non_negative(cand.student_loan),
+        settlement_insurance=_non_negative(cand.settlement_insurance),
+        rent_support=_non_negative(cand.rent_support),
         match_status=cand.match_status.value,
         prev_amount=cand.prev_amount,
         # 기존 항목이 없는데 증감만 온 경우 금액을 확정할 수 없으므로 확인 대상으로 표시
@@ -317,6 +322,12 @@ async def preview_carry_forward(
             health_insurance=pe.health_insurance,
             employment_insurance=pe.employment_insurance,
             longterm_care=pe.longterm_care,
+            # 소득세도 전월 확정치를 그대로 쓴다 — 계산값과 다르면 저장 시 calc_diffs로 표시
+            income_tax=pe.income_tax or 0,
+            local_tax=pe.local_tax or 0,
+            student_loan=pe.student_loan or 0,
+            settlement_insurance=pe.settlement_insurance or 0,
+            rent_support=pe.rent_support or 0,
             match_status=MatchStatus.MATCHED if pe.employee_id else MatchStatus.AMBIGUOUS,
             prev_amount=pe.total_amount,
         )
@@ -433,6 +444,11 @@ async def commit_message(
             health_insurance=item.health_insurance,
             employment_insurance=item.employment_insurance,
             longterm_care=item.longterm_care,
+            income_tax=item.income_tax,
+            local_tax=item.local_tax,
+            student_loan=item.student_loan,
+            settlement_insurance=item.settlement_insurance,
+            rent_support=item.rent_support,
             match_status=match_status,
             prev_amount=item.prev_amount,
             anomaly_notes=item.anomaly_notes or {},
@@ -609,13 +625,13 @@ def _detect_field_anomalies(
     anomaly: dict,
     cand,
     prev: PayrollEntry,
-    tax,
+    income_tax: int,
     si_np: int, si_hi: int, si_ei: int, si_ltc: int,
     *,
     taxable: int,
     defaults,
 ) -> None:
-    """전월 대비 필드별 이상치를 anomaly_notes에 기록.
+    """전월 대비 필드별 이상치를 anomaly_notes에 기록. 비교 대상은 실제 저장되는 값.
 
     대시보드 분석 사유가 "지난달 얼마로 신고했는데 이번달은 보수월액×요율로 얼마"를
     설명할 수 있도록 계산 근거(과세급여·요율·전월 과세급여)를 함께 남긴다.
@@ -642,11 +658,11 @@ def _detect_field_anomalies(
         }
     # 소득세 변동 (20% 이상이면 기록)
     if prev.income_tax and prev.income_tax > 0:
-        tax_change = abs(tax.income_tax - prev.income_tax) / prev.income_tax
+        tax_change = abs(income_tax - prev.income_tax) / prev.income_tax
         if tax_change > 0.2:
             fields["income_tax"] = {
                 "prev": prev.income_tax,
-                "curr": tax.income_tax,
+                "curr": income_tax,
                 "prev_base": prev.taxable,
                 "base": taxable,
             }
@@ -734,10 +750,45 @@ def _computed_fields(
         "health_insurance": si.health_insurance,
         "employment_insurance": si.employment_insurance,
         "longterm_care": si.longterm_care,
-        "income_tax": tax.income_tax,
-        "local_tax": tax.local_tax,
+        # 소득세 — 확정치(전월자료)가 있으면 그대로, 없으면 간이세액표 계산값
+        "income_tax": _pick(cand.income_tax, tax.income_tax),
+        "local_tax": _pick(cand.local_tax, tax.local_tax),
     }
+    # 기타 공제는 자체 계산이 없다 — 값이 있을 때만 넣어, 기존 항목 수정 시 입력값을 지우지 않는다
+    for key in ("student_loan", "settlement_insurance", "rent_support"):
+        value = getattr(cand, key)
+        if value is not None:
+            fields[key] = value
     return fields, tax, si
+
+
+# 불러온 값과 자체 계산값을 비교하는 항목
+_CALC_DIFF_FIELDS = (
+    "national_pension", "health_insurance", "employment_insurance", "longterm_care",
+    "income_tax", "local_tax",
+)
+
+
+def _calc_diffs(cand: PayrollEntryCandidate, fields: dict, tax, defaults) -> dict:
+    """저장값이 자체 계산값과 다른 항목 — {필드: {"actual", "computed"}}.
+
+    지방소득세는 실제 저장된 소득세의 10%와 비교한다. 소득세 차이가 지방소득세에
+    한 번 더 잡히지 않고, 소득세와 지방소득세가 서로 어긋난 경우만 드러난다.
+    """
+    si = defaults.social_insurance(fields["taxable"], cand.income_type)
+    computed = {
+        "national_pension": si.national_pension,
+        "health_insurance": si.health_insurance,
+        "employment_insurance": si.employment_insurance,
+        "longterm_care": si.longterm_care,
+        "income_tax": tax.income_tax,
+        "local_tax": fields["income_tax"] // 100 * 10,
+    }
+    return {
+        k: {"actual": fields[k], "computed": computed[k]}
+        for k in _CALC_DIFF_FIELDS
+        if fields[k] != computed[k]
+    }
 
 
 async def _persist_results(
@@ -821,12 +872,16 @@ async def _persist_results(
         anomaly = dict(cand.anomaly_notes) if cand.anomaly_notes else {}
         if prev:
             _detect_field_anomalies(
-                anomaly, cand, prev, tax,
+                anomaly, cand, prev, fields["income_tax"],
                 si.national_pension, si.health_insurance,
                 si.employment_insurance, si.longterm_care,
                 taxable=fields["taxable"],
                 defaults=defaults,
             )
+        if channel == "carry_forward":
+            diffs = _calc_diffs(cand, fields, tax, defaults)
+            if diffs:
+                anomaly["calc_diffs"] = diffs
 
         entry = PayrollEntry(
             monthly_filing_id=filing.id,
@@ -853,9 +908,16 @@ async def _persist_results(
     updated_count = 0
     for entry, cand in updates or []:
         matched_emp = emp_by_id.get(cand.employee_id) if cand.employee_id else None
-        fields, _tax, _si = _computed_fields(cand, client, defaults, matched_emp)
+        fields, tax, _si = _computed_fields(cand, client, defaults, matched_emp)
         for key, value in fields.items():
             setattr(entry, key, value)
+        if channel == "carry_forward":
+            notes = dict(entry.anomaly_notes or {})
+            notes.pop("calc_diffs", None)
+            diffs = _calc_diffs(cand, fields, tax, defaults)
+            if diffs:
+                notes["calc_diffs"] = diffs
+            entry.anomaly_notes = notes or None
         entry.raw_name = cand.raw_name
         entry.income_type = cand.income_type
         entry.collection_session_id = session.id
@@ -1020,6 +1082,11 @@ async def _ingest_amounts(
                 health_insurance=pe.health_insurance,
                 employment_insurance=pe.employment_insurance,
                 longterm_care=pe.longterm_care,
+                income_tax=pe.income_tax or 0,
+                local_tax=pe.local_tax or 0,
+                student_loan=pe.student_loan or 0,
+                settlement_insurance=pe.settlement_insurance or 0,
+                rent_support=pe.rent_support or 0,
                 match_status=MatchStatus.MATCHED if pe.employee_id else MatchStatus.AMBIGUOUS,
                 prev_amount=pe.total_amount,
             )
