@@ -27,7 +27,7 @@ export default function LoginPage() {
       });
       setTokens(res.access_token, res.refresh_token);
       const me = await api<CurrentUser>("/api/v1/auth/me");
-      router.push(me.is_superadmin ? "/admin" : "/dashboard");
+      router.push(me.is_superadmin ? "/admin" : "/dashboard?landing=1");
     } catch (e) {
       setErr((e as Error).message);
     } finally {

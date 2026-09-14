@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useClients, useCreateFiling, useFilings } from "@/lib/queries";
@@ -19,6 +19,14 @@ export default function DashboardHomePage() {
     () => [...(filings ?? [])].sort((a, b) => (a.period > b.period ? -1 : 1)),
     [filings],
   );
+
+  // 로그인 직후 진입(?landing=1)이면 최신 신고 상세로 바로 이동 — 상세 페이지가 첫 거래처를 자동으로 펼친다.
+  useEffect(() => {
+    if (!sortedFilings[0]) return;
+    if (new URLSearchParams(window.location.search).get("landing") !== "1") return;
+    router.replace(`/dashboard/filings/${sortedFilings[0].id}`);
+  }, [sortedFilings, router]);
+
   const filteredClients = useMemo(() => {
     const list = clients ?? [];
     if (!search.trim()) return list;

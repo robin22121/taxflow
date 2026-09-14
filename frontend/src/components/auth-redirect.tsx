@@ -26,7 +26,7 @@ export function AuthRedirect() {
         atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
       );
       if (typeof json.exp === "number" && json.exp * 1000 > Date.now()) {
-        router.replace("/dashboard");
+        router.replace("/dashboard?landing=1");
       } else {
         clearTokens();
       }
