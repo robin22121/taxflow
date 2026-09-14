@@ -264,7 +264,7 @@ export default function FilingDetailPage({
               </div>
             </>)}
           </div>
-          <Button variant="primary" onClick={openUnifiedPicker} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (원천세+4대보험)</Button>
+          <Button variant="primary" onClick={openUnifiedPicker} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (급여대장)</Button>
           <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
           <Button variant="ghost" onClick={() => setShowSingleDownload(true)} className="!text-[12px] !px-2.5 !py-1">개별 서류</Button>
           <Button variant="ghost" onClick={() => setShowCertificate(true)} className="!text-[12px] !px-2.5 !py-1">증명원 발급</Button>
