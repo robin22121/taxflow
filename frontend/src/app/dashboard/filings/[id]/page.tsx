@@ -505,7 +505,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
   const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("received");
-  const [commOpen, setCommOpen] = useState(true);
+  const [commOpen, setCommOpen] = useState(false);
   const [preview, setPreview] = useState<{ data: CollectPreview; meta: PreviewMeta } | null>(null);
   // 급여항목 표의 체크 상태 — 상단 바의 퇴사처리 버튼이 함께 본다
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
@@ -624,7 +624,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                   selected={selectedEntryIds} setSelected={setSelectedEntryIds} />
               </div>
 
-              {/* 고객소통내역 (받은 자료 탭 전용, 기본 열림, 슬라이드 개폐) — 급여데이터 열과 같은 높이 */}
+              {/* 고객소통내역 (받은 자료 탭 전용, 기본 접힘, 슬라이드 개폐) — 급여데이터 열과 같은 높이 */}
               {/* lg:mb-11 = 합계 푸터 높이(border-t-2 2px + py-3 24px + 12px/1.5 라인 18px = 44px) 만큼
                   하단을 올려 패널 아랫변이 푸터 윗선과 맞도록 한다 */}
               {mainTab === "received" && (
