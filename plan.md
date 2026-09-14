@@ -23,6 +23,7 @@
 | [`plan/13-messaging-activation.md`](plan/13-messaging-activation.md) | 알림톡·SMS 발송 활성화 (Aligo IP 등록 + 카카오 템플릿 심사·코드 변경) |
 | [`plan/14-accounts-permissions.md`](plan/14-accounts-permissions.md) | 사무소 계정·권한 — 세무사(OWNER)/담당직원(STAFF) 분리, 거래처 담당 배정, 스코핑 게이트, 접속기록 |
 | [`plan/15-filing-relay.md`](plan/15-filing-relay.md) | 세무사 신고 릴레이 — 위하고 뒤에 붙는 홈택스 일괄 전송 + 접수증·납부서 거래처 자동 배송 (Phase 4+ 확장 후보) |
+| [`plan/16-wehago-rpa.md`](plan/16-wehago-rpa.md) | 위하고 급여 업로드 RPA — 전송 버튼 → 사무실 PC 에이전트가 위하고T에 급여대장 업로드 (작업 큐·안전장치·화면 실측 과제) |
 
 ---
 

@@ -19,6 +19,7 @@ from app.models.kakao_pending import KakaoPendingMessage
 from app.models.monthly_filing import MonthlyFiling, MonthlyFilingStatus
 from app.models.payroll import IncomeType, MatchStatus, PayrollEntry
 from app.models.promotion import Promotion
+from app.models.rpa import RpaAgent, RpaJob, RpaJobKind, RpaJobStatus
 from app.models.tax_office import CustomerClass, OfficeApprovalStatus, TaxOffice
 from app.models.user import User
 from app.models.secure_token import SecureToken
@@ -49,6 +50,10 @@ __all__ = [
     "OfficeApprovalStatus",
     "PayrollEntry",
     "Promotion",
+    "RpaAgent",
+    "RpaJob",
+    "RpaJobKind",
+    "RpaJobStatus",
     "SecureToken",
     "TaxOffice",
     "User",

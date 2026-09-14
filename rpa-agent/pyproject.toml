@@ -1,0 +1,19 @@
+[project]
+name = "easyone-rpa-agent"
+version = "0.1.0"
+description = "이지원천 사무실 PC 에이전트 — 위하고T 급여자료 엑셀 업로드 자동화"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "playwright>=1.47",
+    "keyring>=25",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
