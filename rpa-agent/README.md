@@ -41,6 +41,24 @@ py -m easyone_agent run
 
 환경변수(선택): `EASYONE_API_BASE_URL`, `EASYONE_POLL_INTERVAL_SEC`(기본 5), `EASYONE_AGENT_HOME`(기본 `%USERPROFILE%\.easyone-agent`).
 
+## 로그인 테스트 (업로드 없이 위하고 로그인만 확인)
+
+```powershell
+py -m easyone_agent login-test
+```
+
+1. 에이전트가 전송 요청을 기다린다.
+2. 세무사 계정으로 `POST /api/v1/rpa/wehago-uploads` (`{"filing_id": "...", "client_ids": ["..."]}`) — 사업자번호가 있고 자료가 승인된 거래처여야 등록된다.
+3. 에이전트가 작업 한 건을 받아 **위하고 로그인만** 하고 끝낸다. 급여파일은 받지 않는다.
+4. 결과는 `GET /api/v1/rpa/jobs` 의 `result_message` 로 확인한다. 업로드가 없었으므로 로그인에 성공해도
+   상태는 `FAILED`, 메시지는 `[로그인 테스트] 위하고 로그인 성공 — 급여 업로드는 하지 않음` 이다.
+
+- 에이전트 전용 크롬 창에서 `https://www.wehagot.com` (위하고 T) 에 저장된 ID/PW로 로그인한다.
+- 로그인 버튼을 누른 뒤 **60초** 안에 로그인 화면을 벗어나야 성공이다. QR 추가 인증이 뜨면 그 안에 사람이 처리한다.
+- 틀린 비밀번호로 반복하면 계정이 잠길 수 있으므로 실패하면 재시도하지 않고 끝낸다.
+
+로그인 실패 시 화면 캡처가 `%USERPROFILE%\.easyone-agent\login-failed.png` 에 남는다 (아이디·비밀번호 입력칸은 가리고, 서버로 보내지 않는다).
+
 ## PC 분실·교체 시
 
 관리자 계정으로 `DELETE /api/v1/rpa/agents/{id}` — 해당 토큰이 즉시 막힌다.

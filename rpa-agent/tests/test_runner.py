@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from easyone_agent.api import Job
-from easyone_agent.runner import process_one, run_forever
+from easyone_agent.runner import login_test_one, process_one, run_forever, run_login_test
 from easyone_agent.wehago import LoginFailed
 
 JOB = Job(
@@ -119,3 +119,44 @@ def test_run_forever_stops_on_login_failure(tmp_path: Path):
     )
     assert len(api.reports) == 1  # 두 번째 작업은 시도하지 않는다
     assert sleeps == []
+
+
+class NoDownloadApi(FakeApi):
+    def download_payroll_excel(self, job_id: str) -> bytes:
+        raise AssertionError("로그인 테스트는 급여파일을 받지 않는다")
+
+
+def test_login_test_success_is_reported_as_failed_without_upload():
+    api, uploader = NoDownloadApi([JOB]), FakeUploader()
+    assert login_test_one(api, uploader) is True
+    assert uploader.uploaded == []
+    job_id, succeeded, message = api.reports[0]
+    assert (job_id, succeeded) == ("job1", False)  # 업로드가 없었으니 전송 완료로 남기지 않는다
+    assert "로그인 성공" in message
+
+
+def test_login_test_failure_is_reported():
+    api = NoDownloadApi([JOB])
+    assert login_test_one(api, FakeUploader(login_error=LoginFailed("비밀번호 불일치"))) is False
+    assert api.reports[0][1] is False
+    assert "로그인 실패" in api.reports[0][2]
+    assert "비밀번호 불일치" in api.reports[0][2]
+
+
+def test_login_test_without_job_does_nothing():
+    api = NoDownloadApi([])
+    assert login_test_one(api, FakeUploader()) is None
+    assert api.reports == []
+
+
+def test_run_login_test_waits_for_job_then_stops():
+    api = NoDownloadApi([])
+    sleeps: list[float] = []
+
+    def sleep(sec: float) -> None:
+        sleeps.append(sec)
+        api.jobs.append(JOB)  # 기다리는 동안 세무사가 전송을 요청했다
+
+    assert run_login_test(api, FakeUploader(), 5, sleep=sleep) is True
+    assert sleeps == [5]
+    assert len(api.reports) == 1

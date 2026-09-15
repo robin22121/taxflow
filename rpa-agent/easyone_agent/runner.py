@@ -50,6 +50,49 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
     return True
 
 
+def login_test_one(api: EasyoneApi, uploader: WehagoUploader) -> bool | None:
+    """로그인 테스트 — 작업을 한 건 받아 위하고 로그인만 해 보고 회신한다.
+
+    급여파일은 받지 않고 업로드도 하지 않는다. 업로드가 없었으므로 로그인에 성공해도
+    SUCCEEDED가 아니라 FAILED로 회신해 작업 기록에 '전송 완료'가 남지 않게 한다.
+
+    Returns:
+        작업이 없으면 None, 있으면 로그인 성공 여부.
+    """
+    job = api.claim()
+    if job is None:
+        return None
+
+    logger.info("로그인 테스트 시작 %s", job.id)
+    try:
+        uploader.ensure_logged_in()
+    except Exception as e:
+        logger.exception("로그인 테스트 실패 %s", job.id)
+        _report(api, job.id, False, f"[로그인 테스트] 위하고 로그인 실패 — {type(e).__name__}: {e}")
+        return False
+    logger.info("로그인 테스트 성공 %s", job.id)
+    _report(api, job.id, False, "[로그인 테스트] 위하고 로그인 성공 — 급여 업로드는 하지 않음")
+    return True
+
+
+def run_login_test(
+    api: EasyoneApi,
+    uploader: WehagoUploader,
+    poll_interval_sec: float,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    """작업이 들어올 때까지 기다렸다가 한 건만 로그인 테스트하고 끝낸다."""
+    while True:
+        try:
+            result = login_test_one(api, uploader)
+        except Exception:
+            logger.exception("작업 요청 실패")
+            result = None
+        if result is not None:
+            return result
+        sleep(poll_interval_sec)
+
+
 def _report(api: EasyoneApi, job_id: str, succeeded: bool, message: str) -> None:
     try:
         api.report(job_id, succeeded, message[:2000])
