@@ -23,7 +23,7 @@
 | [`plan/13-messaging-activation.md`](plan/13-messaging-activation.md) | 알림톡·SMS 발송 활성화 (Aligo IP 등록 + 카카오 템플릿 심사·코드 변경) |
 | [`plan/14-accounts-permissions.md`](plan/14-accounts-permissions.md) | 사무소 계정·권한 — 세무사(OWNER)/담당직원(STAFF) 분리, 거래처 담당 배정, 스코핑 게이트, 접속기록 |
 | [`plan/15-filing-relay.md`](plan/15-filing-relay.md) | 세무사 신고 릴레이 — 위하고 뒤에 붙는 홈택스 일괄 전송 + 접수증·납부서 거래처 자동 배송 (Phase 4+ 확장 후보) |
-| [`plan/16-wehago-rpa.md`](plan/16-wehago-rpa.md) | 위하고 급여 업로드 RPA — 전송 버튼 → 사무실 PC 에이전트가 위하고T에 급여대장 업로드 (작업 큐·안전장치·화면 실측 과제) |
+| [`plan/16-wehago-rpa.md`](plan/16-wehago-rpa.md) | 위하고 T·홈택스·위택스 원천세 자동화 RPA — 직원 전송 → 자동화 전용 노트북(세무사 전용 아이디)이 급여 입력·원천세·지방세 작업 → 세무사 신고 승인 → 홈택스·위택스 신고 → 접수증·납부서 포털 반영 (약관 검토·안전장치·실측 과제) |
 
 ---
 
@@ -31,11 +31,11 @@
 
 ```
 [전체 프로세스]
-고객 원시데이터 → 신고서 양식 변환 → 더존 SmartA 입력 → 홈택스 전자신고 → 접수증·납부서 자동 발송
-       ▲                  ▲                ▲              ▲                  ▲
-       │                  │                │              │                  │
-   AI 자동수집         AI 표준화      RPA 에이전트       SmartA 내장기능      알림톡·문자 자동전달
-   (Phase 1)        (Phase 1)         (Phase 2)        (Phase 2)          (Phase 2~3)
+고객 원시데이터 → 급여 표준화·승인 → 위하고 T 입력(급여·원천세·지방세) → 홈택스·위택스 신고 → 접수증·납부서 포털·문자
+       ▲                  ▲                      ▲                             ▲                    ▲
+       │                  │                      │                             │                    │
+   AI 자동수집         AI 표준화          자동화 노트북 RPA            자동화 노트북 RPA        포털·알림톡·문자
+   (Phase 1)        (Phase 1)              (Phase 2)                    (Phase 2)             (Phase 2~3)
 ```
 
 세부 워크플로우 [0]~[8] 단계는 `plan/01-workflow-roadmap.md` §1.2 참고.
@@ -47,7 +47,7 @@
 | Phase | 기간 | 핵심 산출물 | 상세 |
 |-------|------|------------|------|
 | **Phase 1** | 0~6개월 | 다채널 자료수집 + SmartA 급여대장 엑셀 자동 생성 + 급여명세서 번들 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md) |
-| **Phase 2** | 6~12개월 | SmartA RPA 에이전트(pywinauto) + 접수증·납부서 자동 발송 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md) |
+| **Phase 2** | 6~12개월 | 자동화 노트북 RPA (위하고 T 급여·원천세·지방세 → 홈택스·위택스 신고) + 접수증·납부서 포털 반영·발송 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md), [`plan/16-wehago-rpa.md`](plan/16-wehago-rpa.md) |
 | **Phase 3** | 12~18개월 | 입·퇴사 자동화 + 4대보험 EDI RPA + 지급명세서 자동화 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md), [`plan/06-insurance.md`](plan/06-insurance.md) |
 | **Phase 4** | 18~24개월 | 부가세·종합소득세·법인세 보조 + 4대보험 인텔리전스 | [`plan/01-workflow-roadmap.md`](plan/01-workflow-roadmap.md), [`plan/15-filing-relay.md`](plan/15-filing-relay.md) |
 
@@ -55,10 +55,10 @@
 
 ## 핵심 의사결정 (v3.3 시점)
 
-1. **자동화 경로**: SmartA 급여대장 엑셀 양식 활용 (더존 API 협상·RPA 풀스택 폐기)
+1. **자동화 경로**: SmartA 급여대장 엑셀 양식 활용 (더존 API 협상·RPA 풀스택 폐기) → **2026-09-15 갱신**: 서버 경유 RPA는 계속 폐기, 위하고 T·홈택스·위택스 원천세 처리는 **자동화 전용 노트북 RPA**로 범위를 좁혀 도입 (공식 엑셀 업로드 기능을 쓰고 클릭만 자동화, 사원등록 제외). 상세 [`plan/16-wehago-rpa.md`](plan/16-wehago-rpa.md)
 2. **데이터 서식**: SmartA 24컬럼 양식이 데이터 저장·화면·엑셀 다운로드의 단일 기준
 3. **차별화 포인트**: 1단계(고객 소통·자료 수집) AI 자동화 — 블랙피그/혜움이 못 푼 영역
-4. **공동인증서**: 세무사 PC 로컬에서 처리 (클라우드 사용 불가)
+4. **공동인증서·로그인 정보**: 클라우드 서버 사용·저장 불가 → 사무소 로컬 기기에서만 처리. 2026-09-15부터 위하고·홈택스·위택스 로그인 정보는 **자동화 전용 노트북에만 암호화 저장**, 인증서 비밀번호 자동 입력은 범위 밖 ([`plan/16-wehago-rpa.md`](plan/16-wehago-rpa.md) §8)
 5. **인프라**: NHN Cloud 메인 (한국 리전, 2026-06-05 결정 → 2026-08-31 백엔드·DB 이관 완료). 백엔드/DB는 NHN Cloud(vm-node + RDS for PostgreSQL 17), 프론트는 Vercel 유지. 결정 근거·이관 현황은 [`plan/10-privacy-security.md` §3](plan/10-privacy-security.md), 배포 런북은 [`plan/11-nhn-cloud-deploy.md`](plan/11-nhn-cloud-deploy.md) 참고
 6. **민감정보**: LLM에 주민번호 비전송 — 마스킹·주민번호 암호화 키는 NHN Cloud 내부(현재 vm-node `.env`, 향후 Secure Key Manager)에서만 복호화
 7. **회신 수집**: "거래처 → 세무사 직원 → 이지원천" 카톡 1순위 → 이메일 → URL 폼, 단일 `_ingest_message()` 합류

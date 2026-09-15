@@ -443,7 +443,7 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
 ```
 
 **Phase 2를 기다리지 않는다.** 접수증·납부서·가상계좌는 현재 DB에 필드가 하나도 없고
-[`01-workflow-roadmap.md`](01-workflow-roadmap.md) §2-2의 SmartA RPA 산출물에 종속돼 있다.
+[`01-workflow-roadmap.md`](01-workflow-roadmap.md) §2-2의 RPA 산출물(2026-09-15부터 자동화 노트북이 홈택스·위택스에서 회수 — [`16-wehago-rpa.md`](16-wehago-rpa.md) §4-5)에 종속돼 있다.
 그러나 `source = MANUAL_UPLOAD` 경로를 먼저 두면 **세무사가 PDF를 올리는 것만으로 보관함이
 성립**하고, 나중에 에이전트가 같은 테이블에 자동 적재하면 화면은 그대로 둘 수 있다.
 
@@ -485,7 +485,7 @@ ClientFilingResult   ← 신설, (client_id, period) 유니크
 - **보관함** — 완료 (`ClientFilingResult`, 마이그레이션 `e4f5a6b7c8d9`,
   `tests/test_portal_archive.py`). 세무사가 PDF를 올리는 `MANUAL_UPLOAD` 경로로
   **Phase 2 RPA 이전에 동작한다**. 예상 납부세액은 `PayrollEntry` 합계로 계산된다
-- 남은 것: **Phase 2 RPA 자동 적재**(같은 테이블에 `source=RPA`로 기입하면 화면 변경 없음),
+- 남은 것: **Phase 2 RPA 자동 적재**(같은 테이블에 `source=RPA`로 기입하면 화면 변경 없음. 단 **지방소득세 결과(위택스 접수증·납부서·전자납부번호·납부세액) 칸이 없어 확장 필요** — `16-wehago-rpa.md` §6),
   그리고 §4.5의 **열람 로그**와 그에 기반한 §3.7 4단계 상태
   (발송됨/열람함/입력중/제출완료)
 
