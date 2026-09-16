@@ -1,4 +1,7 @@
-"""위하고T 화면 조작 — Playwright로 에이전트 전용 크롬 프로필을 띄워 급여자료 엑셀을 올린다.
+"""위하고T 화면 조작 — 노트북에 미리 띄워 둔 크롬에 CDP로 붙어 급여자료 엑셀을 올린다.
+
+크롬은 `rpa-agent/scripts/start-chrome.ps1`이 원격 디버깅 포트를 열어 실행하고,
+에이전트는 `connect_over_cdp`로만 붙는다 (에이전트가 브라우저 프로세스를 관리하지 않는다).
 
 ⚠️ 로그인만 로그인 화면 DOM 조사로 선택자를 채웠다(실계정 로그인 실측 전).
    수임처 검색·업로드는 화면 실측 전이라 NotImplementedError로 멈춰
@@ -33,33 +36,45 @@ class CompanyMismatch(WehagoError):
     """사업자번호로 연 수임처가 요청한 거래처와 다르다 — 업로드하지 않는다."""
 
 
+class CdpConnectFailed(Exception):
+    """노트북 크롬에 CDP로 붙지 못했다 — start-chrome 스크립트가 안 돌고 있을 가능성."""
+
+
 class WehagoUploader:
-    def __init__(
-        self, user_id: str, password: str, profile_dir: Path, headless: bool = False
-    ) -> None:
+    def __init__(self, user_id: str, password: str, cdp_url: str, screenshot_dir: Path) -> None:
         self._user_id = user_id
         self._password = password
-        self._profile_dir = profile_dir
-        self._headless = headless
+        self._cdp_url = cdp_url
+        self._screenshot_dir = screenshot_dir
         self._playwright = None
+        self._browser = None
         self._context = None
         self._page = None
 
     def __enter__(self) -> WehagoUploader:
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import Error as PlaywrightError, sync_playwright
 
         self._playwright = sync_playwright().start()
-        # 설치된 크롬을 쓰되 직원 프로필과 섞이지 않게 전용 프로필 폴더를 쓴다.
-        self._context = self._playwright.chromium.launch_persistent_context(
-            str(self._profile_dir), channel="chrome", headless=self._headless
-        )
+        try:
+            self._browser = self._playwright.chromium.connect_over_cdp(self._cdp_url)
+        except PlaywrightError as e:
+            self._playwright.stop()
+            self._playwright = None
+            raise CdpConnectFailed(
+                f"노트북 크롬({self._cdp_url})에 연결하지 못했습니다. "
+                "먼저 scripts/start-chrome.ps1 로 크롬을 실행하세요."
+            ) from e
+        # start-chrome이 만든 기본 컨텍스트를 그대로 쓴다 (프로필·쿠키·확장이 살아 있음).
+        contexts = self._browser.contexts
+        self._context = contexts[0] if contexts else self._browser.new_context()
         pages = self._context.pages
         self._page = pages[0] if pages else self._context.new_page()
         return self
 
     def __exit__(self, *exc: object) -> None:
-        if self._context:
-            self._context.close()
+        # 크롬은 start-chrome가 관리한다. 에이전트는 CDP 연결만 끊는다 (브라우저 종료 X).
+        if self._browser:
+            self._browser.close()
         if self._playwright:
             self._playwright.stop()
 
@@ -75,7 +90,7 @@ class WehagoUploader:
             id_input.wait_for(state="visible", timeout=LOGIN_FORM_WAIT_MS)
         except PlaywrightTimeout:
             if "#/login" not in page.url:
-                return  # 전용 프로필에 세션이 남아 있다
+                return  # 크롬 프로필에 세션이 남아 있다
             self._save_failure_screenshot()
             raise LoginFailed("로그인 화면이 열리지 않음") from None
 
@@ -99,8 +114,9 @@ class WehagoUploader:
     def _save_failure_screenshot(self) -> None:
         # 원인 확인용으로 PC에만 남긴다 (서버로 보내지 않는다). 입력칸은 가린다.
         page = self._page
+        self._screenshot_dir.mkdir(parents=True, exist_ok=True)
         page.screenshot(
-            path=str(self._profile_dir.parent / "login-failed.png"),
+            path=str(self._screenshot_dir / "login-failed.png"),
             mask=[page.locator("#inputId"), page.locator("#inputPw")],
         )
 

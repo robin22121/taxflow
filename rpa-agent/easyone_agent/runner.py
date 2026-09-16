@@ -9,6 +9,7 @@ from pathlib import Path
 
 from easyone_agent.api import EasyoneApi
 from easyone_agent.company import company_matches
+from easyone_agent.logmask import mask_text
 from easyone_agent.wehago import CompanyMismatch, LoginFailed, WehagoUploader
 
 logger = logging.getLogger(__name__)
@@ -95,7 +96,8 @@ def run_login_test(
 
 def _report(api: EasyoneApi, job_id: str, succeeded: bool, message: str) -> None:
     try:
-        api.report(job_id, succeeded, message[:2000])
+        # 서버 감사 로그에도 비밀번호·주민번호는 남기지 않는다 (§8-1).
+        api.report(job_id, succeeded, mask_text(message)[:2000])
     except Exception:
         # 회신이 실패해도 서버가 시간 초과로 FAILED 처리하므로 루프는 계속 돈다.
         logger.exception("결과 회신 실패 %s", job_id)
