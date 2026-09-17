@@ -1,14 +1,16 @@
 import enum
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models._base import Base, IdMixin, TimestampMixin
 
 
 class RpaJobKind(str, enum.Enum):
-    WEHAGO_PAYROLL_UPLOAD = "WEHAGO_PAYROLL_UPLOAD"  # 위하고T 급여자료입력 엑셀 업로드
+    WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"  # 게이트 1 후 — 위하고T 급여자료 자동입력만
+    MONTHLY_PRODUCTION = "MONTHLY_PRODUCTION"  # 게이트 2 후 — 위하고 원천세·지방세 마감·제작 + 홈택스·위택스 신고 일괄
 
 
 class RpaJobStatus(str, enum.Enum):
@@ -69,3 +71,42 @@ class RpaJob(Base, IdMixin, TimestampMixin):
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result_message: Mapped[str | None] = mapped_column(Text)
+
+    # MONTHLY_PRODUCTION 작업의 하위 단계 진행 상태.
+    # 예: {"wehago_income_tax":"done","wehago_local_tax":"done","hometax":"running","wetax":"pending"}
+    step_progress: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    # 위하고 계산 vs 이지원천 승인값 대조 결과 — 불일치 항목만 남긴다 (위하고 원본 X, §1-2 ④).
+    # 예: {"income_tax":{"expected":123000,"found":124000}}
+    compare_diff: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
+class RpaNotificationKind(str, enum.Enum):
+    GATE2_REVIEW = "GATE2_REVIEW"  # 위하고 자동입력 완료 → 사용자 검토·제작 클릭 필요
+    GATE3_PUBLISH = "GATE3_PUBLISH"  # 홈택스·위택스 접수증 회수 완료 → 발송 확정 필요
+    FAILURE = "FAILURE"  # 어느 단계든 실패·불일치 (§4-3)
+
+
+class RpaNotification(Base, IdMixin, TimestampMixin):
+    """게이트 2·3 및 실패 알림 큐. 로그인 사용자에게 이지원천 알림창으로 뜬다.
+
+    로그아웃 상태였던 사용자도 다음 접속 시 확인할 수 있도록 서버에 남긴다.
+    """
+
+    __tablename__ = "rpa_notifications"
+    __table_args__ = (
+        Index("ix_rpa_notifications_recipient", "recipient_user_id", "read_at"),
+        Index("ix_rpa_notifications_office", "tax_office_id"),
+    )
+
+    tax_office_id: Mapped[str] = mapped_column(ForeignKey("tax_offices.id"))
+    recipient_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    kind: Mapped[RpaNotificationKind] = mapped_column(
+        Enum(RpaNotificationKind, native_enum=False, length=30)
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("rpa_jobs.id"))
+    filing_result_id: Mapped[str | None] = mapped_column(ForeignKey("client_filing_results.id"))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resent_count: Mapped[int] = mapped_column(Integer, default=0)

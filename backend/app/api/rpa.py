@@ -19,21 +19,30 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import get_current_user, get_db
 from app.models import (
     Client,
+    ClientFilingResult,
+    FilingResultSource,
     MonthlyFiling,
     PayrollEntry,
     RpaAgent,
     RpaJob,
     RpaJobKind,
     RpaJobStatus,
+    RpaNotification,
+    RpaNotificationKind,
     User,
 )
 from app.schemas.rpa import (
+    AgentFilingResultIn,
+    FilingResultOut,
+    ProductionCreate,
+    PublishFilingResultOut,
     RpaAgentCreate,
     RpaAgentIssued,
     RpaAgentOut,
     RpaClaimOut,
     RpaJobOut,
     RpaJobResultIn,
+    RpaNotificationOut,
     WehagoUploadCreate,
 )
 from app.services.payroll_excel import generate_payroll_excel
@@ -210,7 +219,7 @@ async def create_wehago_uploads(
                 select(RpaJob.client_id).where(
                     RpaJob.monthly_filing_id == filing.id,
                     RpaJob.client_id.in_(client_ids),
-                    RpaJob.kind == RpaJobKind.WEHAGO_PAYROLL_UPLOAD,
+                    RpaJob.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT,
                     RpaJob.status.in_(ACTIVE_STATUSES),
                 )
             )
@@ -225,7 +234,7 @@ async def create_wehago_uploads(
     jobs = [
         RpaJob(
             tax_office_id=office_id,
-            kind=RpaJobKind.WEHAGO_PAYROLL_UPLOAD,
+            kind=RpaJobKind.WEHAGO_PAYROLL_INPUT,
             status=RpaJobStatus.PENDING,
             monthly_filing_id=filing.id,
             client_id=c.id,
@@ -411,6 +420,277 @@ async def agent_report_result(
     now = _utcnow()
     agent.last_seen_at = now
     _finish(job, RpaJobStatus(payload.status), payload.message, now)
+    if payload.step_progress is not None:
+        job.step_progress = payload.step_progress
+    if payload.compare_diff is not None:
+        job.compare_diff = payload.compare_diff
+
+    # 자동입력이 끝났거나 (게이트 2 알림), MONTHLY_PRODUCTION이 끝났으면 (게이트 3 알림) — 요청자에게 알림.
+    _notify_gate_transition(db, job)
+
     await db.commit()
     await db.refresh(job)
     return job
+
+
+def _notify_gate_transition(db: AsyncSession, job: RpaJob) -> None:
+    """게이트 사이 전이가 발생했을 때 알림을 큐에 넣는다.
+
+    - WEHAGO_PAYROLL_INPUT SUCCEEDED → 게이트 2 검토 알림
+    - MONTHLY_PRODUCTION SUCCEEDED → 게이트 3 발송 확정 알림 (실제 filing_result_id는 filing-result 등록 후 채워짐)
+    - 어느 kind든 FAILED → 실패 알림
+    """
+    if job.status == RpaJobStatus.SUCCEEDED and job.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT:
+        notification_kind = RpaNotificationKind.GATE2_REVIEW
+        title = f"[{job.business_name}] 위하고 자동입력 완료 — 급여명세서 검토·제작 필요"
+        guide = "위하고에 급여자료가 입력되었습니다. 이지원천에서 명세서를 검토한 뒤 '제작' 버튼을 눌러주세요."
+    elif job.status == RpaJobStatus.SUCCEEDED and job.kind == RpaJobKind.MONTHLY_PRODUCTION:
+        notification_kind = RpaNotificationKind.GATE3_PUBLISH
+        title = f"[{job.business_name}] 홈택스·위택스 신고 완료 — 접수증 검토·발송 확정 필요"
+        guide = "접수증·납부서를 확인한 뒤 '발송 확정' 버튼을 눌러 사장님 포털·문자를 발송하세요."
+    elif job.status == RpaJobStatus.FAILED:
+        notification_kind = RpaNotificationKind.FAILURE
+        title = f"[{job.business_name}] {job.kind.value} 실패"
+        guide = "작업이 실패했습니다. 로그를 확인하고 필요 시 수동 처리하세요."
+    else:
+        return
+    # 사용자 안내 + 에이전트 회신 메시지를 함께 남긴다 — 사용자에게 늘 다음 액션이 보여야 한다.
+    body = f"{guide}\n\n{job.result_message}" if job.result_message else guide
+    db.add(
+        RpaNotification(
+            tax_office_id=job.tax_office_id,
+            recipient_user_id=job.requested_by_user_id,
+            kind=notification_kind,
+            title=title,
+            body=body,
+            job_id=job.id,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# 게이트 2: '제작' 버튼 — 위하고 마감·제작 + 홈택스·위택스 일괄 작업 등록 (사무소 사용자)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/productions", response_model=list[RpaJobOut], status_code=status.HTTP_201_CREATED)
+async def create_productions(
+    payload: ProductionCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[RpaJob]:
+    """자동입력 ✅ 거래처만 대상으로 위하고 마감·제작 + 홈택스·위택스 신고를 일괄 등록.
+
+    한 거래처가 실패해도 다른 거래처는 계속 진행된다 (에이전트 로직, §4-2).
+    """
+    office_id = _office_id(user)
+    filing = await db.get(MonthlyFiling, payload.filing_id)
+    if not filing or filing.tax_office_id != office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    client_ids = list(dict.fromkeys(payload.client_ids))
+
+    # 자동입력이 성공한 거래처만 [제작]에 태울 수 있다.
+    input_jobs = (
+        await db.execute(
+            select(RpaJob).where(
+                RpaJob.monthly_filing_id == filing.id,
+                RpaJob.client_id.in_(client_ids),
+                RpaJob.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT,
+            )
+        )
+    ).scalars().all()
+    input_by_client: dict[str, RpaJob] = {}
+    for j in input_jobs:
+        # 가장 최근 성공 작업만 유효
+        if j.status == RpaJobStatus.SUCCEEDED:
+            existing = input_by_client.get(j.client_id)
+            if existing is None or _as_utc(j.created_at) > _as_utc(existing.created_at):
+                input_by_client[j.client_id] = j
+    missing = [cid for cid in client_ids if cid not in input_by_client]
+    if missing:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"위하고 자동입력이 완료되지 않은 거래처가 있습니다 (client_ids: {missing}). "
+            "먼저 '위하고 전송'을 완료하세요.",
+        )
+
+    active = set(
+        (
+            await db.execute(
+                select(RpaJob.client_id).where(
+                    RpaJob.monthly_filing_id == filing.id,
+                    RpaJob.client_id.in_(client_ids),
+                    RpaJob.kind == RpaJobKind.MONTHLY_PRODUCTION,
+                    RpaJob.status.in_(ACTIVE_STATUSES),
+                )
+            )
+        ).scalars().all()
+    )
+    if active:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"이미 제작이 대기·진행 중인 거래처입니다 (client_ids: {sorted(active)}).",
+        )
+
+    jobs = [
+        RpaJob(
+            tax_office_id=office_id,
+            kind=RpaJobKind.MONTHLY_PRODUCTION,
+            status=RpaJobStatus.PENDING,
+            monthly_filing_id=filing.id,
+            client_id=cid,
+            period=filing.period,
+            business_number=input_by_client[cid].business_number,
+            business_name=input_by_client[cid].business_name,
+            requested_by_user_id=user.id,
+        )
+        for cid in client_ids
+    ]
+    db.add_all(jobs)
+    await db.commit()
+    for job in jobs:
+        await db.refresh(job)
+    return jobs
+
+
+# ---------------------------------------------------------------------------
+# 에이전트: 접수증·납부서 등록 (MONTHLY_PRODUCTION 작업 중)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/agent/jobs/{job_id}/filing-result", response_model=FilingResultOut)
+async def agent_register_filing_result(
+    job_id: str,
+    payload: AgentFilingResultIn,
+    db: AsyncSession = Depends(get_db),
+    agent: RpaAgent = Depends(get_current_agent),
+) -> ClientFilingResult:
+    """에이전트가 홈택스·위택스 접수증·납부서를 서버에 등록.
+
+    이 시점에는 `published_at=NULL` (비공개). 로그인 사용자가 '발송 확정'을 클릭한 뒤에만
+    사장님 포털·문자로 나간다 (§4-5·§4-6).
+    """
+    job = await _agent_running_job(db, agent, job_id)
+    if job.kind != RpaJobKind.MONTHLY_PRODUCTION:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "MONTHLY_PRODUCTION 작업에서만 신고결과를 등록할 수 있습니다",
+        )
+    if payload.client_id != job.client_id or payload.period != job.period:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "요청의 client_id·period가 작업과 일치하지 않습니다 (엉뚱한 거래처 방지)",
+        )
+
+    existing = (
+        await db.execute(
+            select(ClientFilingResult).where(
+                ClientFilingResult.client_id == payload.client_id,
+                ClientFilingResult.period == payload.period,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        existing = ClientFilingResult(
+            client_id=payload.client_id,
+            period=payload.period,
+            source=FilingResultSource.RPA,
+        )
+        db.add(existing)
+    else:
+        # 재실행으로 두 번 등록되면 최근 값으로 덮어쓰되 이미 발송 확정된 경우엔 거부한다.
+        if existing.published_at is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "이미 발송 확정된 신고결과가 있습니다 — 수정하려면 발송 확정을 취소하세요",
+            )
+
+    existing.settled_tax = payload.settled_tax
+    existing.virtual_account = payload.virtual_account
+    existing.epayment_number = payload.epayment_number
+    existing.due_date = payload.due_date
+    existing.receipt_key = payload.receipt_key
+    existing.receipt_name = payload.receipt_name
+    existing.payment_slip_key = payload.payment_slip_key
+    existing.payment_slip_name = payload.payment_slip_name
+    existing.source = FilingResultSource.RPA
+
+    agent.last_seen_at = _utcnow()
+    await db.commit()
+    await db.refresh(existing)
+    return existing
+
+
+# ---------------------------------------------------------------------------
+# 게이트 3: '발송 확정' — 사장님 포털 공개 + 납부안내 문자 트리거
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/filing-results/{filing_result_id}/publish", response_model=PublishFilingResultOut
+)
+async def publish_filing_result(
+    filing_result_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ClientFilingResult:
+    """게이트 3 — 접수증·납부서를 검토한 뒤 사장님 포털·문자 발송을 트리거한다."""
+    office_id = _office_id(user)
+    result = await db.get(ClientFilingResult, filing_result_id)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "신고결과를 찾을 수 없습니다")
+    client = await db.get(Client, result.client_id)
+    if client is None or client.tax_office_id != office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "신고결과를 찾을 수 없습니다")
+
+    if result.published_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "이미 발송 확정된 신고결과입니다")
+
+    # 검토 최소 조건: 접수증 또는 납부세액이 있어야 발송 확정 가능
+    if not result.receipt_key and result.settled_tax is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "접수증·납부세액이 등록되지 않아 발송 확정할 수 없습니다",
+        )
+
+    result.published_at = _utcnow()
+    result.confirmed_by_user_id = user.id
+    # 실제 문자 발송은 별도 서비스(13-messaging-activation.md 전제) — 여기선 flag만 세팅
+    await db.commit()
+    await db.refresh(result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 알림 조회·읽음 처리
+# ---------------------------------------------------------------------------
+
+
+@router.get("/notifications", response_model=list[RpaNotificationOut])
+async def list_notifications(
+    unread_only: bool = False,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[RpaNotification]:
+    query = select(RpaNotification).where(RpaNotification.recipient_user_id == user.id)
+    if unread_only:
+        query = query.where(RpaNotification.read_at.is_(None))
+    rows = await db.execute(query.order_by(RpaNotification.created_at.desc()).limit(100))
+    return list(rows.scalars().all())
+
+
+@router.post("/notifications/{notification_id}/read", response_model=RpaNotificationOut)
+async def mark_notification_read(
+    notification_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RpaNotification:
+    n = await db.get(RpaNotification, notification_id)
+    if n is None or n.recipient_user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "알림을 찾을 수 없습니다")
+    if n.read_at is None:
+        n.read_at = _utcnow()
+        await db.commit()
+        await db.refresh(n)
+    return n

@@ -1,7 +1,7 @@
 import enum
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models._base import Base, IdMixin, TimestampMixin
@@ -47,5 +47,11 @@ class ClientFilingResult(Base, IdMixin, TimestampMixin):
         Enum(FilingResultSource, native_enum=False, length=20),
         default=FilingResultSource.MANUAL_UPLOAD,
     )
+
+    # 게이트 3 (발송 확정) — 이 값이 채워지기 전까지는 사장님 포털·문자 발송이 나가지 않는다.
+    # RPA 경로는 노트북이 접수증을 등록해도 published_at=NULL로 두고, 사용자가 검토 후 클릭해야 채워진다.
+    # 수동 업로드 경로(MANUAL_UPLOAD)는 세무사가 올리는 시점에 바로 published_at을 채운다.
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
 
     client: Mapped[Client] = relationship()
