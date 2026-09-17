@@ -37,20 +37,27 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from easyone_agent.config import (
+    SECRET_HOMETAX_CERT_PASSWORD,
     SECRET_HOMETAX_ID,
+    SECRET_HOMETAX_PASSWORD,
+    SECRET_HOMETAX_TAX_AGENT_ID,
+    SECRET_HOMETAX_TAX_AGENT_PASSWORD,
     SECRET_WEHAGO_ID,
     SECRET_WEHAGO_PASSWORD,
     SECRET_WETAX_ID,
+    SECRET_WETAX_PASSWORD,
     get_secret,
     get_secret_optional,
     load_config,
 )
+from easyone_agent.hometax import HometaxSession
 from easyone_agent.logmask import configure_logging
 from easyone_agent.wehago import (
     CdpConnectFailed,
     LoginFailed,
     WehagoUploader,
 )
+from easyone_agent.wetax import WetaxSession
 
 logger = logging.getLogger("poc1")
 
@@ -76,6 +83,7 @@ class SiteReport:
     bot_hints_found: list[str] = field(default_factory=list)
     login_attempted: bool = False
     login_ok: bool | None = None
+    file_input_present: bool | None = None  # 파일변환신고 화면에서 표준 input[type=file] 노출 여부
     error: str | None = None
 
 
@@ -126,6 +134,48 @@ def _try_wehago_login(uploader: WehagoUploader, report: SiteReport) -> None:
     report.login_ok = True
 
 
+def _try_hometax_login(session: HometaxSession, report: SiteReport) -> None:
+    """세션이 사람 손으로 미리 로그인돼 있으면 통과, 아니면 NotImplemented로 기록."""
+    report.login_attempted = True
+    try:
+        session.ensure_logged_in()
+    except NotImplementedError as e:
+        report.login_ok = None
+        report.error = f"NotImplemented: {e}"
+    except Exception as e:
+        report.login_ok = False
+        report.error = f"{type(e).__name__}: {e}"
+    else:
+        report.login_ok = True
+
+
+def _try_wetax_login(session: WetaxSession, report: SiteReport) -> None:
+    report.login_attempted = True
+    try:
+        session.ensure_logged_in()
+    except NotImplementedError as e:
+        report.login_ok = None
+        report.error = f"NotImplemented: {e}"
+    except Exception as e:
+        report.login_ok = False
+        report.error = f"{type(e).__name__}: {e}"
+    else:
+        report.login_ok = True
+
+
+def _probe_file_input(page, url: str) -> bool | None:
+    """대상 페이지에 표준 input[type=file]이 노출돼 있는지. Playwright set_input_files 사용 가능 여부 프리뷰.
+
+    실패해도 None으로 두고 넘어간다 — 로그인 필요·페이지 이동 실패 등 다양한 이유로 도달 불가능.
+    """
+    try:
+        page.goto(url, timeout=30_000, wait_until="domcontentloaded")
+        page.wait_for_timeout(1_500)
+        return page.locator("input[type=file]").count() > 0
+    except Exception:
+        return None
+
+
 def _session_recheck(page, url: str) -> dict:
     """세션 유지 시간 실측용 재확인 — url 로 갔을 때 로그인 페이지로 튀는지 확인."""
     try:
@@ -166,16 +216,36 @@ def run(session_wait_sec: int) -> int:
                 _try_wehago_login(uploader, wehago_report)
             report.sites.append(wehago_report)
 
-            # 홈택스
+            # 홈택스 — 페이지 도달·봇 감지 → 로그인 시도(스캐폴드) → 파일변환신고 페이지에서 input[type=file] 존재 프로브
             hometax_report = _probe_page(page, HOMETAX_LOGIN_URL, "hometax", config.screenshot_dir)
             if get_secret_optional(SECRET_HOMETAX_ID):
-                hometax_report.login_attempted = False  # 공동인증서 필요, 로그인 시도 안 함
+                hometax_session = HometaxSession(
+                    context=uploader._context,
+                    user_id=get_secret_optional(SECRET_HOMETAX_ID) or "",
+                    password=get_secret_optional(SECRET_HOMETAX_PASSWORD) or "",
+                    tax_agent_id=get_secret_optional(SECRET_HOMETAX_TAX_AGENT_ID),
+                    tax_agent_password=get_secret_optional(SECRET_HOMETAX_TAX_AGENT_PASSWORD),
+                    cert_password=get_secret_optional(SECRET_HOMETAX_CERT_PASSWORD),
+                    screenshot_dir=config.screenshot_dir,
+                )
+                _try_hometax_login(hometax_session, hometax_report)
+            # 파일변환신고 첫 페이지에서 표준 파일 입력이 노출되는지 확인 (K Upload 프로브 대체 — 정확 URL은 실측 후 갱신)
+            hometax_report.file_input_present = _probe_file_input(
+                page, "https://hometax.go.kr/websquare/websquare.html?w2xPath=/ui/pp/index.xml"
+            )
             report.sites.append(hometax_report)
 
             # 위택스
             wetax_report = _probe_page(page, WETAX_LOGIN_URL, "wetax", config.screenshot_dir)
             if get_secret_optional(SECRET_WETAX_ID):
-                wetax_report.login_attempted = False  # 세무대리인 로그인 셀렉터 실측 전
+                wetax_session = WetaxSession(
+                    context=uploader._context,
+                    user_id=get_secret_optional(SECRET_WETAX_ID) or "",
+                    password=get_secret_optional(SECRET_WETAX_PASSWORD) or "",
+                    screenshot_dir=config.screenshot_dir,
+                )
+                _try_wetax_login(wetax_session, wetax_report)
+            wetax_report.file_input_present = _probe_file_input(page, WETAX_LOGIN_URL)
             report.sites.append(wetax_report)
 
             # 세션 유지 실측 (선택)
@@ -230,7 +300,8 @@ def _print_summary(report: Poc1Report) -> None:
     for site in report.sites:
         line = (
             f"  [{site.name}] reached={site.reached} webdriver={site.navigator_webdriver} "
-            f"bot_hints={site.bot_hints_found} login={site.login_ok}"
+            f"bot_hints={site.bot_hints_found} login={site.login_ok} "
+            f"file_input={site.file_input_present}"
         )
         if site.error:
             line += f" error={site.error}"
