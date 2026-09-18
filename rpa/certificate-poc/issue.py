@@ -55,23 +55,34 @@ def capture(page: Page, tag: str) -> None:
         print(f"[!] png {tag} failed: {exc.__class__.__name__}: {exc}")
 
 
-def wait_for_enter() -> threading.Event:
-    """Enter 입력을 백그라운드 스레드로 기다린다.
+class Console:
+    """stdin 을 백그라운드로 읽는다 — Enter=캡처 요청, q=종료.
 
     sync Playwright 는 API 호출 중에만 이벤트를 처리하므로 메인은 tick 을 돌려야 한다.
     select.select(sys.stdin) 은 Windows 에서 소켓만 받아 OSError 가 나므로 스레드로 대체.
     """
-    done = threading.Event()
 
-    def waiter() -> None:
-        try:
-            input()
-        except Exception:
-            pass
-        done.set()
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.captures = 0
+        threading.Thread(target=self._reader, daemon=True).start()
 
-    threading.Thread(target=waiter, daemon=True).start()
-    return done
+    def _reader(self) -> None:
+        while True:
+            try:
+                line = input()
+            except Exception:
+                break
+            if line.strip().lower() == "q":
+                break
+            self.captures += 1
+        self.done.set()
+
+    def take_request(self) -> bool:
+        if self.captures > 0:
+            self.captures -= 1
+            return True
+        return False
 
 
 def watch_navigation(page: Page) -> None:
@@ -147,23 +158,31 @@ def main() -> None:
 
         print()
         print("=" * 60)
-        print("[관찰] 브라우저에서 직접 다음을 진행:")
-        print("  1. 카탈로그에서 사업자등록증명 클릭")
-        print("  2. [신청하기] → [발급하기] → [출력하기]")
-        print("  3. clipreport 팝업이 뜨면 그 상태 유지")
+        print("[관찰] 브라우저에서 한 단계씩 진행하고, 매 단계마다 이 창에서 Enter.")
         print()
-        print("팝업이 뜨면 스크립트가 자동 캡처합니다.")
-        print("완료 후 Enter로 종료 (팝업 닫지 마세요).")
+        print("  1. 카탈로그에서 사업자등록증명 클릭   → Enter")
+        print("  2. [신청하기] 클릭                    → Enter")
+        print("  3. [발급하기] 클릭                    → Enter")
+        print("  4. [출력하기] 클릭 (팝업 뜸)          → Enter")
+        print()
+        print("WebSquare 는 하위 화면을 URL 변경 없이 로드하므로 자동 감지가 안 된다.")
+        print("Enter 를 칠 때마다 그 시점 화면의 HTML·PNG 를 저장한다.")
+        print("끝나면 q + Enter 로 종료 (팝업은 닫지 마세요).")
         print("=" * 60)
 
         # sync Playwright 콜백은 API 호출 시점에만 처리됨.
         # input() 으로 막으면 팝업·네비 이벤트가 전부 지연되므로 tick 루프를 돌린다.
-        done = wait_for_enter()
-        while not done.is_set():
+        console = Console()
+        step = 0
+        while not console.done.is_set():
             try:
                 page.wait_for_timeout(500)
             except Exception:
                 break
+            if console.take_request():
+                step += 1
+                print(f"[*] 수동 캡처 {step}")
+                capture(page, f"step{step:02d}")
 
         capture(page, "05_final_main")
 

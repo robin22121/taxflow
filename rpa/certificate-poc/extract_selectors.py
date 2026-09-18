@@ -21,7 +21,11 @@ ATTRS = ("id", "class", "title", "value", "type", "href", "onclick")
 
 
 def mask(text: str) -> str:
-    """연속 숫자 3자리 이상은 마스킹 (사업자번호·주민번호·금액)."""
+    """연속 숫자 3자리 이상은 마스킹 (사업자번호·주민번호·금액).
+
+    화면 텍스트에만 적용한다. id·href·class 는 셀렉터 자체라 가리면 쓸모가 없고,
+    홈택스 WebSquare 의 요소 id 는 개인정보를 담지 않는다.
+    """
     return re.sub(r"\d{3,}", lambda m: "#" * len(m.group()), text)
 
 
@@ -64,7 +68,7 @@ class Collector(HTMLParser):
                 v = d[k]
                 if k == "onclick":
                     v = v[:80]
-                parts.append(f'{k}="{mask(v)}"')
+                parts.append(f'{k}="{v}"')
         line = " ".join(parts) + ">"
         if text:
             line += f"  text={mask(text)[:60]!r}"
