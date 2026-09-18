@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime as _dt
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -277,6 +278,37 @@ async def preview_upload(
         current_entries,
         kind=intake.kind,
         attachments=attachments,
+    )
+
+
+class TextPreviewIn(BaseModel):
+    text: str
+
+
+@router.post("/sessions/{session_id}/text/preview", response_model=CollectPreviewOut)
+async def preview_text(
+    session_id: str,
+    payload: TextPreviewIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectPreviewOut:
+    """붙여넣은 텍스트(카톡·이메일 본문 등)를 AI로 파싱해 항목만 돌려준다. DB 미저장."""
+    session = await _load_session(db, session_id, user)
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 텍스트입니다")
+
+    client, filing = session.client, session.monthly_filing
+    employees, prev_entries = await _build_context(db, client, filing)
+    current_entries = await _load_current_entries(db, client, filing)
+    matching = await _parse_and_match(text, client, filing, employees, prev_entries)
+    return _to_preview(
+        session,
+        text,
+        "manual_text",
+        matching,
+        employees,
+        current_entries,
     )
 
 

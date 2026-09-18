@@ -516,6 +516,17 @@ export function usePreviewUpload() {
   });
 }
 
+/** 붙여넣은 텍스트(카톡·이메일 본문 등)를 AI로 파싱해 항목만 미리 받아온다. */
+export function usePreviewText() {
+  return useMutation({
+    mutationFn: (vars: { sessionId: string; text: string }) =>
+      api<CollectPreview>(`/api/v1/collect/sessions/${vars.sessionId}/text/preview`, {
+        method: "POST",
+        json: { text: vars.text },
+      }),
+  });
+}
+
 /** 전월 급여자료를 이번 달 후보로 불러온다 (AI 미사용, 저장 안 함). */
 export function usePreviewCarryForward() {
   return useMutation({

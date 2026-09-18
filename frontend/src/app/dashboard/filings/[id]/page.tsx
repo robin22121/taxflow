@@ -15,6 +15,7 @@ import {
   useInsuranceSummary,
   usePortalLink,
   usePreviewCarryForward,
+  usePreviewText,
   usePreviewUpload,
   useRequestCollection,
   useResignEmployees,
@@ -756,10 +757,33 @@ function PayrollInputBar({
 }) {
   const previewUpload = usePreviewUpload();
   const previewCarryForward = usePreviewCarryForward();
+  const previewText = usePreviewText();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [pastedText, setPastedText] = useState("");
 
-  const busy = previewUpload.isPending || previewCarryForward.isPending;
+  const busy = previewUpload.isPending || previewCarryForward.isPending || previewText.isPending;
   const today = new Date().toISOString().slice(0, 10);
+
+  function runText() {
+    const text = pastedText.trim();
+    if (busy || !text) return;
+    previewText.mutate(
+      { sessionId: session.id, text },
+      {
+        onSuccess: (data) => {
+          onPreview(data, {
+            text: data.source_text,
+            channel: data.channel,
+            sender_name: "카톡 붙여넣기",
+            received_date: today,
+            attachments: null,
+          });
+          setPastedText("");
+        },
+        onError: (e) => alert((e as Error).message),
+      },
+    );
+  }
 
   function runCarryForward() {
     if (busy) return;
@@ -820,7 +844,24 @@ function PayrollInputBar({
           title={selectedCount === 0 ? "표에서 퇴사할 직원을 선택하세요" : undefined}>
           퇴사처리{selectedCount > 0 ? ` (${selectedCount})` : ""}
         </Button>
-        <div className="flex-1" />
+        <textarea
+          className="flex-1 min-w-40 h-8 text-[12px] border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
+          placeholder="카톡 내용을 여기 붙여넣고 [반영하기] 를 누르세요"
+          rows={1}
+          value={pastedText}
+          disabled={busy}
+          onChange={(e) => setPastedText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              runText();
+            }
+          }}
+        />
+        <Button variant="primary" className="!text-[12px] !px-2.5 !py-1" disabled={!pastedText.trim() || busy} onClick={runText}
+          title="붙여넣은 텍스트를 AI로 파싱해 급여 항목으로 반영합니다 (⌘/Ctrl+Enter)">
+          {previewText.isPending ? "AI 읽는 중..." : "반영하기"}
+        </Button>
         {showComm && (
           <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
             고객소통내역 {commOpen ? "▶" : "◀"}
