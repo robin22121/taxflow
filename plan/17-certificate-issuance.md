@@ -152,34 +152,40 @@ Phase 1은 **1~4까지가 완료 판정 최소선**. 5~6은 여유 있으면 같
 
 ## §3-9. Phase 1.5 — 2대 분리 시뮬레이션 (본체 PC ↔ 별도 노트북)
 
+> 2026-09-18 재구성. 초기 계획(맥미니 = 서버, 맥북 = 에이전트)은 맥북 macOS 13 arm64 의 Playwright chromium 미지원 이슈로 취소.
+> 실제 구성은 **맥북 = 이지원천 서버 시뮬**, **Windows PC = 자동화 전용 노트북 시뮬**. 맥미니(개발 PC)는 편집·git push 에만 사용.
+
 Phase 1의 로컬 스크립트가 사업자등록증명 발급을 성공한 뒤 곧바로 이지원천 프로덕션으로 가지 않고,
-프로덕션 구조(서버 + 자동화 노트북 분리)를 사용자 로컬 자산 2대(**맥미니 = 서버**, **맥북 = 노트북**)로 시뮬레이션한다.
-목적은 통신 방향·잡 큐·자격증명 관리·PDF 업로드 흐름을 실제로 동작시키고, Phase 2에서 로그인 앞단·저장소·기기만 갈아 끼워도 되게 만드는 것.
+프로덕션 구조(서버 + 자동화 노트북 분리)를 사용자 로컬 자산 2대로 시뮬레이션한다.
+목적은 통신 방향·잡 큐·자격증명 관리·PDF 업로드 흐름을 실제로 동작시키고, Phase 2에서 로그인 앞단·저장소·기기 SKU 만 갈아 끼워도 되게 만드는 것.
 
 ### 3-9-1. 역할·기기·통신 방향
 
 ```
 ┌─────────────────── 사무실 Wi-Fi ────────────────────┐
 │                                                    │
-│  [맥미니 = "이지원천 서버" 시뮬]                    │
-│    - FastAPI + SQLite + 로컬 파일 저장             │
+│  [맥북 = "이지원천 서버" 시뮬]                      │
+│    - macOS + FastAPI + SQLite + 로컬 파일 저장     │
 │    - http://192.168.x.x:8100 (내부망)              │
 │    - 인입: 사용자 발급 요청, 에이전트 폴링·업로드  │
 │    - 발신: 없음 (에이전트에 접속하지 않음)         │
 │                                                    │
 │              ↑ 5초 폴링 (아웃바운드 HTTP)          │
 │                                                    │
-│  [맥북 = "자동화 전용 노트북" 시뮬]                 │
-│    - Playwright + Phase 1 코드 재사용              │
-│    - macOS keychain 에 자격증명 저장               │
+│  [Windows PC = "자동화 전용 노트북" 시뮬]           │
+│    - Windows + Playwright chromium + Phase 1 코드  │
+│    - Windows 자격 증명 관리자 (keyring 자동 사용)  │
 │    - 폴링 → 잡 pick → 홈택스 로그인·발급 → 업로드  │
 │                                                    │
 └────────────────────────────────────────────────────┘
+
+[맥미니]  개발용 PC — 코드 편집·git push 만. 실행 없음.
 ```
 
-- **통신은 맥북 → 맥미니 한 방향**. 맥미니는 맥북에 접속하지 않는다. Phase 2에서 사무실 방화벽에 인바운드 개방이 불필요한 구조와 동일.
+- **통신은 Windows → 맥북 한 방향**. 맥북은 Windows 에 접속하지 않는다. Phase 2 프로덕션(사무실 방화벽 인바운드 개방 불필요) 과 동일한 방향.
 - 초기에는 **HTTP + 사무실 Wi-Fi 로컬 IP** (자체 서명 인증서 세팅 번거로움 회피). Phase 2 전에 HTTPS 로 교체.
 - 로그인 계정은 여전히 **사용자 개인 사업자** (세무사 대리 로그인은 Phase 2).
+- **Windows PC = Phase 2 프로덕션의 노트북 시뮬** — BitLocker·Windows 자격증명 관리자·nProtect 같은 실제 환경 요소를 미리 밟는다.
 
 ### 3-9-2. 파일 구조
 
@@ -327,16 +333,17 @@ PENDING → CLAIMED → RUNNING → SUCCEEDED
 
 ### 3-9-6. 자격증명·인증
 
-**맥북 에이전트 자격증명 저장** — macOS keychain (`keyring` 라이브러리)
+**Windows 에이전트 자격증명 저장** — Windows 자격 증명 관리자 (`keyring` 라이브러리가 자동으로 DPAPI 백엔드 사용)
 
-- `python -m certificate_agent setup` 실행 시 대화형으로 입력받아 keychain 에 저장:
+- `python -m certificate_agent setup` 실행 시 대화형으로 입력받아 자격 증명 관리자에 저장:
   - `easyone-cert-agent / hometax_id`
   - `easyone-cert-agent / hometax_pw`
   - `easyone-cert-agent / hometax_rrn_prefix`
   - `easyone-cert-agent / hometax_rrn_suffix`
   - `easyone-cert-agent / agent_token`
   - `easyone-cert-agent / server_url` (예: `http://192.168.1.10:8100`)
-- 파일 저장 금지 (Phase 2 Windows 자격 증명 관리자 정책과 동일)
+- 파일 저장 금지 (Phase 2 프로덕션 노트북 정책과 동일).
+- Phase 2 로 갈 때는 **저장 위치·코드 무변경** — Windows 자격 증명 관리자를 그대로 씀. 세무사 대리 로그인용 값(관리번호 등)만 추가.
 
 **서버 인증** — `X-Agent-Token`
 
@@ -345,33 +352,51 @@ PENDING → CLAIMED → RUNNING → SUCCEEDED
 
 ### 3-9-7. 개발·실행 명령 (사무실 Wi-Fi 로컬)
 
-**맥미니 (서버)**
+**맥북 (이지원천 서버 시뮬)**
 
 ```
-cd rpa/certificate-server
+cd ~/w/taxflow/rpa/certificate-server   # 저장 경로는 사용자 자유
 uv venv && uv sync
 uv run uvicorn certificate_server.main:app --host 0.0.0.0 --port 8100
 # Swagger: http://localhost:8100/docs
 # 사무실 LAN IP 확인: ipconfig getifaddr en0
 ```
 
-**맥북 (에이전트)** — 최초 1회
-
+에이전트 등록·토큰 발급 (같은 맥북, 새 터미널):
 ```
-cd rpa/certificate-agent
-uv venv && uv sync
+cd ~/w/taxflow/rpa/certificate-server
+uv run python -m certificate_server.admin_cli register --name "Windows-김연호"
+# 출력의 token 을 Windows setup 에 입력. 1회만 노출.
+```
+
+**Windows PC (에이전트) — 최초 1회**
+
+PowerShell 또는 CMD:
+```
+git clone https://github.com/robin22121/taxflow.git C:\taxflow
+cd C:\taxflow\rpa\certificate-agent
+uv venv
+uv sync
 uv run playwright install chromium
-uv run python -m certificate_agent setup   # keychain 등록
+uv run python -m certificate_agent setup
 ```
 
-**맥북 (에이전트) — 상시 실행**
+setup 프롬프트 순서:
+1. 서버 URL — `http://<맥북 LAN IP>:8100`
+2. 에이전트 토큰 — 맥북에서 발급받은 값
+3. 홈택스 아이디 · 비밀번호 · 2차 인증 주민번호 앞6/뒤1
+
+모두 **Windows 자격 증명 관리자** 에 저장 (파일 없음).
+
+**Windows PC — 상시 실행**
 
 ```
+cd C:\taxflow\rpa\certificate-agent
 uv run python -m certificate_agent run
 # 5초마다 GET /api/agent/jobs/next
 ```
 
-**맥미니 (사용자 요청 테스트)**
+**맥북 (사용자 요청 테스트)**
 
 ```
 curl -X POST http://localhost:8100/api/user/issue-requests \
@@ -391,16 +416,18 @@ curl -X POST http://localhost:8100/api/user/issue-requests \
 
 | 축 | Phase 1.5 | Phase 2 |
 |-----|-----------|---------|
-| 서버 스택 | 맥미니 FastAPI + SQLite + 로컬 파일 | 이지원천 백엔드 + PostgreSQL + NHN Object Storage |
-| 에이전트 실행 기기 | 맥북 (macOS) | 사무소 자동화 전용 노트북 (Windows + BitLocker) |
-| 자격증명 저장 | macOS keychain | Windows 자격 증명 관리자 (DPAPI) |
+| 서버 스택 | 맥북 FastAPI + SQLite + 로컬 파일 | 이지원천 백엔드 + PostgreSQL + NHN Object Storage |
+| 에이전트 실행 기기 | Windows PC (개발자 사양) | 사무소 자동화 전용 노트북 (Windows + BitLocker 강제) |
+| 자격증명 저장 | Windows 자격 증명 관리자 (DPAPI) | 동일 (그대로) |
 | 로그인 계정 | 사용자 개인사업자 | 세무사 대리 + 세무대리 관리번호 |
 | 대상 사업자 | 사용자 본인 사업자 하나 | 수임처 다중 선택 |
 | 통신 | HTTP (사무실 LAN) | HTTPS (인터넷) + 인증서 |
 | PDF 저장 | `./storage/{id}.png` (또는 pdf) | NHN Object Storage + 서명 URL |
 | 발급 함수 | `certificate-poc/` 재사용 | 동일 함수 그대로 이식 |
 
-`hometax_login.py` · 발급 함수 · tick 루프 기반 팝업 캡처는 Phase 1 → 1.5 → 2 로 그대로 옮겨간다. 새로 쓰는 것은 서버 엔드포인트·저장소 어댑터·로그인 앞단(세무사 대리) 셋뿐.
+Phase 1.5 에이전트 실행 기기를 처음부터 Windows 로 잡았기 때문에 자격증명 저장·Playwright chromium·홈택스 nProtect 등
+Windows 고유 환경을 미리 밟는다. Phase 2 로 갈 때 갈아 끼우는 축은 **서버 스택·로그인 앞단·저장소·통신 프로토콜** 넷.
+`hometax_login.py` · 발급 함수 · tick 루프 기반 팝업 캡처는 Phase 1 → 1.5 → 2 로 그대로 옮겨간다.
 
 ## §4. Phase 2 — 프로덕션 (실제 시스템 흐름)
 

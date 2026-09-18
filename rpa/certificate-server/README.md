@@ -1,6 +1,7 @@
 # certificate-server (Phase 1.5)
 
-`plan/17-certificate-issuance.md` §3-9 — 이지원천 서버 시뮬. 맥미니에서 실행.
+`plan/17-certificate-issuance.md` §3-9 — 이지원천 서버 시뮬. **맥북**에서 실행.
+에이전트는 Windows PC (`rpa/certificate-agent/`) 에서 실행하며 이 서버를 폴링한다.
 
 ## 설정 + 실행
 
@@ -12,13 +13,13 @@ uv run uvicorn certificate_server.main:app --host 0.0.0.0 --port 8100
 ```
 
 - Swagger: `http://localhost:8100/docs`
-- 사무실 LAN IP 확인: `ipconfig getifaddr en0` — 맥북 에이전트 `setup` 에 넣는다.
+- 사무실 LAN IP 확인: `ipconfig getifaddr en0` — Windows 에이전트 `setup` 에 넣는다.
 
 ## 에이전트 등록 (관리자 CLI)
 
 ```
-uv run python -m certificate_server.admin_cli register --name 맥북-김연호
-# 출력의 token 을 맥북 setup 에 그대로 입력. 이 화면에서만 볼 수 있음.
+uv run python -m certificate_server.admin_cli register --name "Windows-김연호"
+# 출력의 token 을 Windows setup 에 그대로 입력. 이 화면에서만 볼 수 있음.
 
 uv run python -m certificate_server.admin_cli list
 uv run python -m certificate_server.admin_cli revoke <agent_id>
