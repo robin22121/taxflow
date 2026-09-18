@@ -98,21 +98,23 @@ def _dump(page, tag: str) -> str:
 def _goto_application(page) -> None:
     """사업자등록증명 신청 화면으로 진입.
 
-    1순위는 menuCd URL 직행. WebSquare 가 SPA 라 직행이 안 먹는 경우가 있어
-    전체메뉴 앵커 클릭을 폴백으로 둔다 (앵커는 메뉴를 연 뒤에만 DOM 에 생긴다).
+    로그인 직후 화면에는 전체메뉴 앵커(#a_4315010800)가 DOM 에 없다. 상단 메뉴
+    '증명·등록·신청·사업장현황' 을 눌러 드롭다운을 펼쳐야 앵커가 렌더된다.
+    구분자가 화면마다 ·/ㆍ/･ 로 달라 '사업장현황' 부분만 매칭한다.
+    menuCd URL 직행은 SPA 라 안 먹는 경우가 있어 폴백으로만 둔다.
     """
-    page.goto(BUSINESS_REG_URL, wait_until="domcontentloaded")
-    time.sleep(4.0)
-    print(f"[*] goto 후 url={page.url}")
-    if page.locator(SEL_BSNO).count() > 0:
-        return
-
-    print("[*] 직행 실패 — 전체메뉴 앵커로 재시도")
     try:
-        page.locator(MENU_ANCHOR).first.click(timeout=10000)
+        page.get_by_text(re.compile("사업장현황")).first.click(timeout=15000)
+        time.sleep(2.5)
+        print("[+] 상단 메뉴 열림")
+        page.locator(MENU_ANCHOR).first.click(timeout=15000)
         time.sleep(4.0)
+        print(f"[+] 사업자등록증명 진입. url={page.url}")
     except Exception as exc:  # noqa: BLE001
-        print(f"[!] 앵커 클릭 실패: {exc.__class__.__name__}")
+        print(f"[!] 메뉴 경로 실패({exc.__class__.__name__}) — menuCd 직행으로 재시도")
+        page.goto(BUSINESS_REG_URL, wait_until="domcontentloaded")
+        time.sleep(4.0)
+        print(f"[*] goto 후 url={page.url}")
 
     if page.locator(SEL_BSNO).count() == 0:
         path = _dump(page, "nav")
