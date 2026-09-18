@@ -158,19 +158,28 @@ def _pick_business_number(page, wanted: str) -> str:
     raise RuntimeError(f"사업자등록번호 {wanted} 없음. 계정 보유: [{available}]")
 
 
-def _fill_application(page, job: dict) -> str:
-    """신청 화면을 채우고 [작성완료] 까지. 선택된 사업자 라벨 반환."""
-    time.sleep(1.0)
+def _click_soft(page, selector: str, label: str) -> None:
+    """이미 기본값으로 맞아 있는 항목 — 비활성·미표시여도 흐름을 막지 않는다."""
+    try:
+        page.locator(selector).click(timeout=5000)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[*] {label} 클릭 건너뜀 ({exc.__class__.__name__}) — 기본값 사용")
 
-    # 납세자 구분 = 사업자등록번호 (기본값이지만 명시)
-    page.locator(SEL_TAXPAYER_CL_BSNO).click(timeout=10000)
-    time.sleep(0.5)
+
+def _fill_application(page, job: dict) -> str:
+    """신청 화면을 채우고 [작성완료] 까지. 선택된 사업자 라벨 반환.
+
+    납세자 구분(주민/사업자)은 disabled 로 렌더되며 사업자등록번호가 이미 선택돼
+    있다. 발급유형도 한글증명이 기본이고 사업자 선택 전에는 숨어 있다(nodis).
+    둘 다 강제로 누르지 않는다.
+    """
+    time.sleep(1.0)
 
     picked = _pick_business_number(page, job["business_number"])
     print(f"[+] 사업자 선택: {picked}")
-    time.sleep(1.5)  # 상호·대표자명 자동 채움 대기
+    time.sleep(2.0)  # 상호·대표자명 자동 채움 · 하위 항목 노출 대기
 
-    page.locator(SEL_KOREAN_CERT).click(timeout=10000)
+    _click_soft(page, SEL_KOREAN_CERT, "발급유형 한글증명")
     page.select_option(SEL_USE_PURPOSE, label=USE_PURPOSE_LABEL)
     page.select_option(SEL_SUBMIT_ORG, label=SUBMIT_ORG_LABEL)
 
