@@ -175,6 +175,30 @@ def _pick_business_number(page, wanted: str) -> str:
     raise RuntimeError(f"사업자등록번호 {wanted} 없음. 계정 보유: [{available}]")
 
 
+def _choose_radio(page, selector: str, label: str) -> None:
+    """WebSquare 라디오 선택.
+
+    실제 <input> 은 화면 밖에 숨기고 <label> 만 보여주는 구조라 일반 클릭이
+    "element is outside of the viewport" 로 실패한다. label 클릭 → DOM 이벤트
+    디스패치 순으로 폴백한다.
+    """
+    elem_id = selector.lstrip("#")
+    attempts = (
+        ("직접 클릭", lambda: page.locator(selector).click(timeout=5000)),
+        ("label 클릭", lambda: page.locator(f"label[for='{elem_id}']").click(timeout=5000)),
+        ("이벤트 디스패치", lambda: page.locator(selector).dispatch_event("click")),
+    )
+    for how, action in attempts:
+        try:
+            action()
+            if page.locator(selector).is_checked():
+                print(f"[+] {label} ({how})")
+                return
+        except Exception as exc:  # noqa: BLE001
+            print(f"[*] {label} {how} 실패: {exc.__class__.__name__}")
+    raise RuntimeError(f"{label} 선택 실패 (selector={selector})")
+
+
 def _click_soft(page, selector: str, label: str) -> None:
     """이미 기본값으로 맞아 있는 항목 — 비활성·미표시여도 흐름을 막지 않는다."""
     try:
@@ -202,8 +226,11 @@ def _fill_application(page, job: dict) -> str:
 
     # 주민등록번호 공개여부 — 요청 옵션이 유일한 사용자 선택 항목
     rrn_disclosed = bool((job.get("options") or {}).get("rrn_disclosed", False))
-    page.locator(SEL_RRN_OPEN if rrn_disclosed else SEL_RRN_HIDDEN).click(timeout=10000)
-    print(f"[+] 주민등록번호 {'공개' if rrn_disclosed else '비공개'}")
+    _choose_radio(
+        page,
+        SEL_RRN_OPEN if rrn_disclosed else SEL_RRN_HIDDEN,
+        f"주민등록번호 {'공개' if rrn_disclosed else '비공개'}",
+    )
 
     page.select_option(SEL_RECEIVE_METHOD, label=RECEIVE_METHOD_LABEL)
     time.sleep(0.5)
