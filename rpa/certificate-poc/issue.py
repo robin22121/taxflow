@@ -11,8 +11,7 @@ initial 스크린샷·HTML 저장.
 
 from __future__ import annotations
 
-import select
-import sys
+import threading
 import time
 from pathlib import Path
 
@@ -37,12 +36,63 @@ FIRST_OUTPUT_BTN = "#mf_txppWframe_gen_cvaInf_0_btn_cvaDcumGranMthdNm"
 
 
 def capture(page: Page, tag: str) -> None:
+    """HTML 먼저 (셀렉터 추출용), 스크린샷은 실패해도 진행.
+
+    WebSquare 화면은 full_page 스크린샷이 자주 타임아웃되므로 viewport 만 찍는다.
+    """
+    if page.is_closed():
+        print(f"[!] capture {tag} skipped (page closed)")
+        return
     try:
-        page.screenshot(path=str(OUT / f"issue_{tag}.png"), full_page=True, timeout=5000)
         (OUT / f"issue_{tag}.html").write_text(page.content(), encoding="utf-8")
-        print(f"[+] captured issue_{tag}.png / .html")
+        print(f"[+] html  issue_{tag}.html")
     except Exception as exc:
-        print(f"[!] capture {tag} failed: {exc.__class__.__name__}: {exc}")
+        print(f"[!] html {tag} failed: {exc.__class__.__name__}: {exc}")
+    try:
+        page.screenshot(path=str(OUT / f"issue_{tag}.png"), timeout=15000)
+        print(f"[+] png   issue_{tag}.png")
+    except Exception as exc:
+        print(f"[!] png {tag} failed: {exc.__class__.__name__}: {exc}")
+
+
+def wait_for_enter() -> threading.Event:
+    """Enter 입력을 백그라운드 스레드로 기다린다.
+
+    sync Playwright 는 API 호출 중에만 이벤트를 처리하므로 메인은 tick 을 돌려야 한다.
+    select.select(sys.stdin) 은 Windows 에서 소켓만 받아 OSError 가 나므로 스레드로 대체.
+    """
+    done = threading.Event()
+
+    def waiter() -> None:
+        try:
+            input()
+        except Exception:
+            pass
+        done.set()
+
+    threading.Thread(target=waiter, daemon=True).start()
+    return done
+
+
+def watch_navigation(page: Page) -> None:
+    """menuCd 가 바뀔 때마다 그 화면을 자동 덤프 (셀렉터 수집용)."""
+    seen: set[str] = set()
+    counter = [0]
+
+    def on_nav(frame) -> None:
+        if frame != page.main_frame:
+            return
+        url = frame.url
+        if url in seen or url.startswith("about:"):
+            return
+        seen.add(url)
+        counter[0] += 1
+        menu = url.split("menuCd=")[-1] if "menuCd=" in url else "nomenu"
+        print(f"[*] 화면 전환 감지 → {menu}")
+        page.wait_for_timeout(2500)
+        capture(page, f"nav{counter[0]:02d}_{menu}")
+
+    page.on("framenavigated", on_nav)
 
 
 def main() -> None:
@@ -80,6 +130,7 @@ def main() -> None:
         context.on("page", on_popup)
 
         page = context.new_page()
+        watch_navigation(page)
         login(page, creds)
         time.sleep(2.0)
         capture(page, "01_login_done")
@@ -106,14 +157,12 @@ def main() -> None:
         print("=" * 60)
 
         # sync Playwright 콜백은 API 호출 시점에만 처리됨.
-        # input() 대기 중엔 팝업 이벤트가 지연되므로 tick 루프 + stdin 감지.
-        while True:
+        # input() 으로 막으면 팝업·네비 이벤트가 전부 지연되므로 tick 루프를 돌린다.
+        done = wait_for_enter()
+        while not done.is_set():
             try:
                 page.wait_for_timeout(500)
             except Exception:
-                break
-            if select.select([sys.stdin], [], [], 0)[0]:
-                sys.stdin.readline()
                 break
 
         capture(page, "05_final_main")

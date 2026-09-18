@@ -39,22 +39,22 @@ def log(msg: str) -> None:
 
 
 def capture(page: Page, tab_id: int, tag: str) -> None:
-    """스크린샷 + HTML dump. 실패해도 다른 캡처는 계속."""
+    """HTML dump + 스크린샷. HTML 이 셀렉터 추출에 중요하므로 먼저 받는다."""
     if page.is_closed():
         log(f"TAB#{tab_id} CAPTURE {tag} skipped (closed)")
         return
-    try:
-        png = OUT / f"tab{tab_id}_{tag}.png"
-        page.screenshot(path=str(png), full_page=True, timeout=5000)
-        log(f"TAB#{tab_id} CAPTURE {tag}: {png.name}")
-    except Exception as exc:
-        log(f"TAB#{tab_id} CAPTURE {tag} failed: {exc.__class__.__name__}")
     try:
         html_path = OUT / f"tab{tab_id}_{tag}.html"
         html_path.write_text(page.content(), encoding="utf-8")
         log(f"TAB#{tab_id} HTML {tag}: {html_path.name}")
     except Exception as exc:
         log(f"TAB#{tab_id} HTML {tag} failed: {exc.__class__.__name__}")
+    try:
+        png = OUT / f"tab{tab_id}_{tag}.png"
+        page.screenshot(path=str(png), timeout=15000)
+        log(f"TAB#{tab_id} CAPTURE {tag}: {png.name}")
+    except Exception as exc:
+        log(f"TAB#{tab_id} CAPTURE {tag} failed: {exc.__class__.__name__}")
 
 
 def register_page(page: Page, tab_id: int) -> None:
