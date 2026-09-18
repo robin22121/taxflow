@@ -1,0 +1,1935 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>거래처 사장님 포털 · UI 프로토타입 v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css" />
+<style>
+  :root{
+    /* Neutral scale */
+    --bg:#F4F5F7;
+    --card:#FFFFFF;
+    --line:#EAECEF;
+    --line-strong:#DDE1E6;
+    --text:#0B1220;
+    --text-2:#1F2937;
+    --muted:#6B7280;
+    --muted-2:#94A3B8;
+
+    /* Brand */
+    --navy:#182848;
+    --blue:#3D5AFE;
+    --blue-2:#2540E8;
+    --palepill:#EEF2FF;
+
+    /* Icon-box pastels (Autohire palette) */
+    --box-blue-bg:#E0F2FE; --box-blue:#0369A1;
+    --box-mint-bg:#DCFCE7; --box-mint:#15803D;
+    --box-violet-bg:#EDE9FE; --box-violet:#6D28D9;
+    --box-amber-bg:#FEF3C7; --box-amber:#B45309;
+    --box-rose-bg:#FFE4E6; --box-rose:#BE123C;
+    --box-slate-bg:#F1F5F9; --box-slate:#475569;
+
+    /* Semantic */
+    --mint:#059669; --mint-bg:#ECFDF5;
+    --amber:#D97706; --amber-bg:#FFFBEB;
+    --red:#DC2626; --red-bg:#FEF2F2;
+
+    /* Shadow */
+    --shadow-sm:0 1px 2px rgba(15,23,42,.04);
+    --shadow-md:0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.03);
+    --shadow-lg:0 4px 12px rgba(15,23,42,.06), 0 2px 4px rgba(15,23,42,.03);
+  }
+  html,body{background:#EEF0F3}
+  *{font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-serif;letter-spacing:-0.01em}
+  .num{font-variant-numeric:tabular-nums;letter-spacing:-0.02em;}
+
+  /* iPhone frame */
+  .phone{
+    width:390px;height:844px;background:#0B1220;border-radius:56px;padding:11px;
+    box-shadow:0 24px 60px -12px rgba(30,58,95,.24),0 8px 20px -8px rgba(30,58,95,.16),0 0 0 1px rgba(255,255,255,.05) inset;
+    position:relative;
+  }
+  .phone-screen{
+    width:100%;height:100%;background:var(--bg);border-radius:46px;overflow:hidden;position:relative;
+    display:flex;flex-direction:column;
+  }
+  .notch{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:118px;height:34px;background:#0B1220;border-radius:20px;z-index:20;}
+  .status-bar{height:44px;padding:0 26px 0 32px;display:flex;align-items:center;justify-content:space-between;font-size:15px;font-weight:600;color:var(--text);background:var(--card);}
+  .status-bar .right{display:flex;gap:6px;align-items:center;font-size:13px;}
+  .app-scroll{flex:1;overflow-y:auto;padding-bottom:88px;background:var(--bg);}
+  .app-scroll::-webkit-scrollbar{width:0}
+
+  /* Icons */
+  .ico{width:20px;height:20px;stroke-width:1.75;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+  .ico-sm{width:16px;height:16px;stroke-width:1.75;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+  .ico-lg{width:22px;height:22px;stroke-width:1.75;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+
+  /* App header (mobile) — Employa-style profile card */
+  .app-header{background:var(--card);padding:16px 20px 14px;border-bottom:1px solid var(--line);}
+  .brand-row{display:flex;align-items:center;gap:12px;}
+  .brand-logo{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,var(--navy) 0%,#2A3E6E 100%);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;letter-spacing:-0.03em;box-shadow:0 2px 4px rgba(24,40,72,.2)}
+  .biz-name{font-weight:700;font-size:15.5px;color:var(--text);line-height:1.15;}
+  .biz-caption{font-size:11.5px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:4px}
+  .header-actions{display:flex;gap:6px;align-items:center;}
+  .header-btn{width:36px;height:36px;border-radius:11px;background:#F6F7F9;color:var(--text-2);display:flex;align-items:center;justify-content:center;position:relative;transition:background .12s}
+  .header-btn:hover{background:#EEF0F4}
+  .dot-red{position:absolute;top:8px;right:8px;width:7px;height:7px;background:var(--red);border-radius:50%;border:2px solid var(--card)}
+
+  /* Cards */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm);}
+  .card-hero{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-md);}
+  .card-flat{background:var(--card);border:1px solid var(--line);border-radius:14px;}
+
+  /* Badge */
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:600;letter-spacing:-0.005em;}
+  .badge-blue{background:#DBEAFE;color:#1E40AF;}
+  .badge-mint{background:var(--mint-bg);color:#065F46;}
+  .badge-amber{background:var(--amber-bg);color:#92400E;}
+  .badge-red{background:var(--red-bg);color:#991B1B;}
+  .badge-violet{background:#EDE9FE;color:#5B21B6;}
+  .badge-slate{background:#F1F5F9;color:#334155;}
+  .badge-dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block;opacity:.75}
+
+  /* Icon box (Autohire pastel) */
+  .icon-box{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .icon-box.sm{width:36px;height:36px;border-radius:10px;}
+  .icon-box.lg{width:48px;height:48px;border-radius:14px;}
+  .box-blue{background:var(--box-blue-bg);color:var(--box-blue);}
+  .box-mint{background:var(--box-mint-bg);color:var(--box-mint);}
+  .box-violet{background:var(--box-violet-bg);color:var(--box-violet);}
+  .box-amber{background:var(--box-amber-bg);color:var(--box-amber);}
+  .box-rose{background:var(--box-rose-bg);color:var(--box-rose);}
+  .box-slate{background:var(--box-slate-bg);color:var(--box-slate);}
+
+  /* CTA */
+  .cta-primary{
+    background:var(--blue);color:#fff;font-weight:700;font-size:15px;letter-spacing:-0.02em;
+    padding:14px 20px;border-radius:13px;width:100%;
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    box-shadow:0 1px 2px rgba(37,64,232,.24), 0 4px 12px -2px rgba(37,64,232,.28);
+    transition:transform .06s, box-shadow .12s;
+  }
+  .cta-primary:hover{background:var(--blue-2);}
+  .cta-primary:active{transform:translateY(1px);box-shadow:0 1px 2px rgba(37,64,232,.24);}
+  .cta-secondary{
+    background:#fff;color:var(--text-2);font-weight:600;font-size:14.5px;
+    padding:13px 20px;border-radius:12px;width:100%;
+    border:1px solid var(--line-strong);
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    transition:background .1s, border-color .1s;
+  }
+  .cta-secondary:hover{background:#FAFBFC;border-color:#CBD5E1;}
+
+  /* Section title */
+  .sec-title{font-size:14.5px;font-weight:700;color:var(--text);letter-spacing:-0.02em;display:flex;align-items:center;gap:7px;}
+  .sec-caption{font-size:12px;color:var(--muted);margin-top:2px}
+
+  /* Sticky bottom */
+  .sticky-cta{
+    position:absolute;bottom:88px;left:0;right:0;padding:14px 20px 16px;
+    background:linear-gradient(0deg,rgba(244,245,247,1) 55%,rgba(244,245,247,0));
+    display:flex;gap:10px;z-index:20;
+  }
+
+  /* Fullscreen modal */
+  .fs-modal{position:absolute;inset:0;background:var(--bg);z-index:50;display:none;flex-direction:column;}
+  .fs-modal.open{display:flex;animation:slideUp .22s cubic-bezier(.2,.7,.25,1)}
+  @keyframes slideUp{from{transform:translateY(28px);opacity:0}to{transform:none;opacity:1}}
+  .fs-header{
+    background:var(--card);padding:16px 18px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;
+    font-weight:600;color:var(--text);font-size:15px;letter-spacing:-0.02em;
+  }
+  .fs-back{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text-2);}
+  .fs-back:hover{background:#F1F3F6}
+  .fs-scroll{flex:1;overflow-y:auto;padding-bottom:110px;}
+
+  /* Row check */
+  .row-check{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;background:#fff;border:1px solid var(--line);border-radius:14px;cursor:pointer;transition:border-color .1s, background .1s;box-shadow:var(--shadow-sm);}
+  .row-check:hover{border-color:#CBD5E1;}
+  .row-check.checked{border-color:var(--blue);background:linear-gradient(0deg,#F5F7FF,#F5F7FF);}
+  .check-mark{width:22px;height:22px;border-radius:7px;border:1.5px solid #CBD5E1;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;transition:all .1s;}
+  .row-check.checked .check-mark{background:var(--blue);border-color:var(--blue);}
+  .row-check.checked .check-mark svg{display:block;color:#fff;}
+  .row-check .check-mark svg{display:none;}
+
+  /* Inputs */
+  .input-num{width:100%;padding:13px 14px;border:1.5px solid var(--line-strong);border-radius:11px;text-align:right;font-size:16px;font-weight:600;background:#fff;color:var(--text);}
+  .input-num:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(61,90,254,.14);}
+
+  /* Search */
+  .search{position:relative;}
+  .search input{width:100%;padding:11px 14px 11px 40px;border:1px solid var(--line-strong);border-radius:12px;font-size:14px;background:#F8FAFC;color:var(--text);}
+  .search input:focus{outline:none;border-color:var(--blue);background:#fff;}
+  .search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted-2);}
+
+  /* Tab bar */
+  .tab-bar{position:absolute;bottom:0;left:0;right:0;background:rgba(255,255,255,.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--line);padding:6px 6px 22px;display:grid;grid-template-columns:repeat(4,1fr);z-index:30;}
+  .tab-bar button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 4px;color:#94A3B8;font-size:10.5px;font-weight:600;letter-spacing:-0.01em;position:relative;transition:color .12s;}
+  .tab-bar button.active{color:var(--navy);}
+  .tab-bar button.active .tab-ico{color:var(--blue);}
+
+  /* Chart */
+  .bar-col{display:flex;flex-direction:column-reverse;align-items:center;gap:2px;height:130px;min-width:24px;}
+  .bar-seg{width:16px;border-radius:3px;}
+  .bar-blue{background:linear-gradient(180deg,#60A5FA,#3B82F6);}
+  .bar-violet{background:linear-gradient(180deg,#A78BFA,#8B5CF6);}
+  .bar-amber{background:linear-gradient(180deg,#FCD34D,#F59E0B);}
+
+  /* Divider (subtle) */
+  .div-thin{height:1px;background:var(--line);}
+
+  /* Desktop */
+  .ds-sidebar-item{
+    display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;color:var(--muted);
+    font-size:14px;font-weight:500;cursor:pointer;transition:background .1s, color .1s;
+  }
+  .ds-sidebar-item:hover{background:#F3F5F8;color:var(--text-2);}
+  .ds-sidebar-item.active{background:var(--palepill);color:var(--navy);font-weight:700;}
+  .ds-sidebar-item.active .ico{color:var(--blue);}
+
+  /* Employa-style tab underline */
+  .u-tab{padding:10px 2px 12px;font-size:14px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer;}
+  .u-tab.active{color:var(--blue);border-color:var(--blue);}
+
+  /* Avatar */
+  .avatar{border-radius:50%;background:linear-gradient(135deg,#EEF2FF 0%,#E0E7FF 100%);color:var(--navy);display:flex;align-items:center;justify-content:center;font-weight:700;letter-spacing:-0.02em;}
+  .avatar.violet{background:linear-gradient(135deg,#F3E8FF,#E9D5FF);color:#6B21A8;}
+  .avatar.amber{background:linear-gradient(135deg,#FEF3C7,#FDE68A);color:#92400E;}
+  .avatar.mint{background:linear-gradient(135deg,#D1FAE5,#A7F3D0);color:#065F46;}
+  .avatar.rose{background:linear-gradient(135deg,#FFE4E6,#FECDD3);color:#9F1239;}
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Top toolbar -->
+<div class="w-full bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <div class="w-9 h-9 rounded-xl brand-logo">이</div>
+    <div>
+      <div class="font-bold text-slate-900 text-[15px]">거래처 사장님 포털 — UI 프로토타입</div>
+      <div class="text-xs text-slate-500">이지원천 · Autohire·Employa 톤 재구성</div>
+    </div>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <span class="text-slate-500 text-xs">화면:</span>
+    <button id="vp-mobile" class="px-3.5 py-1.5 rounded-lg font-semibold text-[13px] border border-slate-900 bg-slate-900 text-white transition">모바일</button>
+    <button id="vp-desktop" class="px-3.5 py-1.5 rounded-lg font-semibold text-[13px] border border-slate-300 text-slate-700 bg-white transition">데스크톱</button>
+  </div>
+</div>
+
+<!-- Mobile stage -->
+<div id="stage-mobile" class="flex items-start justify-center gap-10 py-12 px-6 flex-wrap">
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="phone-screen">
+      <!-- Status bar -->
+      <div class="status-bar">
+        <span class="num">9:41</span>
+        <div class="right num">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx=".5"/><rect x="5" y="4" width="3" height="8" rx=".5"/><rect x="10" y="1" width="3" height="11" rx=".5"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 2C11.4 2 14.1 3.1 16 4.9L14.6 6.4C13 4.8 10.8 3.9 8.5 3.9S4 4.8 2.4 6.4L1 4.9C2.9 3.1 5.6 2 8.5 2Zm0 3.5c1.8 0 3.5.7 4.8 1.9L11.9 8.8c-.9-.9-2.1-1.4-3.4-1.4-1.3 0-2.5.5-3.4 1.4L3.7 7.4C5 6.2 6.7 5.5 8.5 5.5Zm0 3.5c.9 0 1.8.4 2.4 1L8.5 12 6.1 10c.6-.6 1.5-1 2.4-1z"/></svg>
+          <svg width="26" height="12" viewBox="0 0 26 12" fill="none"><rect x="1" y="1" width="22" height="10" rx="2.5" stroke="currentColor" stroke-opacity=".4"/><rect x="24" y="4" width="1.5" height="4" rx=".5" fill="currentColor" fill-opacity=".4"/><rect x="3" y="3" width="18" height="6" rx="1.2" fill="currentColor"/></svg>
+        </div>
+      </div>
+
+      <!-- App header -->
+      <div class="app-header">
+        <div class="flex items-center justify-between">
+          <div class="brand-row">
+            <div class="brand-logo">샘</div>
+            <div>
+              <div class="biz-name">샘플상사</div>
+              <div class="biz-caption">
+                <svg class="ico-sm" viewBox="0 0 24 24"><path d="M12 2 L15 8.5 L22 9.5 L17 14.5 L18.5 21.5 L12 18 L5.5 21.5 L7 14.5 L2 9.5 L9 8.5 Z"/></svg>
+                <span>조명신 세무사무소</span>
+              </div>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button class="header-btn">
+              <svg class="ico" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+              <span class="dot-red"></span>
+            </button>
+            <button class="header-btn">
+              <svg class="ico" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="app-scroll">
+
+        <!-- ============ SCREEN 1: 이달분 신고하기 ============ -->
+        <section id="scr-file">
+          <!-- 상태 스트립 -->
+          <div class="px-5 pt-5 pb-4 bg-white border-b border-[color:var(--line)]">
+            <div class="flex items-start justify-between">
+              <div>
+                <div class="text-[11.5px] font-semibold text-[color:var(--muted)] uppercase tracking-wider">이번 달 원천세</div>
+                <div class="text-[19px] font-bold text-[color:var(--text)] mt-1 num tracking-tight">2026년 9월 귀속</div>
+              </div>
+              <span class="badge badge-amber mt-1"><span class="badge-dot"></span>자료 수집 중</span>
+            </div>
+            <div class="flex items-center gap-1.5 mt-3 text-[12px] text-[color:var(--muted)]">
+              <svg class="ico-sm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <span>마감 <b class="text-[color:var(--text-2)]">2026-10-10</b></span>
+              <span class="badge badge-red ml-1" style="padding:2px 7px;font-size:10.5px;">D-7</span>
+            </div>
+          </div>
+
+          <!-- 지난달 급여내역 보기 -->
+          <div class="px-5 pt-5 pb-2">
+            <button class="w-full text-left card p-5" onclick="openModal('prevMonth')">
+              <div class="flex items-center gap-4">
+                <div class="icon-box box-slate">
+                  <svg class="ico-lg" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8M8 9h2"/></svg>
+                </div>
+                <div class="flex-1">
+                  <div class="font-bold text-[15.5px] text-[color:var(--text)] tracking-tight">지난달 급여내역 보기</div>
+                  <div class="text-[12.5px] text-[color:var(--muted)] mt-1">8월 지급명세 · 10명 · 29,850,000원</div>
+                </div>
+                <svg class="ico text-slate-300" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+            </button>
+          </div>
+
+          <!-- 급여 결정 -->
+          <div class="px-5 pt-6 pb-2">
+            <div class="sec-title mb-4">
+              <svg class="ico-sm text-[color:var(--blue)]" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              이번 달 급여 결정
+            </div>
+
+            <!-- 지난달과 동일 -->
+            <button class="w-full text-left card-hero p-5 mb-3 relative" onclick="openModal('preview')" style="border-color:var(--blue);border-width:1.5px;">
+              <div class="absolute top-4 right-4"><span class="badge badge-blue">대부분 이거예요</span></div>
+              <div class="flex items-start gap-4">
+                <div class="icon-box box-blue">
+                  <svg class="ico-lg" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                </div>
+                <div class="flex-1 pr-16">
+                  <div class="font-bold text-[16px] text-[color:var(--text)] tracking-tight">지난달과 동일</div>
+                  <div class="text-[13px] text-[color:var(--muted)] mt-1 leading-relaxed">8월 지급명세를 그대로<br/>9월분으로 확정합니다</div>
+                </div>
+              </div>
+              <div class="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
+                <span class="text-[12px] text-[color:var(--muted)]">이번 달 명세 미리보기 후 확정</span>
+                <span class="text-[color:var(--blue)] font-semibold text-sm flex items-center gap-1">선택
+                  <svg class="ico-sm" viewBox="0 0 24 24"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+                </span>
+              </div>
+            </button>
+
+            <!-- 변동이 있는 경우 -->
+            <button class="w-full text-left card p-5 mb-1" onclick="openModal('changes')">
+              <div class="flex items-start gap-4">
+                <div class="icon-box box-violet">
+                  <svg class="ico-lg" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                </div>
+                <div class="flex-1">
+                  <div class="font-bold text-[16px] text-[color:var(--text)] tracking-tight">변동이 있는 경우</div>
+                  <div class="text-[13px] text-[color:var(--muted)] mt-1 leading-relaxed">급여 변동 · 입·퇴사 · 파일 업로드</div>
+                </div>
+                <svg class="ico text-slate-300 mt-3" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+            </button>
+
+            <div class="flex items-center gap-2 text-[12px] text-[color:var(--muted)] mt-4 px-1">
+              <svg class="ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>이번 달 변동사항: <b class="text-[color:var(--text-2)]">신입 1명</b> 대기 중</span>
+            </div>
+          </div>
+
+          <div class="pb-10"></div>
+        </section>
+
+        <!-- ============ SCREEN 2: 원천세 납부하기 ============ -->
+        <section id="scr-pay" hidden>
+          <div class="px-5 pt-5 pb-4 bg-white border-b border-[color:var(--line)]">
+            <div class="text-[11.5px] font-semibold text-[color:var(--muted)] uppercase tracking-wider">원천세</div>
+            <div class="text-[19px] font-bold text-[color:var(--text)] mt-1">납부</div>
+          </div>
+
+          <div class="px-5 pt-5 pb-8">
+            <!-- Hero card: 6 rows only -->
+            <div class="card-hero overflow-hidden mb-6">
+              <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+                <span class="badge badge-blue"><span class="badge-dot"></span>신고 완료 · 납부 대기</span>
+                <span class="text-[11px] text-[color:var(--muted-2)]">2026-09-12 신고</span>
+              </div>
+
+              <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <span class="text-[13px] text-[color:var(--muted)]">귀속</span>
+                <span class="text-[14.5px] font-semibold text-[color:var(--text-2)] num">2026년 9월</span>
+              </div>
+
+              <div class="px-5 py-5 border-b border-slate-100">
+                <div class="text-[12px] text-[color:var(--muted)] mb-1.5">금액</div>
+                <div class="text-[32px] font-bold text-[color:var(--text)] num tracking-tighter leading-none">₩ 1,207,500</div>
+              </div>
+
+              <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <span class="text-[13px] text-[color:var(--muted)]">기한</span>
+                <span class="text-[14.5px] font-semibold num flex items-center gap-2">
+                  <span class="text-[color:var(--text-2)]">2026-10-10</span>
+                  <span class="badge badge-red" style="padding:2px 8px;font-size:10.5px;">D-7</span>
+                </span>
+              </div>
+
+              <div class="px-5 py-4 border-b border-slate-100">
+                <div class="flex items-center justify-between mb-2.5">
+                  <span class="text-[13px] text-[color:var(--muted)]">납부계좌</span>
+                  <button class="flex items-center gap-1 text-[color:var(--blue)] text-[12.5px] font-semibold">
+                    <svg class="ico-sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                    복사
+                  </button>
+                </div>
+                <div class="flex items-center gap-2.5">
+                  <div class="icon-box sm box-blue">
+                    <svg class="ico" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+                  </div>
+                  <div>
+                    <div class="text-[14.5px] font-semibold text-[color:var(--text-2)] num">국민은행 123-456-789012</div>
+                    <div class="text-[11.5px] text-[color:var(--muted)] mt-0.5">예금주: 국세청</div>
+                  </div>
+                </div>
+              </div>
+
+              <button class="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between hover:bg-slate-50 transition">
+                <span class="flex items-center gap-3">
+                  <div class="icon-box sm box-slate">
+                    <svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                  </div>
+                  <span class="text-[14px] text-[color:var(--text-2)] font-semibold">납부서</span>
+                </span>
+                <span class="text-[color:var(--blue)] font-semibold text-[13px] flex items-center gap-1">
+                  보기
+                  <svg class="ico-sm" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+                </span>
+              </button>
+
+              <button class="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition">
+                <span class="flex items-center gap-3">
+                  <div class="icon-box sm box-slate">
+                    <svg class="ico" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 5c0 1.66 4 3 9 3s9-1.34 9-3-4-3-9-3-9 1.34-9 3"/></svg>
+                  </div>
+                  <span class="text-[14px] text-[color:var(--text-2)] font-semibold">신고접수증</span>
+                </span>
+                <span class="text-[color:var(--blue)] font-semibold text-[13px] flex items-center gap-1">
+                  보기
+                  <svg class="ico-sm" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+                </span>
+              </button>
+            </div>
+
+            <!-- 지난 납부 이력 -->
+            <div class="sec-title mb-4">
+              <svg class="ico-sm text-[color:var(--muted)]" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              지난 납부 이력
+            </div>
+            <div class="space-y-2.5 mb-4">
+              <div class="card p-4">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="font-bold text-[color:var(--text)]">2026-08</span>
+                  <span class="badge badge-mint">
+                    <svg class="ico-sm" viewBox="0 0 24 24" style="stroke-width:2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    완료
+                  </span>
+                </div>
+                <div class="flex items-center justify-between text-[13px]">
+                  <div>
+                    <div class="text-[color:var(--muted)] text-xs">납부액</div>
+                    <div class="font-bold num text-[color:var(--text)]">1,180,500원</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-[color:var(--muted)] text-xs">납부일</div>
+                    <div class="num text-[color:var(--text-2)] font-semibold">2026-09-08</div>
+                  </div>
+                </div>
+              </div>
+              <div class="card p-4">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="font-bold text-[color:var(--text)]">2026-07</span>
+                  <span class="badge badge-mint">
+                    <svg class="ico-sm" viewBox="0 0 24 24" style="stroke-width:2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    완료
+                  </span>
+                </div>
+                <div class="flex items-center justify-between text-[13px]">
+                  <div>
+                    <div class="text-[color:var(--muted)] text-xs">납부액</div>
+                    <div class="font-bold num text-[color:var(--text)]">1,205,700원</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-[color:var(--muted)] text-xs">납부일</div>
+                    <div class="num text-[color:var(--text-2)] font-semibold">2026-08-09</div>
+                  </div>
+                </div>
+              </div>
+              <div class="card p-4">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="font-bold text-[color:var(--text)]">2026-06</span>
+                  <span class="badge badge-mint">
+                    <svg class="ico-sm" viewBox="0 0 24 24" style="stroke-width:2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    완료
+                  </span>
+                </div>
+                <div class="flex items-center justify-between text-[13px]">
+                  <div>
+                    <div class="text-[color:var(--muted)] text-xs">납부액</div>
+                    <div class="font-bold num text-[color:var(--text)]">1,150,300원</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-[color:var(--muted)] text-xs">납부일</div>
+                    <div class="num text-[color:var(--text-2)] font-semibold">2026-07-09</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button class="cta-secondary text-[13px] py-2.5">더 보기</button>
+              <button class="cta-secondary text-[13px] py-2.5">엑셀 다운</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ SCREEN 3: 월별 인건비 ============ -->
+        <section id="scr-cost" hidden>
+          <div class="px-5 pt-5 pb-4 bg-white border-b border-[color:var(--line)]">
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <div class="text-[11.5px] font-semibold text-[color:var(--muted)] uppercase tracking-wider">인건비</div>
+                <div class="text-[19px] font-bold text-[color:var(--text)] mt-1">월별 추이</div>
+              </div>
+              <button class="header-btn">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              </button>
+            </div>
+            <div class="flex gap-2">
+              <button class="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-[color:var(--palepill)] text-[color:var(--blue)] border border-blue-200 flex items-center gap-1">12개월 <svg class="ico-sm" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+              <button class="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-[color:var(--text-2)] flex items-center gap-1">전체 소득 <svg class="ico-sm" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+            </div>
+          </div>
+
+          <div class="px-5 pt-5">
+            <!-- KPI grid -->
+            <div class="grid grid-cols-2 gap-2.5 mb-4">
+              <div class="card p-4 col-span-2">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="icon-box sm box-blue">
+                    <svg class="ico" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  </div>
+                  <div class="text-[12px] text-[color:var(--muted)]">12개월 총 지급</div>
+                </div>
+                <div class="text-[24px] font-bold num text-[color:var(--text)] tracking-tight">342,850,000<span class="text-slate-400 font-normal ml-1 text-sm">원</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted)] mt-1">근로 + 사업 + 일용 합산</div>
+              </div>
+              <div class="card p-4">
+                <div class="icon-box sm box-violet mb-3">
+                  <svg class="ico" viewBox="0 0 24 24"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20V16"/></svg>
+                </div>
+                <div class="text-[11px] text-[color:var(--muted)] mb-1">월평균</div>
+                <div class="text-[16px] font-bold num text-[color:var(--text)]">28,570,833</div>
+                <div class="text-[10.5px] text-[color:var(--muted-2)] mt-0.5">원</div>
+              </div>
+              <div class="card p-4">
+                <div class="icon-box sm box-mint mb-3">
+                  <svg class="ico" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                </div>
+                <div class="text-[11px] text-[color:var(--muted)] mb-1">전년 동월</div>
+                <div class="text-[16px] font-bold num text-[color:var(--mint)]">↑ 5.2%</div>
+                <div class="text-[10.5px] text-[color:var(--muted-2)] mt-0.5">증가</div>
+              </div>
+            </div>
+
+            <!-- Chart -->
+            <div class="card p-5 mb-5">
+              <div class="flex items-center justify-between mb-4">
+                <div class="sec-title">
+                  <svg class="ico-sm text-[color:var(--muted)]" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  지급 총액 추이
+                </div>
+              </div>
+              <div class="flex items-end gap-1 overflow-x-auto pb-2">
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:60px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:5px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:66px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:8px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:92px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:62px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:70px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:74px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:72px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:78px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:76px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:80px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:8px"></div><div class="bar-seg bar-blue" style="height:82px"></div></div>
+                <div class="bar-col"><div class="bar-seg bar-amber" style="height:6px"></div><div class="bar-seg bar-violet" style="height:10px"></div><div class="bar-seg bar-blue" style="height:94px"></div></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-[color:var(--muted-2)] mt-1 num">
+                <span>'25.10</span><span>12</span><span>'26.2</span><span>4</span><span>6</span><span>8</span>
+              </div>
+              <div class="flex gap-3 mt-4 pt-4 border-t border-slate-100 text-[11.5px]">
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded bar-blue"></span><span class="text-[color:var(--text-2)] font-medium">근로</span></span>
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded bar-violet"></span><span class="text-[color:var(--text-2)] font-medium">사업</span></span>
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded bar-amber"></span><span class="text-[color:var(--text-2)] font-medium">일용</span></span>
+              </div>
+            </div>
+
+            <!-- 월별 상세 -->
+            <div class="sec-title mb-3">
+              <svg class="ico-sm text-[color:var(--muted)]" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              월별 상세
+            </div>
+            <div class="space-y-2.5 pb-8">
+              <div class="card p-4">
+                <div class="flex items-center justify-between mb-3">
+                  <span class="font-bold text-[color:var(--text)]">2026-09</span>
+                  <span class="badge badge-amber"><span class="badge-dot"></span>대기</span>
+                </div>
+                <div class="grid grid-cols-2 gap-y-1.5 text-[13px]">
+                  <span class="text-[color:var(--muted)] text-xs">지급</span><span class="text-right num font-semibold">30,750,000</span>
+                  <span class="text-[color:var(--muted)] text-xs">원천세</span><span class="text-right num font-bold text-[color:var(--blue)]">1,207,500</span>
+                  <span class="text-[color:var(--muted)] text-xs">실지급</span><span class="text-right num font-semibold">26,675,000</span>
+                  <span class="text-[color:var(--muted)] text-xs">인원</span><span class="text-right font-semibold">11명</span>
+                </div>
+              </div>
+              <div class="card p-4">
+                <div class="flex items-center justify-between mb-3">
+                  <span class="font-bold text-[color:var(--text)]">2026-08</span>
+                  <span class="badge badge-mint"><svg class="ico-sm" viewBox="0 0 24 24" style="stroke-width:2.5"><polyline points="20 6 9 17 4 12"/></svg>완료</span>
+                </div>
+                <div class="grid grid-cols-2 gap-y-1.5 text-[13px]">
+                  <span class="text-[color:var(--muted)] text-xs">지급</span><span class="text-right num font-semibold">29,850,000</span>
+                  <span class="text-[color:var(--muted)] text-xs">원천세</span><span class="text-right num font-bold text-[color:var(--blue)]">1,180,500</span>
+                  <span class="text-[color:var(--muted)] text-xs">실지급</span><span class="text-right num font-semibold">25,834,500</span>
+                  <span class="text-[color:var(--muted)] text-xs">인원</span><span class="text-right font-semibold">10명</span>
+                </div>
+              </div>
+              <div class="card p-4">
+                <div class="flex items-center justify-between mb-3">
+                  <span class="font-bold text-[color:var(--text)]">2026-07</span>
+                  <span class="badge badge-mint"><svg class="ico-sm" viewBox="0 0 24 24" style="stroke-width:2.5"><polyline points="20 6 9 17 4 12"/></svg>완료</span>
+                </div>
+                <div class="grid grid-cols-2 gap-y-1.5 text-[13px]">
+                  <span class="text-[color:var(--muted)] text-xs">지급</span><span class="text-right num font-semibold">29,650,000</span>
+                  <span class="text-[color:var(--muted)] text-xs">원천세</span><span class="text-right num font-bold text-[color:var(--blue)]">1,205,700</span>
+                  <span class="text-[color:var(--muted)] text-xs">실지급</span><span class="text-right num font-semibold">25,714,300</span>
+                  <span class="text-[color:var(--muted)] text-xs">인원</span><span class="text-right font-semibold">10명</span>
+                </div>
+              </div>
+              <div class="flex gap-2 pt-2">
+                <button class="cta-secondary text-[13px] py-2.5">더 보기</button>
+                <button class="cta-secondary text-[13px] py-2.5">엑셀 다운</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ SCREEN 4: 직원별 명세 ============ -->
+        <section id="scr-emp" hidden>
+          <div class="px-5 pt-5 pb-4 bg-white border-b border-[color:var(--line)]">
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <div class="text-[11.5px] font-semibold text-[color:var(--muted)] uppercase tracking-wider">직원</div>
+                <div class="text-[19px] font-bold text-[color:var(--text)] mt-1">명세 <span class="text-[color:var(--muted-2)] font-medium text-base ml-1">11명</span></div>
+              </div>
+              <button class="text-[color:var(--blue)] text-[13px] font-semibold flex items-center gap-1">
+                <svg class="ico-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                신입 등록
+              </button>
+            </div>
+            <div class="search mb-4">
+              <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" placeholder="이름·사번으로 검색"/>
+            </div>
+            <div class="flex gap-5 border-b border-slate-100 -mx-5 px-5 -mb-4">
+              <button class="u-tab active">재직 <span class="text-slate-400 font-medium">11</span></button>
+              <button class="u-tab">퇴사 <span class="text-slate-400 font-medium">1</span></button>
+            </div>
+          </div>
+
+          <div class="px-5 pt-4 pb-8 space-y-2.5">
+            <!-- 홍길동 -->
+            <button class="w-full text-left card p-4" onclick="openModal('empDetail')">
+              <div class="flex items-center gap-3">
+                <div class="avatar w-11 h-11 text-[15px]">홍</div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-[15px] text-[color:var(--text)]">홍길동</span>
+                    <span class="badge badge-mint"><span class="badge-dot"></span>재직</span>
+                  </div>
+                  <div class="text-[11.5px] text-[color:var(--muted)] mt-1">EMP-001 · 근로소득 · 부장</div>
+                </div>
+                <svg class="ico text-slate-300" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+              <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                <span class="text-[12px] text-[color:var(--muted)]">이달 지급</span>
+                <span class="font-bold num text-[color:var(--text)]">3,000,000<span class="font-normal text-slate-400 text-xs ml-0.5">원</span></span>
+              </div>
+            </button>
+
+            <button class="w-full text-left card p-4">
+              <div class="flex items-center gap-3">
+                <div class="avatar w-11 h-11 text-[15px]">김</div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-[15px] text-[color:var(--text)]">김민지</span>
+                    <span class="badge badge-mint"><span class="badge-dot"></span>재직</span>
+                  </div>
+                  <div class="text-[11.5px] text-[color:var(--muted)] mt-1">EMP-002 · 근로소득 · 대리</div>
+                </div>
+                <svg class="ico text-slate-300" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+              <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                <span class="text-[12px] text-[color:var(--muted)]">이달 지급</span>
+                <span class="font-bold num text-[color:var(--text)] flex items-center gap-1">3,300,000<span class="font-normal text-slate-400 text-xs">원</span>
+                  <span class="text-[color:var(--mint)] text-[11px] font-bold ml-1">↑ 500K</span>
+                </span>
+              </div>
+            </button>
+
+            <button class="w-full text-left card p-4">
+              <div class="flex items-center gap-3">
+                <div class="avatar w-11 h-11 text-[15px]">박</div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-[15px] text-[color:var(--text)]">박영수</span>
+                    <span class="badge badge-mint"><span class="badge-dot"></span>재직</span>
+                  </div>
+                  <div class="text-[11.5px] text-[color:var(--muted)] mt-1">EMP-003 · 근로소득 · 사원</div>
+                </div>
+                <svg class="ico text-slate-300" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+              <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                <span class="text-[12px] text-[color:var(--muted)]">이달 지급</span>
+                <span class="font-bold num text-[color:var(--text)]">2,500,000<span class="font-normal text-slate-400 text-xs ml-0.5">원</span></span>
+              </div>
+            </button>
+
+            <button class="w-full text-left card p-4">
+              <div class="flex items-center gap-3">
+                <div class="avatar w-11 h-11 text-[15px]">이</div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-[15px] text-[color:var(--text)]">이수진</span>
+                    <span class="badge badge-mint"><span class="badge-dot"></span>재직</span>
+                  </div>
+                  <div class="text-[11.5px] text-[color:var(--muted)] mt-1">EMP-004 · 근로소득 · 과장</div>
+                </div>
+                <svg class="ico text-slate-300" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+              <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                <span class="text-[12px] text-[color:var(--muted)]">이달 지급</span>
+                <span class="font-bold num text-[color:var(--text)]">3,200,000<span class="font-normal text-slate-400 text-xs ml-0.5">원</span></span>
+              </div>
+            </button>
+
+            <button class="w-full text-left card p-4">
+              <div class="flex items-center gap-3">
+                <div class="avatar violet w-11 h-11 text-[15px]">이</div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-[15px] text-[color:var(--text)]">이영희</span>
+                    <span class="badge badge-violet"><span class="badge-dot"></span>재직</span>
+                  </div>
+                  <div class="text-[11.5px] text-[color:var(--muted)] mt-1">EMP-011 · 사업소득 · 프리랜서</div>
+                </div>
+                <svg class="ico text-slate-300" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+              <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                <span class="text-[12px] text-[color:var(--muted)]">이달 지급</span>
+                <span class="font-bold num text-[color:var(--text)]">900,000<span class="font-normal text-slate-400 text-xs ml-0.5">원</span></span>
+              </div>
+            </button>
+
+            <button class="w-full text-left card p-4">
+              <div class="flex items-center gap-3">
+                <div class="avatar amber w-11 h-11 text-[15px]">김</div>
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-[15px] text-[color:var(--text)]">김일용</span>
+                    <span class="badge badge-amber"><span class="badge-dot"></span>재직</span>
+                  </div>
+                  <div class="text-[11.5px] text-[color:var(--muted)] mt-1">EMP-012 · 일용소득 · 일용직</div>
+                </div>
+                <svg class="ico text-slate-300" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+              <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                <span class="text-[12px] text-[color:var(--muted)]">이달 지급</span>
+                <span class="font-bold num text-[color:var(--text)]">450,000<span class="font-normal text-slate-400 text-xs ml-0.5">원</span></span>
+              </div>
+            </button>
+          </div>
+        </section>
+
+      </div><!-- /app-scroll -->
+
+      <!-- =========== 모달: 지난달과 동일 미리보기 =========== -->
+      <div id="modal-preview" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('preview')">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>9월분 미리보기</span>
+          <button class="fs-back" onclick="closeModal('preview')" style="color:var(--muted-2);font-size:14px;font-weight:500;width:auto;padding:0 6px;">닫기</button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <div class="text-[13.5px] mb-5 text-[color:var(--text-2)] leading-relaxed"><b>8월</b>과 동일하게 <b>9월분</b>을 만들었습니다.<br/>확인 후 확정해주세요.</div>
+
+          <div class="card p-4 mb-4" style="background:var(--amber-bg);border-color:#FDE68A;">
+            <div class="flex items-start gap-3">
+              <div class="icon-box sm box-amber">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </div>
+              <div>
+                <div class="text-[13px] font-bold" style="color:#92400E;">자동 반영</div>
+                <div class="text-[12px] mt-1" style="color:#78350F;line-height:1.5;">이영희(신입 · 2026-09-01 입사)가 이달부터 자동으로 포함됩니다</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card p-5 mb-4">
+            <div class="space-y-3.5 text-[13.5px]">
+              <div>
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">홍길동 <span class="text-slate-400 text-xs ml-1">근로</span></span><span class="num font-semibold">3,000,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세</span><span class="num">95,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">김민지 <span class="text-slate-400 text-xs ml-1">근로</span></span><span class="num font-semibold">2,800,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세</span><span class="num">78,400</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">박영수 <span class="text-slate-400 text-xs ml-1">근로</span></span><span class="num font-semibold">2,500,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세</span><span class="num">58,300</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">이수진 <span class="text-slate-400 text-xs ml-1">근로</span></span><span class="num font-semibold">3,200,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세</span><span class="num">115,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">정미영·최은주·강대현·윤소라</span><span class="text-[11.5px] text-[color:var(--muted-2)]">4명</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>합계</span><span class="num">11,500,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">이영희 <span class="text-slate-400 text-xs ml-1">사업</span></span><span class="num font-semibold">900,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세</span><span class="num">27,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">김일용 <span class="text-slate-400 text-xs ml-1">일용</span></span><span class="num font-semibold">450,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세</span><span class="num">6,750</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 합계 카드 -->
+          <div class="card-hero p-5 mb-4" style="background:linear-gradient(135deg,#F5F9FF 0%,#EEF2FF 100%);">
+            <div class="text-[11.5px] font-bold text-[color:var(--navy)] uppercase tracking-wider mb-3">합계 · 신입 포함</div>
+            <div class="space-y-2 text-[14px]">
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">지급 총액</span><span class="font-bold num text-[color:var(--text)]">30,750,000<span class="text-slate-400 font-normal text-xs ml-0.5">원</span></span></div>
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">원천세</span><span class="font-bold num text-[color:var(--blue)]">1,207,500<span class="text-slate-400 font-normal text-xs ml-0.5">원</span></span></div>
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">실지급</span><span class="font-bold num text-[color:var(--text)]">26,675,000<span class="text-slate-400 font-normal text-xs ml-0.5">원</span></span></div>
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">인원</span><span class="font-bold">11명</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="sticky-cta" style="bottom:0;">
+          <button class="cta-secondary" onclick="closeModal('preview'); openModal('select');">수정하기</button>
+          <button class="cta-primary" onclick="confirmFile()">이대로 확정</button>
+        </div>
+      </div>
+
+      <!-- =========== 모달: 직원 선택 =========== -->
+      <div id="modal-select" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('select')">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>변동 직원 선택</span>
+          <button class="fs-back" onclick="closeModal('select')" style="color:var(--muted-2);font-size:14px;font-weight:500;width:auto;padding:0 6px;">취소</button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <div class="text-[14px] font-semibold text-[color:var(--text-2)]">변동이 있는 직원을 선택하세요</div>
+          <div class="text-[12.5px] text-[color:var(--muted)] mt-1 mb-5">선택 안 한 직원은 지난달과 동일하게 처리됩니다</div>
+
+          <div class="space-y-2.5" id="select-list">
+            <div class="row-check" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar w-10 h-10 text-sm">홍</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">홍길동 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10.5px;">근로</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 3,000,000원</div></div>
+            </div>
+            <div class="row-check checked" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar w-10 h-10 text-sm">김</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">김민지 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10.5px;">근로</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 2,800,000원</div></div>
+            </div>
+            <div class="row-check" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar w-10 h-10 text-sm">박</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">박영수 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10.5px;">근로</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 2,500,000원</div></div>
+            </div>
+            <div class="row-check checked" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar w-10 h-10 text-sm">이</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">이수진 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10.5px;">근로</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 3,200,000원</div></div>
+            </div>
+            <div class="row-check" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar w-10 h-10 text-sm">정</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">정미영 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10.5px;">근로</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 2,900,000원</div></div>
+            </div>
+            <div class="row-check" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar w-10 h-10 text-sm">최</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">최은주 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10.5px;">근로</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 2,700,000원</div></div>
+            </div>
+            <div class="row-check" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar w-10 h-10 text-sm">강</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">강대현 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10.5px;">근로</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 3,100,000원</div></div>
+            </div>
+            <div class="row-check" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar w-10 h-10 text-sm">윤</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">윤소라 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10.5px;">근로</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 2,800,000원</div></div>
+            </div>
+            <div class="row-check" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar violet w-10 h-10 text-sm">이</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">이영희 <span class="badge badge-violet ml-1" style="padding:1px 6px;font-size:10.5px;">사업</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 900,000원</div></div>
+            </div>
+            <div class="row-check" onclick="toggleRow(this)">
+              <div class="check-mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="avatar amber w-10 h-10 text-sm">김</div>
+              <div class="flex-1"><div class="font-semibold text-[14px]">김일용 <span class="badge badge-amber ml-1" style="padding:1px 6px;font-size:10.5px;">일용</span></div><div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 num">지난달 450,000원</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="sticky-cta" style="bottom:0;">
+          <button class="cta-primary" onclick="closeModal('select'); openModal('edit');">
+            선택한 <span id="sel-count">2</span>명 편집
+            <svg class="ico-sm" viewBox="0 0 24 24"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- =========== 모달: 편집 =========== -->
+      <div id="modal-edit" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('edit'); openModal('select');">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>김민지 <span class="text-[color:var(--muted-2)] font-medium ml-1">1 / 2</span></span>
+          <button class="text-[color:var(--blue)] text-[13.5px] font-semibold flex items-center gap-1">다음
+            <svg class="ico-sm" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <div class="flex items-center gap-3 mb-6">
+            <div class="avatar w-12 h-12 text-base">김</div>
+            <div>
+              <div class="font-bold text-[16px] text-[color:var(--text)]">김민지</div>
+              <div class="text-[12px] text-[color:var(--muted)] mt-0.5">근로소득 · EMP-002</div>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-[13.5px] font-semibold text-[color:var(--text-2)]">기본급</label>
+                <span class="text-[11.5px] text-[color:var(--muted-2)] num">지난달 2,500,000원</span>
+              </div>
+              <input type="number" value="2500000" class="input-num" />
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-[13.5px] font-semibold text-[color:var(--text-2)]">직책수당</label>
+                <span class="text-[11.5px] text-[color:var(--muted-2)] num">지난달 200,000원</span>
+              </div>
+              <input type="number" value="200000" class="input-num" />
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-[13.5px] font-semibold text-[color:var(--text-2)]">식대 <span class="text-[11.5px] text-[color:var(--muted-2)] font-normal ml-1">(비과세)</span></label>
+                <span class="text-[11.5px] text-[color:var(--muted-2)] num">지난달 100,000원</span>
+              </div>
+              <input type="number" value="100000" class="input-num" />
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-[13.5px] font-semibold text-[color:var(--text-2)] flex items-center gap-2">상여
+                  <span class="badge badge-blue">변경</span>
+                </label>
+                <span class="text-[11.5px] text-[color:var(--muted-2)] num">지난달 0원</span>
+              </div>
+              <input type="number" value="500000" class="input-num" style="border-color:var(--blue);box-shadow:0 0 0 3px rgba(61,90,254,.08);"/>
+            </div>
+          </div>
+
+          <div class="card-hero mt-6 p-5" style="background:linear-gradient(135deg,#F5F9FF 0%,#EEF2FF 100%);">
+            <div class="flex items-center gap-2 mb-3">
+              <svg class="ico-sm text-[color:var(--blue)]" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              <span class="text-[11.5px] font-bold text-[color:var(--navy)] uppercase tracking-wider">자동 계산 · 예상</span>
+            </div>
+            <div class="space-y-1.5 text-[13.5px]">
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">지급 총액</span><span class="font-bold num">3,300,000원</span></div>
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">원천세</span><span class="font-bold num text-[color:var(--blue)]">115,000원 <span class="text-[11.5px] text-[color:var(--mint)] font-semibold ml-0.5">+37K</span></span></div>
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">4대보험</span><span class="font-bold num">297,000원</span></div>
+              <div class="flex justify-between pt-2 border-t border-slate-200"><span class="text-[color:var(--text-2)] font-semibold">실지급</span><span class="font-bold num text-[color:var(--text)]">2,888,000원</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="sticky-cta" style="bottom:0;">
+          <button class="cta-primary">저장하고 다음
+            <svg class="ico-sm" viewBox="0 0 24 24"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- =========== 모달: 직원 상세 =========== -->
+      <div id="modal-empDetail" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('empDetail')">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>홍길동</span>
+          <button class="text-[color:var(--blue)] text-[13.5px] font-semibold">편집</button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <div class="card p-5 mb-4">
+            <div class="flex items-center gap-3 mb-4">
+              <div class="avatar w-14 h-14 text-xl">홍</div>
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="font-bold text-[17px] text-[color:var(--text)]">홍길동</span>
+                  <button class="text-[color:var(--muted-2)]">
+                    <svg class="ico-sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                  </button>
+                </div>
+                <div class="text-[12px] text-[color:var(--muted)] num">EMP-001</div>
+              </div>
+              <span class="badge badge-mint"><span class="badge-dot"></span>재직</span>
+            </div>
+            <div class="grid grid-cols-2 gap-y-3 gap-x-3 text-[13px] pt-4 border-t border-slate-100">
+              <div><div class="text-[10.5px] text-[color:var(--muted-2)] uppercase tracking-wider font-semibold mb-1">직위</div><div class="font-semibold text-[color:var(--text-2)]">부장</div></div>
+              <div><div class="text-[10.5px] text-[color:var(--muted-2)] uppercase tracking-wider font-semibold mb-1">부서</div><div class="font-semibold text-[color:var(--text-2)]">영업</div></div>
+              <div><div class="text-[10.5px] text-[color:var(--muted-2)] uppercase tracking-wider font-semibold mb-1">소득</div><div class="font-semibold text-[color:var(--text-2)]">근로</div></div>
+              <div><div class="text-[10.5px] text-[color:var(--muted-2)] uppercase tracking-wider font-semibold mb-1">입사일</div><div class="font-semibold text-[color:var(--text-2)] num">2023-03-15</div></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 mb-4">
+            <button class="cta-secondary text-[13px] py-3">
+              <svg class="ico-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              급여명세서
+            </button>
+            <button class="cta-secondary text-[13px] py-3">
+              <svg class="ico-sm" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/></svg>
+              원천징수영수증
+            </button>
+          </div>
+
+          <div class="flex gap-5 border-b border-slate-200 mb-4 overflow-x-auto">
+            <button class="u-tab active whitespace-nowrap">요약</button>
+            <button class="u-tab whitespace-nowrap">급여이력</button>
+            <button class="u-tab whitespace-nowrap">4대보험</button>
+            <button class="u-tab whitespace-nowrap">연말정산</button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2.5 mb-4">
+            <div class="card p-4 col-span-2">
+              <div class="icon-box sm box-blue mb-3">
+                <svg class="ico" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </div>
+              <div class="text-[11.5px] text-[color:var(--muted)] mb-1">올해 총 지급 · 9개월</div>
+              <div class="text-[22px] font-bold num text-[color:var(--text)] tracking-tight">27,000,000<span class="text-slate-400 font-normal text-sm ml-1">원</span></div>
+            </div>
+            <div class="card p-4">
+              <div class="text-[11px] text-[color:var(--muted)] mb-1">월평균</div>
+              <div class="text-[14.5px] font-bold num text-[color:var(--text)]">3,000,000</div>
+              <div class="text-[10.5px] text-[color:var(--muted-2)] mt-0.5">원</div>
+            </div>
+            <div class="card p-4">
+              <div class="text-[11px] text-[color:var(--muted)] mb-1">원천세 계</div>
+              <div class="text-[14.5px] font-bold num text-[color:var(--blue)]">855,000</div>
+              <div class="text-[10.5px] text-[color:var(--muted-2)] mt-0.5">원</div>
+            </div>
+          </div>
+
+          <div class="sec-title mb-3">
+            <svg class="ico-sm text-[color:var(--muted)]" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            최근 급여
+          </div>
+          <div class="space-y-2.5 pb-8">
+            <div class="card p-4">
+              <div class="flex items-center justify-between mb-3">
+                <span class="font-bold text-[color:var(--text)]">2026-09</span>
+                <span class="badge badge-amber"><span class="badge-dot"></span>대기</span>
+              </div>
+              <div class="grid grid-cols-2 gap-y-1.5 text-[13px]">
+                <span class="text-[color:var(--muted)] text-xs">지급</span><span class="text-right num font-semibold">3,000,000</span>
+                <span class="text-[color:var(--muted)] text-xs">원천세</span><span class="text-right num font-bold text-[color:var(--blue)]">95,000</span>
+                <span class="text-[color:var(--muted)] text-xs">실지급</span><span class="text-right num font-semibold">2,635,000</span>
+              </div>
+            </div>
+            <div class="card p-4">
+              <div class="flex items-center justify-between mb-3">
+                <span class="font-bold text-[color:var(--text)]">2026-08</span>
+                <span class="badge badge-mint"><svg class="ico-sm" viewBox="0 0 24 24" style="stroke-width:2.5"><polyline points="20 6 9 17 4 12"/></svg>확정</span>
+              </div>
+              <div class="grid grid-cols-2 gap-y-1.5 text-[13px]">
+                <span class="text-[color:var(--muted)] text-xs">지급</span><span class="text-right num font-semibold">3,000,000</span>
+                <span class="text-[color:var(--muted)] text-xs">원천세</span><span class="text-right num font-bold text-[color:var(--blue)]">95,000</span>
+                <span class="text-[color:var(--muted)] text-xs">실지급</span><span class="text-right num font-semibold">2,635,000</span>
+              </div>
+            </div>
+            <div class="card p-4">
+              <div class="flex items-center justify-between mb-3">
+                <span class="font-bold text-[color:var(--text)]">2026-07</span>
+                <span class="badge badge-mint"><svg class="ico-sm" viewBox="0 0 24 24" style="stroke-width:2.5"><polyline points="20 6 9 17 4 12"/></svg>확정</span>
+              </div>
+              <div class="grid grid-cols-2 gap-y-1.5 text-[13px]">
+                <span class="text-[color:var(--muted)] text-xs">지급</span><span class="text-right num font-semibold">3,000,000</span>
+                <span class="text-[color:var(--muted)] text-xs">원천세</span><span class="text-right num font-bold text-[color:var(--blue)]">95,000</span>
+                <span class="text-[color:var(--muted)] text-xs">실지급</span><span class="text-right num font-semibold">2,635,000</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 확정 완료 -->
+      <div id="modal-confirmed" class="fs-modal">
+        <div class="fs-scroll flex items-center justify-center px-8 text-center">
+          <div>
+            <div class="w-24 h-24 rounded-full mx-auto flex items-center justify-center mb-5" style="background:linear-gradient(135deg,#D1FAE5,#A7F3D0);box-shadow:0 8px 24px -8px rgba(5,150,105,.4);">
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div class="text-[22px] font-bold text-[color:var(--text)] mb-2 tracking-tight">9월분이 확정되었습니다</div>
+            <div class="text-[13.5px] text-[color:var(--muted)] mb-8 leading-relaxed">세무사무소에서 검토 후<br/>홈택스에 신고합니다</div>
+            <button class="cta-primary" onclick="closeModal('confirmed')">확인</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- =========== 모달: 지난달 급여명세 =========== -->
+      <div id="modal-prevMonth" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('prevMonth')">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>지난달(8월) 지급명세</span>
+          <button class="fs-back" onclick="closeModal('prevMonth')" style="color:var(--muted-2);font-size:14px;font-weight:500;width:auto;padding:0 6px;">닫기</button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <!-- 합계 카드 -->
+          <div class="card-hero p-5 mb-4" style="background:linear-gradient(135deg,#F5F9FF 0%,#EEF2FF 100%);">
+            <div class="text-[11.5px] font-bold text-[color:var(--navy)] uppercase tracking-wider mb-3">2026년 8월 · 확정</div>
+            <div class="space-y-2 text-[14px]">
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">총 지급</span><span class="font-bold num text-[color:var(--text)]">29,850,000<span class="text-slate-400 font-normal text-xs ml-0.5">원</span></span></div>
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">원천세</span><span class="font-bold num text-[color:var(--blue)]">1,180,500<span class="text-slate-400 font-normal text-xs ml-0.5">원</span></span></div>
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">4대보험</span><span class="font-semibold num text-[color:var(--text-2)]">2,835,000<span class="text-slate-400 font-normal text-xs ml-0.5">원</span></span></div>
+              <div class="flex justify-between pt-2 border-t border-slate-200"><span class="text-[color:var(--text-2)] font-semibold">실지급</span><span class="font-bold num text-[color:var(--text)]">25,834,500<span class="text-slate-400 font-normal text-xs ml-0.5">원</span></span></div>
+              <div class="flex justify-between"><span class="text-[color:var(--muted)]">인원</span><span class="font-bold">10명</span></div>
+            </div>
+          </div>
+
+          <!-- 직원별 명세 -->
+          <div class="card p-5 mb-4">
+            <div class="text-[11.5px] font-bold text-[color:var(--muted)] uppercase tracking-wider mb-3">직원별 명세</div>
+            <div class="space-y-3.5 text-[13.5px]">
+              <div>
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">홍길동 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10px;">근로</span></span><span class="num font-semibold">3,000,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세 95,000 · 4대보험 270,000</span><span class="num text-[color:var(--text-2)] font-medium">실지급 2,635,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">김민지 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10px;">근로</span></span><span class="num font-semibold">2,800,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세 78,400 · 4대보험 252,000</span><span class="num text-[color:var(--text-2)] font-medium">실지급 2,469,600</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">박영수 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10px;">근로</span></span><span class="num font-semibold">2,500,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세 58,300 · 4대보험 225,000</span><span class="num text-[color:var(--text-2)] font-medium">실지급 2,216,700</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">이수진 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10px;">근로</span></span><span class="num font-semibold">3,200,000</span></div>
+                <div class="text-[11.5px] text-[color:var(--muted-2)] flex justify-between mt-1"><span>원천세 115,000 · 4대보험 288,000</span><span class="num text-[color:var(--text-2)] font-medium">실지급 2,797,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">정미영 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10px;">근로</span></span><span class="num font-semibold">2,900,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">최은주 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10px;">근로</span></span><span class="num font-semibold">2,700,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">강대현 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10px;">근로</span></span><span class="num font-semibold">3,100,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">윤소라 <span class="badge badge-slate ml-1" style="padding:1px 6px;font-size:10px;">근로</span></span><span class="num font-semibold">2,800,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">이영희 <span class="badge badge-violet ml-1" style="padding:1px 6px;font-size:10px;">사업</span></span><span class="num font-semibold">900,000</span></div>
+              </div>
+              <div class="border-t border-slate-100 pt-3">
+                <div class="flex justify-between items-center"><span class="text-[color:var(--text-2)] font-medium">김일용 <span class="badge badge-amber ml-1" style="padding:1px 6px;font-size:10px;">일용</span></span><span class="num font-semibold">450,000</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 다운로드 -->
+          <div class="grid grid-cols-2 gap-2 mb-4">
+            <button class="cta-secondary text-[13px] py-3">
+              <svg class="ico-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              엑셀 다운로드
+            </button>
+            <button class="cta-secondary text-[13px] py-3">
+              <svg class="ico-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              PDF 다운로드
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- =========== 모달: 변동 옵션 3개 =========== -->
+      <div id="modal-changes" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('changes')">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>변동사항 입력</span>
+          <button class="fs-back" onclick="closeModal('changes')" style="color:var(--muted-2);font-size:14px;font-weight:500;width:auto;padding:0 6px;">취소</button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <div class="text-[15px] font-bold text-[color:var(--text)] mb-1">어떤 변동인가요?</div>
+          <div class="text-[13px] text-[color:var(--muted)] mb-6 leading-relaxed">해당하는 항목을 선택하세요.<br/>여러 개 이어서 입력해도 괜찮아요.</div>
+
+          <div class="space-y-3">
+            <!-- 급여 변동 -->
+            <button class="w-full text-left card-hero p-5" onclick="closeModal('changes'); openModal('changesSalary');">
+              <div class="flex items-start gap-4">
+                <div class="icon-box lg box-blue">
+                  <svg class="ico-lg" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                </div>
+                <div class="flex-1">
+                  <div class="font-bold text-[16px] text-[color:var(--text)] tracking-tight">급여가 변동됐어요</div>
+                  <div class="text-[13px] text-[color:var(--muted)] mt-1 leading-relaxed">특정 직원의 지급액·수당·상여 변경</div>
+                  <div class="mt-3 flex flex-wrap gap-1.5">
+                    <span class="badge badge-blue" style="padding:2px 8px;">💬 채팅으로 입력</span>
+                    <span class="badge badge-slate" style="padding:2px 8px;">직원 선택·편집</span>
+                  </div>
+                </div>
+                <svg class="ico text-slate-300 mt-2" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+            </button>
+
+            <!-- 입·퇴사 -->
+            <button class="w-full text-left card-hero p-5" onclick="closeModal('changes'); openModal('changesEmployee');">
+              <div class="flex items-start gap-4">
+                <div class="icon-box lg box-mint">
+                  <svg class="ico-lg" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                </div>
+                <div class="flex-1">
+                  <div class="font-bold text-[16px] text-[color:var(--text)] tracking-tight">입사·퇴사가 있어요</div>
+                  <div class="text-[13px] text-[color:var(--muted)] mt-1 leading-relaxed">4대보험 자격취득·상실 신고 처리</div>
+                  <div class="mt-3 flex flex-wrap gap-1.5">
+                    <span class="badge badge-mint" style="padding:2px 8px;">📎 서류 업로드</span>
+                    <span class="badge badge-slate" style="padding:2px 8px;">직접 입력</span>
+                    <span class="badge badge-slate" style="padding:2px 8px;">세무사 연락</span>
+                  </div>
+                </div>
+                <svg class="ico text-slate-300 mt-2" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+            </button>
+
+            <!-- 급여파일 업로드 -->
+            <button class="w-full text-left card-hero p-5" onclick="closeModal('changes'); openModal('changesFile');">
+              <div class="flex items-start gap-4">
+                <div class="icon-box lg box-violet">
+                  <svg class="ico-lg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+                </div>
+                <div class="flex-1">
+                  <div class="font-bold text-[16px] text-[color:var(--text)] tracking-tight">급여파일이 있어요</div>
+                  <div class="text-[13px] text-[color:var(--muted)] mt-1 leading-relaxed">회사에서 작성한 급여 파일 그대로 업로드</div>
+                  <div class="mt-3 flex flex-wrap gap-1.5">
+                    <span class="badge badge-violet" style="padding:2px 8px;">Excel · CSV · PDF</span>
+                    <span class="badge badge-slate" style="padding:2px 8px;">AI 자동 인식</span>
+                  </div>
+                </div>
+                <svg class="ico text-slate-300 mt-2" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- =========== 모달: 급여 변동 (채팅 or 편집) =========== -->
+      <div id="modal-changesSalary" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('changesSalary'); openModal('changes');">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>급여 변동</span>
+          <button class="fs-back" onclick="closeModal('changesSalary')" style="color:var(--muted-2);font-size:14px;font-weight:500;width:auto;padding:0 6px;">닫기</button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <div class="text-[15px] font-bold text-[color:var(--text)] mb-1">어떻게 알려주실까요?</div>
+          <div class="text-[13px] text-[color:var(--muted)] mb-6 leading-relaxed">두 가지 방법 중 편한 방법으로 선택하세요.</div>
+
+          <!-- 방법 1: 채팅 입력 -->
+          <div class="card-hero p-5 mb-4">
+            <div class="flex items-start gap-3 mb-4">
+              <div class="icon-box sm box-blue">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div class="flex-1">
+                <div class="font-bold text-[14.5px] text-[color:var(--text)]">방법 1. 채팅으로 입력</div>
+                <div class="text-[11.5px] text-[color:var(--muted)] mt-0.5">자연스럽게 문자 보내듯이</div>
+              </div>
+              <span class="badge badge-blue">추천</span>
+            </div>
+
+            <!-- 채팅 히스토리 예시 -->
+            <div class="space-y-2.5 mb-3">
+              <div class="flex justify-end">
+                <div class="max-w-[85%] rounded-2xl rounded-tr-md px-4 py-2.5 text-[13.5px]" style="background:var(--blue);color:#fff;">
+                  김민지 상여 50만원 추가
+                </div>
+              </div>
+              <div class="flex justify-start">
+                <div class="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 text-[13.5px] bg-slate-100 text-[color:var(--text-2)]">
+                  <div class="flex items-center gap-1.5 text-[11px] text-[color:var(--blue)] font-semibold mb-1">
+                    <svg class="ico-sm" viewBox="0 0 24 24"><path d="M12 2 L15 8.5 L22 9.5 L17 14.5 L18.5 21.5 L12 18 L5.5 21.5 L7 14.5 L2 9.5 L9 8.5 Z"/></svg>
+                    AI 확인
+                  </div>
+                  <b>김민지</b>님 상여 <b class="num">500,000원</b> 추가 반영합니다. 맞나요?
+                  <div class="flex gap-1.5 mt-2">
+                    <span class="badge badge-mint" style="padding:2px 8px;">✓ 확인</span>
+                    <span class="badge badge-slate" style="padding:2px 8px;">수정</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex justify-end">
+                <div class="max-w-[85%] rounded-2xl rounded-tr-md px-4 py-2.5 text-[13.5px]" style="background:var(--blue);color:#fff;">
+                  홍길동은 이번달 3.5백만원
+                </div>
+              </div>
+              <div class="flex justify-start">
+                <div class="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 text-[13.5px] bg-slate-100 text-[color:var(--text-2)]">
+                  <div class="flex items-center gap-1.5 text-[11px] text-[color:var(--blue)] font-semibold mb-1">
+                    <svg class="ico-sm" viewBox="0 0 24 24"><path d="M12 2 L15 8.5 L22 9.5 L17 14.5 L18.5 21.5 L12 18 L5.5 21.5 L7 14.5 L2 9.5 L9 8.5 Z"/></svg>
+                    AI 확인
+                  </div>
+                  <b>홍길동</b>님 기본급을 <b class="num">3,000,000 → 3,500,000</b>원으로 변경할까요?
+                  <div class="flex gap-1.5 mt-2">
+                    <span class="badge badge-mint" style="padding:2px 8px;">✓ 확인</span>
+                    <span class="badge badge-slate" style="padding:2px 8px;">수정</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 입력창 -->
+            <div class="flex gap-2 items-end pt-3 border-t border-slate-100">
+              <div class="flex-1 relative">
+                <textarea class="w-full text-[13.5px] px-4 py-3 border border-slate-200 rounded-2xl bg-slate-50 resize-none focus:outline-none focus:border-blue-400 focus:bg-white" rows="2" placeholder="예: 박영수 이달 2백8십만원, 이수진 상여 30만원"></textarea>
+              </div>
+              <button class="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--blue);color:#fff;box-shadow:0 4px 12px -2px rgba(37,64,232,.4);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+            <div class="text-[10.5px] text-[color:var(--muted-2)] mt-2 flex items-center gap-1">
+              <svg class="ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              AI가 직원명·금액·항목을 자동으로 인식해요
+            </div>
+          </div>
+
+          <!-- 방법 2: 직원 선택 -->
+          <button class="w-full text-left card p-5 mb-4" onclick="closeModal('changesSalary'); openModal('select');">
+            <div class="flex items-start gap-4">
+              <div class="icon-box box-slate">
+                <svg class="ico-lg" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </div>
+              <div class="flex-1">
+                <div class="font-bold text-[15px] text-[color:var(--text)] tracking-tight">방법 2. 직원 선택해서 편집</div>
+                <div class="text-[12.5px] text-[color:var(--muted)] mt-1 leading-relaxed">변동 직원을 골라서 금액을 직접 수정</div>
+              </div>
+              <svg class="ico text-slate-300 mt-2" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- =========== 모달: 입·퇴사 =========== -->
+      <div id="modal-changesEmployee" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('changesEmployee'); openModal('changes');">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>입사 · 퇴사</span>
+          <button class="fs-back" onclick="closeModal('changesEmployee')" style="color:var(--muted-2);font-size:14px;font-weight:500;width:auto;padding:0 6px;">닫기</button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <div class="text-[15px] font-bold text-[color:var(--text)] mb-1">어떤 변동이 있으신가요?</div>
+          <div class="text-[13px] text-[color:var(--muted)] mb-5 leading-relaxed">둘 다 있으면 하나씩 나눠서 등록해주세요.</div>
+
+          <!-- 종류 선택 -->
+          <div class="space-y-2 mb-6">
+            <label class="row-check checked flex items-center" onclick="pickRadio(this,'employeeType')">
+              <div class="check-mark" style="border-radius:50%;"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg></div>
+              <div class="flex-1">
+                <div class="font-semibold text-[14.5px] flex items-center gap-2">
+                  <span>신규 직원이 입사했어요</span>
+                  <span class="badge badge-mint" style="padding:1px 6px;font-size:10px;">신입</span>
+                </div>
+                <div class="text-[11.5px] text-[color:var(--muted)] mt-0.5">4대보험 자격취득 신고 대기</div>
+              </div>
+            </label>
+            <label class="row-check flex items-center" onclick="pickRadio(this,'employeeType')">
+              <div class="check-mark" style="border-radius:50%;"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg></div>
+              <div class="flex-1">
+                <div class="font-semibold text-[14.5px] flex items-center gap-2">
+                  <span>직원이 퇴사했어요</span>
+                  <span class="badge badge-slate" style="padding:1px 6px;font-size:10px;">퇴사</span>
+                </div>
+                <div class="text-[11.5px] text-[color:var(--muted)] mt-0.5">4대보험 자격상실 신고 대기</div>
+              </div>
+            </label>
+          </div>
+
+          <div class="text-[13px] font-bold text-[color:var(--text-2)] mb-3">자료를 어떻게 주실까요?</div>
+
+          <!-- 서류 업로드 -->
+          <div class="card p-5 mb-3">
+            <div class="flex items-start gap-3 mb-4">
+              <div class="icon-box sm box-mint">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              </div>
+              <div class="flex-1">
+                <div class="font-bold text-[14.5px] text-[color:var(--text)]">서류 업로드</div>
+                <div class="text-[11.5px] text-[color:var(--muted)] mt-0.5 leading-relaxed">근로계약서·주민등록증 사본 등</div>
+              </div>
+            </div>
+            <button class="w-full py-6 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 hover:border-slate-300 transition text-[color:var(--muted)]">
+              <div class="flex flex-col items-center gap-2">
+                <svg class="ico-lg text-slate-400" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+                <div class="text-[13px] font-semibold text-[color:var(--text-2)]">파일 선택 또는 드래그</div>
+                <div class="text-[10.5px]">JPG · PNG · PDF · HEIC</div>
+              </div>
+            </button>
+            <div class="text-[10.5px] text-[color:var(--muted-2)] mt-3 flex items-center gap-1">
+              <svg class="ico-sm" viewBox="0 0 24 24"><path d="M12 2 L15 8.5 L22 9.5 L17 14.5 L18.5 21.5 L12 18 L5.5 21.5 L7 14.5 L2 9.5 L9 8.5 Z"/></svg>
+              AI가 자동으로 이름·주민번호를 읽어냅니다
+            </div>
+          </div>
+
+          <!-- 직접 입력 -->
+          <button class="w-full text-left card p-5 mb-3">
+            <div class="flex items-start gap-4">
+              <div class="icon-box box-slate">
+                <svg class="ico-lg" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              </div>
+              <div class="flex-1">
+                <div class="font-bold text-[15px] text-[color:var(--text)]">직접 입력</div>
+                <div class="text-[12.5px] text-[color:var(--muted)] mt-1 leading-relaxed">이름·주민번호·입사일·급여</div>
+              </div>
+              <svg class="ico text-slate-300 mt-2" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+            </div>
+          </button>
+
+          <!-- 세무사 연락 -->
+          <div class="card p-4 mb-4" style="background:#F5F9FF;border-color:#DBEAFE;">
+            <div class="flex items-start gap-3">
+              <div class="icon-box sm box-blue">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              </div>
+              <div class="flex-1">
+                <div class="text-[13px] font-bold text-[color:var(--text)] mb-0.5">등록 후 세무사가 연락드립니다</div>
+                <div class="text-[11.5px] text-[color:var(--muted)] leading-relaxed">주민등록번호·급여 등 민감정보가 맞는지 확인하고, 4대보험 자격취득 신고를 진행합니다.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- =========== 모달: 급여파일 업로드 =========== -->
+      <div id="modal-changesFile" class="fs-modal">
+        <div class="fs-header">
+          <button class="fs-back" onclick="closeModal('changesFile'); openModal('changes');">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <span>급여파일 업로드</span>
+          <button class="fs-back" onclick="closeModal('changesFile')" style="color:var(--muted-2);font-size:14px;font-weight:500;width:auto;padding:0 6px;">닫기</button>
+        </div>
+        <div class="fs-scroll px-5 pt-5">
+          <div class="text-[15px] font-bold text-[color:var(--text)] mb-1">회사에서 작성한 급여파일이 있으면</div>
+          <div class="text-[13px] text-[color:var(--muted)] mb-6 leading-relaxed">그대로 업로드하세요. AI가 자동으로 인식해서<br/>이번 달 명세로 반영합니다.</div>
+
+          <!-- Drop zone -->
+          <div class="card-hero p-6 mb-4">
+            <button class="w-full py-10 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 hover:bg-blue-50 hover:border-blue-400 transition text-[color:var(--muted)]">
+              <div class="flex flex-col items-center gap-3">
+                <div class="w-16 h-16 rounded-2xl flex items-center justify-center" style="background:linear-gradient(135deg,#EEF2FF 0%,#E0E7FF 100%);">
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#3D5AFE" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+                </div>
+                <div>
+                  <div class="text-[15px] font-bold text-[color:var(--text)]">파일을 여기로 드래그</div>
+                  <div class="text-[12px] text-[color:var(--muted)] mt-1">또는 아래 버튼을 눌러 선택</div>
+                </div>
+                <div class="mt-1 px-4 py-2 rounded-lg text-[13px] font-semibold" style="background:var(--blue);color:#fff;">
+                  파일 선택
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <!-- 지원 형식 -->
+          <div class="card p-4 mb-4">
+            <div class="text-[11.5px] font-bold text-[color:var(--muted)] uppercase tracking-wider mb-3">지원 형식</div>
+            <div class="grid grid-cols-3 gap-2">
+              <div class="flex flex-col items-center gap-1.5 py-2">
+                <div class="icon-box sm box-mint">
+                  <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+                </div>
+                <span class="text-[11.5px] font-semibold text-[color:var(--text-2)]">Excel</span>
+                <span class="text-[10px] text-[color:var(--muted-2)]">.xlsx .xls</span>
+              </div>
+              <div class="flex flex-col items-center gap-1.5 py-2">
+                <div class="icon-box sm box-blue">
+                  <svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                </div>
+                <span class="text-[11.5px] font-semibold text-[color:var(--text-2)]">CSV</span>
+                <span class="text-[10px] text-[color:var(--muted-2)]">.csv</span>
+              </div>
+              <div class="flex flex-col items-center gap-1.5 py-2">
+                <div class="icon-box sm box-rose">
+                  <svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h1M9 12h1M9 18h6"/></svg>
+                </div>
+                <span class="text-[11.5px] font-semibold text-[color:var(--text-2)]">PDF</span>
+                <span class="text-[10px] text-[color:var(--muted-2)]">.pdf</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI 안내 -->
+          <div class="card p-4" style="background:linear-gradient(135deg,#F5F9FF 0%,#EEF2FF 100%);border-color:#DBEAFE;">
+            <div class="flex items-start gap-3">
+              <div class="icon-box sm box-violet">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M12 2 L15 8.5 L22 9.5 L17 14.5 L18.5 21.5 L12 18 L5.5 21.5 L7 14.5 L2 9.5 L9 8.5 Z"/></svg>
+              </div>
+              <div class="flex-1">
+                <div class="text-[13px] font-bold text-[color:var(--text)] mb-1">AI가 자동으로 인식합니다</div>
+                <div class="text-[11.5px] text-[color:var(--muted)] leading-relaxed">
+                  • 직원 이름·소득 종류·지급액을 자동 매핑<br/>
+                  • 새로운 직원 이름이 발견되면 신입으로 표시<br/>
+                  • 인식 결과는 확정 전 미리보기에서 확인
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 예시 파일 -->
+          <div class="text-center mt-6">
+            <button class="text-[12px] text-[color:var(--blue)] font-semibold underline underline-offset-2">
+              예시 파일 다운로드 (참고용)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <nav class="tab-bar">
+        <button class="active" data-scr="file" onclick="switchScr('file')">
+          <svg class="tab-ico" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          이달분
+        </button>
+        <button data-scr="pay" onclick="switchScr('pay')">
+          <svg class="tab-ico" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          납부
+        </button>
+        <button data-scr="cost" onclick="switchScr('cost')">
+          <svg class="tab-ico" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          인건비
+        </button>
+        <button data-scr="emp" onclick="switchScr('emp')">
+          <svg class="tab-ico" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          직원
+        </button>
+      </nav>
+
+    </div>
+  </div>
+
+  <!-- Info panel -->
+  <div class="w-72 text-sm text-slate-700 space-y-3 pt-6">
+    <div class="font-bold text-slate-900 text-base tracking-tight">👆 클릭해서 흐름 확인</div>
+    <div class="card p-4">
+      <div class="font-bold text-[color:var(--navy)] mb-2 text-[13px]">이달분 신고 · 새 흐름</div>
+      <ol class="text-[12.5px] text-slate-600 space-y-1.5 list-decimal list-inside leading-relaxed">
+        <li>"지난달 급여내역 보기" → 8월 명세 팝업</li>
+        <li>"지난달과 동일" → 9월 명세 미리보기 → 확정</li>
+        <li>"변동이 있는 경우" → 3가지 옵션 팝업
+          <ul class="pl-4 mt-1 space-y-0.5 text-[11.5px] text-slate-500">
+            <li>· 급여 변동 → 채팅 or 직원 선택</li>
+            <li>· 입·퇴사 → 서류 업로드 or 직접입력</li>
+            <li>· 급여파일 → 드래그·업로드</li>
+          </ul>
+        </li>
+        <li>직원 리스트 → 상세 (홍길동 카드)</li>
+      </ol>
+    </div>
+    <div class="card p-4">
+      <div class="font-bold text-[color:var(--navy)] mb-2 text-[13px]">디자인 토큰</div>
+      <div class="text-[11.5px] text-slate-600 space-y-1 num">
+        <div>배경 <span class="text-slate-400">#F4F5F7</span></div>
+        <div>브랜드 <span class="text-slate-400">#182848</span> 딥네이비</div>
+        <div>액션 <span class="text-slate-400">#3D5AFE</span> 인디고블루</div>
+        <div class="text-[10.5px] pt-1 text-slate-500 leading-relaxed">Pretendard Variable · 카드 radius 16 · shadow 계층 3단</div>
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="font-bold text-[color:var(--navy)] mb-2 text-[13px]">v2에서 개선한 것</div>
+      <ul class="text-[11.5px] text-slate-600 space-y-1 leading-relaxed">
+        <li>• 이모지 → SVG 아이콘 (Lucide 톤)</li>
+        <li>• 은은한 shadow + 아웃라인 조합</li>
+        <li>• Autohire 파스텔 아이콘 박스</li>
+        <li>• 타이포 위계 다층화 (11.5–22px)</li>
+        <li>• 여백 확대 (14→16–24px)</li>
+        <li>• 모션: modal slide-up, checkbox 트랜지션</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Desktop stage -->
+<div id="stage-desktop" hidden class="py-12 px-8">
+  <div class="max-w-[1360px] mx-auto bg-white rounded-3xl overflow-hidden" style="height:880px;display:flex;box-shadow:0 24px 60px -12px rgba(15,23,42,.12), 0 8px 24px -8px rgba(15,23,42,.08);border:1px solid var(--line);">
+    <!-- Sidebar -->
+    <aside class="w-72 flex flex-col" style="background:#FCFDFE;border-right:1px solid var(--line);">
+      <div class="p-6 border-b border-[color:var(--line)]">
+        <div class="flex items-center gap-2.5">
+          <div class="brand-logo">이</div>
+          <div>
+            <div class="font-bold text-[15.5px] text-[color:var(--text)]">이지원천</div>
+            <div class="text-[11px] text-[color:var(--muted)]">사장님 포털</div>
+          </div>
+        </div>
+        <div class="mt-5 p-3.5 rounded-xl" style="background:#F5F7FA;">
+          <div class="text-[10.5px] font-semibold text-[color:var(--muted)] uppercase tracking-wider mb-1.5">거래처</div>
+          <div class="font-bold text-[color:var(--text)] text-[14.5px]">샘플상사</div>
+          <div class="text-[11px] text-[color:var(--muted)] mt-1 flex items-center gap-1">
+            <svg class="ico-sm" viewBox="0 0 24 24"><path d="M12 2 L15 8.5 L22 9.5 L17 14.5 L18.5 21.5 L12 18 L5.5 21.5 L7 14.5 L2 9.5 L9 8.5 Z"/></svg>
+            조명신 세무사무소
+          </div>
+        </div>
+      </div>
+      <nav class="flex-1 p-3 space-y-1">
+        <button class="ds-sidebar-item active w-full">
+          <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          이달분 신고하기
+        </button>
+        <button class="ds-sidebar-item w-full">
+          <svg class="ico" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          원천세 납부하기
+        </button>
+        <button class="ds-sidebar-item w-full">
+          <svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          월별 인건비
+        </button>
+        <button class="ds-sidebar-item w-full">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          직원별 명세
+        </button>
+
+        <div class="mt-6 mb-3 px-3 text-[10.5px] font-bold text-[color:var(--muted-2)] uppercase tracking-wider">더보기</div>
+        <button class="ds-sidebar-item w-full text-xs" style="font-size:13px;">
+          <svg class="ico-sm" viewBox="0 0 24 24"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1zM10 12h4"/></svg>
+          보관함
+        </button>
+        <button class="ds-sidebar-item w-full text-xs" style="font-size:13px;">
+          <svg class="ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          도움말 · 세무사 연락
+        </button>
+      </nav>
+      <div class="p-4 border-t border-[color:var(--line)] text-[11.5px] text-[color:var(--muted)] flex items-center justify-between">
+        <span>PIN 재입력</span>
+        <button>나가기</button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 overflow-y-auto" style="background:var(--bg);">
+      <header class="bg-white border-b border-[color:var(--line)] px-10 py-5 flex items-center justify-between sticky top-0 z-10">
+        <div>
+          <div class="text-[11.5px] font-semibold text-[color:var(--muted)] uppercase tracking-wider">이달분 신고하기</div>
+          <div class="font-bold text-[22px] text-[color:var(--text)] mt-1 tracking-tight">2026년 9월 귀속</div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="badge badge-amber"><span class="badge-dot"></span>자료 수집 중</span>
+          <div class="flex items-center gap-1.5 text-[12.5px] text-[color:var(--muted)]">
+            <svg class="ico-sm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span class="num">2026-10-10</span>
+            <span class="badge badge-red" style="padding:2px 8px;font-size:10.5px;">D-7</span>
+          </div>
+          <div class="w-px h-6 bg-slate-200 mx-1"></div>
+          <button class="header-btn">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+            <span class="dot-red"></span>
+          </button>
+        </div>
+      </header>
+
+      <div class="p-10 space-y-6">
+
+        <!-- 3-KPI -->
+        <div class="grid grid-cols-3 gap-4">
+          <div class="card p-5">
+            <div class="flex items-start justify-between mb-3">
+              <div class="icon-box box-blue">
+                <svg class="ico-lg" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </div>
+              <button class="text-slate-300"><svg class="ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+            </div>
+            <div class="text-[12px] text-[color:var(--muted)] font-medium">예상 원천세</div>
+            <div class="text-[24px] font-bold num text-[color:var(--text)] mt-1 tracking-tight">1,207,500<span class="text-slate-400 font-normal text-sm ml-1">원</span></div>
+            <div class="text-[11.5px] text-[color:var(--muted-2)] mt-1">근로 + 사업 + 일용</div>
+          </div>
+          <div class="card p-5">
+            <div class="flex items-start justify-between mb-3">
+              <div class="icon-box box-mint">
+                <svg class="ico-lg" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </div>
+              <button class="text-slate-300"><svg class="ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+            </div>
+            <div class="text-[12px] text-[color:var(--muted)] font-medium">확정 직원</div>
+            <div class="text-[24px] font-bold num text-[color:var(--text)] mt-1 tracking-tight">10 / 11<span class="text-slate-400 font-normal text-sm ml-1">명</span></div>
+            <div class="text-[11.5px] text-[color:var(--muted-2)] mt-1">신입 1명 대기</div>
+          </div>
+          <div class="card p-5">
+            <div class="flex items-start justify-between mb-3">
+              <div class="icon-box box-amber">
+                <svg class="ico-lg" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </div>
+              <button class="text-slate-300"><svg class="ico-sm" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+            </div>
+            <div class="text-[12px] text-[color:var(--muted)] font-medium">미확정 자료</div>
+            <div class="text-[24px] font-bold num text-[color:var(--text)] mt-1 tracking-tight">1<span class="text-slate-400 font-normal text-sm ml-1">건</span></div>
+            <div class="text-[11.5px] text-[color:var(--muted-2)] mt-1">세무사가 요청 중</div>
+          </div>
+        </div>
+
+        <!-- 지난달 명세 -->
+        <div class="card p-6">
+          <div class="flex items-center justify-between mb-5">
+            <div>
+              <div class="sec-title">
+                <svg class="ico-sm text-[color:var(--muted)]" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                지난달(8월) 지급명세
+              </div>
+              <div class="sec-caption">10명 · 총 지급 29,850,000원 · 원천세 1,180,500원</div>
+            </div>
+            <div class="flex gap-2">
+              <button class="cta-secondary text-[12.5px] py-2 px-4" style="width:auto;">
+                <svg class="ico-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                엑셀
+              </button>
+              <button class="cta-secondary text-[12.5px] py-2 px-4" style="width:auto;">
+                <svg class="ico-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                PDF
+              </button>
+            </div>
+          </div>
+          <table class="w-full text-[13.5px]">
+            <thead class="text-[11.5px] text-[color:var(--muted)] uppercase tracking-wider">
+              <tr class="border-b border-[color:var(--line)]">
+                <th class="text-left py-2.5 font-semibold">이름</th>
+                <th class="text-left font-semibold">소득</th>
+                <th class="text-right font-semibold">지급총액</th>
+                <th class="text-right font-semibold">원천세</th>
+                <th class="text-right font-semibold">4대보험</th>
+                <th class="text-right font-semibold">실지급</th>
+              </tr>
+            </thead>
+            <tbody class="text-[color:var(--text-2)]">
+              <tr class="border-b border-[color:var(--line)]">
+                <td class="py-3 flex items-center gap-3"><div class="avatar w-8 h-8 text-xs">홍</div><span class="font-semibold">홍길동</span></td>
+                <td><span class="badge badge-slate">근로</span></td>
+                <td class="text-right num">3,000,000</td>
+                <td class="text-right num text-[color:var(--blue)] font-semibold">95,000</td>
+                <td class="text-right num">270,000</td>
+                <td class="text-right num font-bold text-[color:var(--text)]">2,635,000</td>
+              </tr>
+              <tr class="border-b border-[color:var(--line)]">
+                <td class="py-3 flex items-center gap-3"><div class="avatar w-8 h-8 text-xs">김</div><span class="font-semibold">김민지</span></td>
+                <td><span class="badge badge-slate">근로</span></td>
+                <td class="text-right num">2,800,000</td>
+                <td class="text-right num text-[color:var(--blue)] font-semibold">78,400</td>
+                <td class="text-right num">252,000</td>
+                <td class="text-right num font-bold text-[color:var(--text)]">2,469,600</td>
+              </tr>
+              <tr class="border-b border-[color:var(--line)]">
+                <td class="py-3 flex items-center gap-3"><div class="avatar w-8 h-8 text-xs">박</div><span class="font-semibold">박영수</span></td>
+                <td><span class="badge badge-slate">근로</span></td>
+                <td class="text-right num">2,500,000</td>
+                <td class="text-right num text-[color:var(--blue)] font-semibold">58,300</td>
+                <td class="text-right num">225,000</td>
+                <td class="text-right num font-bold text-[color:var(--text)]">2,216,700</td>
+              </tr>
+              <tr class="border-b border-[color:var(--line)]">
+                <td class="py-3 flex items-center gap-3"><div class="avatar w-8 h-8 text-xs">이</div><span class="font-semibold">이수진</span></td>
+                <td><span class="badge badge-slate">근로</span></td>
+                <td class="text-right num">3,200,000</td>
+                <td class="text-right num text-[color:var(--blue)] font-semibold">115,000</td>
+                <td class="text-right num">288,000</td>
+                <td class="text-right num font-bold text-[color:var(--text)]">2,797,000</td>
+              </tr>
+              <tr class="border-b border-[color:var(--line)]">
+                <td class="py-3 flex items-center gap-3"><div class="avatar violet w-8 h-8 text-xs">이</div><span class="font-semibold">이영희</span></td>
+                <td><span class="badge badge-violet">사업</span></td>
+                <td class="text-right num">900,000</td>
+                <td class="text-right num text-[color:var(--blue)] font-semibold">27,000</td>
+                <td class="text-right num text-slate-300">-</td>
+                <td class="text-right num font-bold text-[color:var(--text)]">873,000</td>
+              </tr>
+              <tr class="border-b border-[color:var(--line)]">
+                <td class="py-3 flex items-center gap-3"><div class="avatar amber w-8 h-8 text-xs">김</div><span class="font-semibold">김일용</span></td>
+                <td><span class="badge badge-amber">일용</span></td>
+                <td class="text-right num">450,000</td>
+                <td class="text-right num text-[color:var(--blue)] font-semibold">6,750</td>
+                <td class="text-right num text-slate-300">-</td>
+                <td class="text-right num font-bold text-[color:var(--text)]">443,250</td>
+              </tr>
+              <tr class="text-slate-400 text-xs"><td class="pt-3" colspan="6">... 4명 더 · 전체 보기 →</td></tr>
+            </tbody>
+            <tfoot class="border-t-2 border-[color:var(--line-strong)] font-bold text-[color:var(--text)]">
+              <tr>
+                <td class="pt-4 font-bold" colspan="2">합계 · 10명</td>
+                <td class="text-right num pt-4">29,850,000</td>
+                <td class="text-right num pt-4 text-[color:var(--blue)]">1,180,500</td>
+                <td class="text-right num pt-4">2,835,000</td>
+                <td class="text-right num pt-4">25,834,500</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- 급여 결정 -->
+        <div>
+          <div class="sec-title mb-4">
+            <svg class="ico-sm text-[color:var(--blue)]" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            이번 달 급여 결정
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="card-hero p-7 relative" style="border-color:var(--blue);border-width:1.5px;">
+              <span class="absolute top-5 right-5 badge badge-blue">대부분 이거예요</span>
+              <div class="icon-box lg box-blue mb-5">
+                <svg class="ico-lg" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+              </div>
+              <div class="font-bold text-[19px] mb-1.5 tracking-tight">지난달과 동일</div>
+              <div class="text-[13.5px] text-[color:var(--muted)] mb-6 leading-relaxed">8월 지급명세를 그대로 9월분으로 확정합니다</div>
+              <button class="cta-primary">선택 → 미리보기
+                <svg class="ico-sm" viewBox="0 0 24 24"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+              </button>
+            </div>
+            <div class="card p-7">
+              <div class="icon-box lg box-slate mb-5">
+                <svg class="ico-lg" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              </div>
+              <div class="font-bold text-[19px] mb-1.5 tracking-tight">직접 입력</div>
+              <div class="text-[13.5px] text-[color:var(--muted)] mb-6 leading-relaxed">변동 있는 직원만 선택해서 편집합니다</div>
+              <button class="cta-secondary">선택 → 직원 고르기
+                <svg class="ico-sm" viewBox="0 0 24 24"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 직원 변동 -->
+        <div>
+          <div class="sec-title mb-4">
+            <svg class="ico-sm text-[color:var(--muted)]" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            직원 변동 <span class="text-[12px] text-[color:var(--muted)] font-normal ml-1">4대보험 신고 필요</span>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="card p-7">
+              <div class="icon-box lg box-mint mb-5">
+                <svg class="ico-lg" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+              </div>
+              <div class="font-bold text-[19px] mb-1.5 tracking-tight">신입직원이 있어요</div>
+              <div class="text-[13.5px] text-[color:var(--muted)] mb-6 leading-relaxed">등록하면 세무사가 자격취득 신고를 처리합니다</div>
+              <button class="cta-secondary">신입 등록</button>
+            </div>
+            <div class="card p-7 opacity-50 pointer-events-none">
+              <div class="icon-box lg box-slate mb-5">
+                <svg class="ico-lg" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
+              </div>
+              <div class="font-bold text-[19px] mb-1.5 tracking-tight">직원이 퇴직했어요</div>
+              <div class="text-[13px] text-[color:var(--muted-2)] mb-6">다음 버전에서 제공 예정</div>
+              <button class="cta-secondary" disabled>퇴사 등록</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+  const $vpm = document.getElementById('vp-mobile');
+  const $vpd = document.getElementById('vp-desktop');
+  const $stm = document.getElementById('stage-mobile');
+  const $std = document.getElementById('stage-desktop');
+  const setVP = (m) => {
+    $stm.hidden = !m; $std.hidden = m;
+    if (m){
+      $vpm.className='px-3.5 py-1.5 rounded-lg font-semibold text-[13px] border border-slate-900 bg-slate-900 text-white transition';
+      $vpd.className='px-3.5 py-1.5 rounded-lg font-semibold text-[13px] border border-slate-300 text-slate-700 bg-white transition';
+    } else {
+      $vpd.className='px-3.5 py-1.5 rounded-lg font-semibold text-[13px] border border-slate-900 bg-slate-900 text-white transition';
+      $vpm.className='px-3.5 py-1.5 rounded-lg font-semibold text-[13px] border border-slate-300 text-slate-700 bg-white transition';
+    }
+  };
+  $vpm.onclick = () => setVP(true);
+  $vpd.onclick = () => setVP(false);
+
+  function switchScr(id){
+    ['file','pay','cost','emp'].forEach(s => {
+      document.getElementById('scr-'+s).hidden = (s !== id);
+    });
+    document.querySelectorAll('.tab-bar button').forEach(b => {
+      b.classList.toggle('active', b.dataset.scr === id);
+    });
+    document.querySelector('.app-scroll').scrollTop = 0;
+  }
+
+  function togglePrev(){
+    const el = document.getElementById('prev-detail');
+    const t = document.getElementById('prev-toggle');
+    if (el.classList.contains('hidden')) {
+      el.classList.remove('hidden');
+      t.style.transform='rotate(180deg)';
+    } else {
+      el.classList.add('hidden');
+      t.style.transform='rotate(0deg)';
+    }
+  }
+
+  function openModal(id){ document.getElementById('modal-'+id).classList.add('open'); }
+  function closeModal(id){ document.getElementById('modal-'+id).classList.remove('open'); }
+  function confirmFile(){ closeModal('preview'); openModal('confirmed'); }
+
+  function toggleRow(el){
+    el.classList.toggle('checked');
+    const n = document.querySelectorAll('#select-list .row-check.checked').length;
+    document.getElementById('sel-count').textContent = n;
+  }
+
+  function pickRadio(el, group){
+    const parent = el.parentElement;
+    parent.querySelectorAll('.row-check').forEach(r => r.classList.remove('checked'));
+    el.classList.add('checked');
+  }
+</script>
+</body>
+</html>

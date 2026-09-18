@@ -1,0 +1,13 @@
+[project]
+name = "certificate-server"
+version = "0.1.0"
+description = "이지원천 서버 시뮬 (Phase 1.5) — 발급 요청 API·잡 큐·파일 저장. plan/17 §3-9 참조."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0",
+    "pydantic>=2.9",
+    "python-multipart>=0.0.9",
+    "typer>=0.12",
+]

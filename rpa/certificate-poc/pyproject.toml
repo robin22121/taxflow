@@ -1,0 +1,9 @@
+[project]
+name = "certificate-poc"
+version = "0.1.0"
+description = "홈택스 증명발급 자동화 PoC — plan/17-certificate-issuance.md Phase 1 스탠드얼론 스크립트"
+requires-python = ">=3.12"
+dependencies = [
+    "playwright>=1.47",
+    "pypdf>=4.0",
+]

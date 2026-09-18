@@ -45,3 +45,6 @@ backend/uploads/
 # Dev-only encryption key
 .dev_rrn_key
 .gstack/
+
+# Claude Code local settings
+.claude/

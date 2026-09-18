@@ -24,6 +24,7 @@
 | [`plan/14-accounts-permissions.md`](plan/14-accounts-permissions.md) | 사무소 계정·권한 — 세무사(OWNER)/담당직원(STAFF) 분리, 거래처 담당 배정, 스코핑 게이트, 접속기록 |
 | [`plan/15-filing-relay.md`](plan/15-filing-relay.md) | 세무사 신고 릴레이 — 위하고 뒤에 붙는 홈택스 일괄 전송 + 접수증·납부서 거래처 자동 배송 (Phase 4+ 확장 후보) |
 | [`plan/16-wehago-rpa.md`](plan/16-wehago-rpa.md) | 위하고 T·홈택스·위택스 원천세 자동화 RPA — 직원 전송 → 자동화 전용 노트북(세무사 전용 아이디)이 급여 입력·원천세·지방세 작업 → 세무사 신고 승인 → 홈택스·위택스 신고 → 접수증·납부서 포털 반영 (약관 검토·안전장치·실측 과제) |
+| [`plan/17-certificate-issuance.md`](plan/17-certificate-issuance.md) | 홈택스 증명발급 자동화 — 사이드바 "증명발급" 메뉴 신설, 12종 즉시발급 대상, 담당자 검토 후 이메일·문자·팩스·다운로드 발송 (Phase 1 개발자 PC 스탠드얼론 → Phase 2 자동화 노트북·세무사 대리 로그인) |
 
 ---
 
