@@ -182,6 +182,10 @@ def _choose_radio(page, selector: str, label: str) -> None:
     "element is outside of the viewport" 로 실패한다. label 클릭 → DOM 이벤트
     디스패치 순으로 폴백한다.
     """
+    if page.locator(selector).is_checked():
+        print(f"[+] {label} (이미 선택됨)")
+        return
+
     elem_id = selector.lstrip("#")
     attempts = (
         ("직접 클릭", lambda: page.locator(selector).click(timeout=5000)),
