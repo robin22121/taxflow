@@ -79,21 +79,21 @@ class Collector(HTMLParser):
             self.hits.append(line)
 
 
-def scan(path: Path) -> None:
-    print("=" * 70)
-    print(f"# {path.name}")
-    print("=" * 70)
+def scan(path: Path, w) -> None:
+    w("=" * 70)
+    w(f"# {path.name}")
+    w("=" * 70)
     c = Collector()
     try:
         c.feed(path.read_text(encoding="utf-8", errors="replace"))
     except Exception as exc:  # noqa: BLE001
-        print(f"[!] parse failed: {exc}")
+        w(f"[!] parse failed: {exc}")
         return
     if not c.hits:
-        print("(해당 키워드 요소 없음)")
+        w("(추출된 요소 없음)")
     for h in c.hits:
-        print(" ", h)
-    print()
+        w("  " + h)
+    w("")
 
 
 def main() -> None:
@@ -101,8 +101,17 @@ def main() -> None:
     if not files:
         print(f"[!] {OUT} 에 html 이 없습니다. 먼저 issue.py 를 실행하세요.")
         return
+
+    # PowerShell 의 > 리다이렉트는 콘솔 인코딩(cp949)을 타서 UnicodeEncodeError 가
+    # 나거나 UTF-16 으로 저장된다. 스크립트가 직접 UTF-8 로 쓴다.
+    dest = Path(__file__).parent / "selectors.txt"
+    lines: list[str] = []
     for f in files:
-        scan(f)
+        scan(f, lines.append)
+    dest.write_text("\n".join(lines), encoding="utf-8")
+
+    print(f"[+] {len(files)} 파일에서 {len(lines)} 줄 추출")
+    print(f"[+] 저장 → {dest}")
 
 
 if __name__ == "__main__":
