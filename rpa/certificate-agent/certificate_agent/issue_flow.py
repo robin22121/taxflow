@@ -75,6 +75,52 @@ def execute_dummy(job: dict, cfg: AgentConfig) -> tuple[bytes, str, str, str]:
     return data, "cert_dummy.png", "image/png", msg
 
 
+WORK = Path(__file__).resolve().parent.parent / "work"
+
+MENU_ANCHOR = "#a_4315010800"  # 전체메뉴 > 즉시발급 증명 > 사업자등록증명
+
+
+def _dump(page, tag: str) -> str:
+    """실패 지점 화면을 남긴다. 저장 경로 반환 (실패해도 흐름은 계속)."""
+    WORK.mkdir(exist_ok=True)
+    stem = WORK / f"fail_{tag}_{int(time.time())}"
+    try:
+        stem.with_suffix(".html").write_text(page.content(), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        page.screenshot(path=str(stem.with_suffix(".png")), timeout=15000)
+    except Exception:  # noqa: BLE001
+        pass
+    return str(stem)
+
+
+def _goto_application(page) -> None:
+    """사업자등록증명 신청 화면으로 진입.
+
+    1순위는 menuCd URL 직행. WebSquare 가 SPA 라 직행이 안 먹는 경우가 있어
+    전체메뉴 앵커 클릭을 폴백으로 둔다 (앵커는 메뉴를 연 뒤에만 DOM 에 생긴다).
+    """
+    page.goto(BUSINESS_REG_URL, wait_until="domcontentloaded")
+    time.sleep(4.0)
+    print(f"[*] goto 후 url={page.url}")
+    if page.locator(SEL_BSNO).count() > 0:
+        return
+
+    print("[*] 직행 실패 — 전체메뉴 앵커로 재시도")
+    try:
+        page.locator(MENU_ANCHOR).first.click(timeout=10000)
+        time.sleep(4.0)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[!] 앵커 클릭 실패: {exc.__class__.__name__}")
+
+    if page.locator(SEL_BSNO).count() == 0:
+        path = _dump(page, "nav")
+        raise RuntimeError(
+            f"신청 화면 진입 실패. url={page.url} title={page.title()!r} dump={path}"
+        )
+
+
 def _pick_business_number(page, wanted: str) -> str:
     """사업자등록번호 드롭다운에서 요청된 사업자를 고른다. 선택된 라벨 반환."""
     target = _digits(wanted)
@@ -89,7 +135,6 @@ def _pick_business_number(page, wanted: str) -> str:
 
 def _fill_application(page, job: dict) -> str:
     """신청 화면을 채우고 [작성완료] 까지. 선택된 사업자 라벨 반환."""
-    page.wait_for_selector(SEL_BSNO, timeout=30000)
     time.sleep(1.0)
 
     # 납세자 구분 = 사업자등록번호 (기본값이지만 명시)
@@ -168,8 +213,7 @@ def execute_phase1(job: dict, cfg: AgentConfig) -> tuple[bytes, str, str, str]:
             print("[+] login ok")
             time.sleep(2.0)
 
-            page.goto(BUSINESS_REG_URL, wait_until="domcontentloaded")
-            time.sleep(3.0)
+            _goto_application(page)
 
             picked = _fill_application(page, job)
 
@@ -188,6 +232,9 @@ def execute_phase1(job: dict, cfg: AgentConfig) -> tuple[bytes, str, str, str]:
 
             data, filename, mime = _capture_popup(context, page)
             return data, filename, mime, f"issued for {picked}"
+        except Exception as exc:  # noqa: BLE001
+            path = _dump(page, "flow")
+            raise RuntimeError(f"{exc.__class__.__name__}: {exc} | dump={path}") from exc
         finally:
             context.close()
             browser.close()
