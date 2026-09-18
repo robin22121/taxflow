@@ -98,23 +98,46 @@ def _dump(page, tag: str) -> str:
 def _goto_application(page) -> None:
     """사업자등록증명 신청 화면으로 진입.
 
-    로그인 직후 화면에는 전체메뉴 앵커(#a_4315010800)가 DOM 에 없다. 상단 메뉴
-    '증명·등록·신청·사업장현황' 을 눌러 드롭다운을 펼쳐야 앵커가 렌더된다.
-    구분자가 화면마다 ·/ㆍ/･ 로 달라 '사업장현황' 부분만 매칭한다.
-    menuCd URL 직행은 SPA 라 안 먹는 경우가 있어 폴백으로만 둔다.
+    실제 경로(2026-09-18 사용자 확인):
+      상단 '증명·등록·신청·사업장현황' → 드롭다운 [국세 민원 서류 찾기]
+      → 카탈로그 목록에서 '사업자등록증명' 행의 [신청하기]
+
+    로그인 직후 화면에는 전체메뉴 앵커(#a_4315010800)가 DOM 에 없으므로 상단 메뉴를
+    먼저 열어야 한다. 구분자가 화면마다 ·/ㆍ/･ 로 달라 '사업장현황' 만 매칭한다.
+    카탈로그 행 id(gen_cvaInf_{n})는 순서가 고정이 아니라 제목으로 행을 찾는다.
     """
+    APPLY_IN_ROW = (
+        "xpath=//*[normalize-space()='사업자등록증명']"
+        "/ancestor::*[.//input[@value='신청하기']][1]"
+        "//input[@value='신청하기']"
+    )
+
     try:
         page.get_by_text(re.compile("사업장현황")).first.click(timeout=15000)
         time.sleep(2.5)
         print("[+] 상단 메뉴 열림")
-        page.locator(MENU_ANCHOR).first.click(timeout=15000)
+
+        page.get_by_text(re.compile("국세 ?민원 ?서류 ?찾기")).first.click(timeout=15000)
         time.sleep(4.0)
-        print(f"[+] 사업자등록증명 진입. url={page.url}")
+        print(f"[+] 카탈로그 도달. url={page.url}")
+
+        page.locator(APPLY_IN_ROW).first.click(timeout=15000)
+        time.sleep(4.0)
+        print(f"[+] 사업자등록증명 신청 화면. url={page.url}")
     except Exception as exc:  # noqa: BLE001
-        print(f"[!] 메뉴 경로 실패({exc.__class__.__name__}) — menuCd 직행으로 재시도")
-        page.goto(BUSINESS_REG_URL, wait_until="domcontentloaded")
-        time.sleep(4.0)
-        print(f"[*] goto 후 url={page.url}")
+        print(f"[!] 메뉴 경로 실패({exc.__class__.__name__}: {exc}) — 폴백 시도")
+        for label, action in (
+            ("전체메뉴 앵커", lambda: page.locator(MENU_ANCHOR).first.click(timeout=10000)),
+            ("menuCd 직행", lambda: page.goto(BUSINESS_REG_URL, wait_until="domcontentloaded")),
+        ):
+            try:
+                action()
+                time.sleep(4.0)
+                print(f"[*] {label} 후 url={page.url}")
+                if page.locator(SEL_BSNO).count() > 0:
+                    break
+            except Exception as exc2:  # noqa: BLE001
+                print(f"[!] {label} 실패: {exc2.__class__.__name__}")
 
     if page.locator(SEL_BSNO).count() == 0:
         path = _dump(page, "nav")
