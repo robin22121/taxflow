@@ -95,6 +95,29 @@ def _dump(page, tag: str) -> str:
     return str(stem)
 
 
+def _click_apply_for(page, title: str) -> None:
+    """카탈로그에서 제목이 일치하는 행의 [신청하기] 를 누른다.
+
+    조상 탐색(ancestor::)으로 잡으면 목록 밖의 같은 텍스트(전체메뉴 앵커·바로가기)에
+    걸려 목록 전체 컨테이너를 잡고 첫 행을 눌러버린다(2026-09-18: 납부내역증명이
+    눌려 간편인증 요구 화면으로 빠짐). 행 버튼을 직접 순회해 제목을 확인한다.
+    """
+    buttons = page.locator("input[id*='_gen_cvaInf_'][id$='_btn_apln']")
+    page.wait_for_selector("input[id*='_gen_cvaInf_'][id$='_btn_apln']", timeout=20000)
+    seen: list[str] = []
+    for i in range(buttons.count()):
+        btn = buttons.nth(i)
+        row = btn.locator("xpath=ancestor::li[1]")
+        if row.count() == 0:
+            continue
+        text = row.inner_text().replace("\n", " ").strip()
+        seen.append(text[:30])
+        if title in text:
+            btn.click(timeout=15000)
+            return
+    raise RuntimeError(f"카탈로그에 '{title}' 행 없음. 보이는 행: {seen}")
+
+
 def _goto_application(page) -> None:
     """사업자등록증명 신청 화면으로 진입.
 
@@ -106,12 +129,6 @@ def _goto_application(page) -> None:
     먼저 열어야 한다. 구분자가 화면마다 ·/ㆍ/･ 로 달라 '사업장현황' 만 매칭한다.
     카탈로그 행 id(gen_cvaInf_{n})는 순서가 고정이 아니라 제목으로 행을 찾는다.
     """
-    APPLY_IN_ROW = (
-        "xpath=//*[normalize-space()='사업자등록증명']"
-        "/ancestor::*[.//input[@value='신청하기']][1]"
-        "//input[@value='신청하기']"
-    )
-
     try:
         page.get_by_text(re.compile("사업장현황")).first.click(timeout=15000)
         time.sleep(2.5)
@@ -121,7 +138,7 @@ def _goto_application(page) -> None:
         time.sleep(4.0)
         print(f"[+] 카탈로그 도달. url={page.url}")
 
-        page.locator(APPLY_IN_ROW).first.click(timeout=15000)
+        _click_apply_for(page, "사업자등록증명")
         time.sleep(4.0)
         print(f"[+] 사업자등록증명 신청 화면. url={page.url}")
     except Exception as exc:  # noqa: BLE001
