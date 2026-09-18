@@ -31,7 +31,7 @@ def setup() -> None:
     """대화형으로 자격증명·서버 URL·에이전트 토큰 저장."""
     typer.echo("[*] 값은 Windows 자격 증명 관리자에 저장됩니다. 파일에 남지 않습니다.")
     server_url = input("서버 URL (예: http://192.168.1.10:8100): ").strip()
-    agent_token = getpass("에이전트 토큰 (관리자 CLI 로 발급받은 값): ").strip()
+    agent_token = input("에이전트 토큰 (관리자 CLI 로 발급받은 값): ").strip()
     hometax_id = input("홈택스 아이디: ").strip()
     hometax_pw = getpass("홈택스 비밀번호: ")
     rrn_prefix = getpass("2차 인증 주민번호 앞 6자리: ").strip()
@@ -44,6 +44,8 @@ def setup() -> None:
     config.save("hometax_rrn_prefix", rrn_prefix)
     config.save("hometax_rrn_suffix", rrn_suffix)
     typer.echo("[+] saved.")
+    for k in config.KEYS:
+        typer.echo(f"  {k:<22} = {_mask(config.load(k))}")
 
 
 @app.command()
