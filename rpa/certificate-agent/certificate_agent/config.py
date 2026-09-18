@@ -1,4 +1,4 @@
-"""자격증명·설정 저장 (macOS keychain via keyring). plan/17 §3-9-6."""
+"""자격증명·설정 저장 (Windows 자격 증명 관리자 via keyring/DPAPI). plan/17 §3-9-6."""
 
 from __future__ import annotations
 

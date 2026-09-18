@@ -24,6 +24,7 @@
 |------|------|------|
 | 2026-09-17 | 본 문서 신설 — 이지원천에 "증명발급" 메뉴 별도, 담당자 확인 후 이메일 · 팩스 · 문자 · 다운로드 액션 선택 (Phase 2 프로덕션 스코프) | 사무소 실무에서 사업자등록증명·납세증명은 상시 반복 발급 업무. 신고 워크플로우와 축이 달라 별도 메뉴 필요 |
 | 2026-09-17 | Phase 1 스코프 축소 — **개발자 개인 PC + 개인사업자 아이디 로그인 + 로컬 PDF 저장 + 이지원천 통합 없음**. 자동화 노트북·세무대리 관리번호·서버 업로드는 Phase 2 | 사용자 정정: "시험삼아 및 시뮬레이션용이야, 별도의 노트북을 사용하지 않고 지금 현재 내가 쓰고 있는 이 컴퓨터를 이용할거야". 인프라 세팅(BitLocker·자격 증명 관리자·세무사 아이디 조달·세무대리 관리번호) 없이 발급 흐름 자체를 먼저 검증 |
+| 2026-09-18 | Phase 1.5 목표를 **2단계**로 확정 — (1) 사용자 개인사업자 아이디 로그인으로 Windows 에이전트 → 사업자등록증명 발급 성공, (2) 성공 후 **세무사 아이디·비밀번호 + 공동인증서 로그인** 구현. 증명원은 사업자등록증명 1종만 | 사용자 지시. 공동인증서 로그인은 원래 Phase 2 였으나, 세무사 대리 로그인이 실제 운영 경로이므로 Phase 1.5 안에서 미리 실측한다 |
 | 2026-09-17 | 대상 증명원 12종 확정, 우선순위 7종 명시. 납세증명은 **기타용만**(대금수령용 제외). 소득금액·부가세 과표증명은 기간 옵션 필요. Phase 1 첫 대상 = 사업자등록증명(옵션 없음) | 홈택스 즉시발급증명 카탈로그 확인 후 사용자 지시. 옵션 없는 것부터 착수해 파이프라인 먼저 완성 후 옵션 처리 추가 |
 
 ## §1. 대상 증명원 (홈택스 즉시발급 12종)
@@ -197,27 +198,28 @@ rpa/
 │   ├── hometax_login.py        # ← Phase 1.5 에서 재사용
 │   ├── issue.py                # ← 발급 함수만 뽑아 재사용
 │   └── ...
-├── certificate-server/         # Phase 1.5 신설 (맥미니에서 실행)
+├── certificate-server/         # Phase 1.5 신설 (맥북에서 실행)
 │   ├── pyproject.toml
 │   ├── certificate_server/
 │   │   ├── __init__.py
 │   │   ├── main.py             # FastAPI 앱
+│   │   ├── db.py               # SQLite 엔진·세션
 │   │   ├── models.py           # SQLAlchemy (Agent, IssueRequest, Job, File)
 │   │   ├── schemas.py          # pydantic
 │   │   ├── auth.py             # X-Agent-Token 검증
 │   │   ├── storage.py          # ./storage/ 파일 저장·조회
+│   │   ├── admin_cli.py        # 에이전트 등록·토큰 발급·폐기
 │   │   ├── routes_user.py      # 사용자 API (요청·이력·다운로드)
 │   │   └── routes_agent.py     # 에이전트 API (잡 폴링·결과 업로드)
 │   ├── storage/                # .gitignore (증명원 PDF/PNG)
 │   ├── db.sqlite               # .gitignore
 │   └── README.md
-└── certificate-agent/          # Phase 1.5 신설 (맥북에서 실행)
+└── certificate-agent/          # Phase 1.5 신설 (Windows PC 에서 실행)
     ├── pyproject.toml
     ├── certificate_agent/
     │   ├── __init__.py
-    │   ├── main.py             # `python -m certificate_agent run`
-    │   ├── setup.py            # `python -m certificate_agent setup` (자격증명 등록)
-    │   ├── config.py           # keyring 접근 (macOS keychain)
+    │   ├── __main__.py         # CLI (`setup` · `run` · `show` · `clear`)
+    │   ├── config.py           # keyring 접근 (Windows 자격 증명 관리자/DPAPI)
     │   ├── api.py              # 서버 HTTP 클라이언트 (httpx)
     │   ├── runner.py           # 폴링 루프 · 잡 상태 전이
     │   └── issue_flow.py       # certificate-poc/ 코드 재사용해 발급 실행
@@ -234,7 +236,7 @@ rpa/
 | 컬럼 | 타입 | 비고 |
 |------|------|------|
 | id | uuid | PK |
-| name | str | 사무소가 붙이는 이름 (예: "맥북-김연호") |
+| name | str | 사무소가 붙이는 이름 (예: "Windows-김연호") |
 | token_hash | str (unique) | SHA-256 (발급 시 1회 노출) |
 | created_at · last_seen_at · revoked_at | datetime | |
 
@@ -306,12 +308,12 @@ PENDING → CLAIMED → RUNNING → SUCCEEDED
 ### 3-9-5. 실행 흐름 (사업자등록증명 예)
 
 ```
-[맥미니 사용자]
+[맥북 사용자]
  ① POST /api/user/issue-requests
     body: {cert_type: BUSINESS_REGISTRATION, business_number: "..."}
     → issue_request(REQUESTED) + job(PENDING) 생성
         ▼
-[맥북 에이전트]
+[Windows 에이전트]
  ② GET /api/agent/jobs/next (X-Agent-Token) — 5초 폴링
     → job(CLAIMED) 반환
  ③ 상태 RUNNING 전이
@@ -324,7 +326,7 @@ PENDING → CLAIMED → RUNNING → SUCCEEDED
  ⑩ POST /api/agent/jobs/{id}/result (multipart)
         │
         ▼
-[맥미니 서버]
+[맥북 서버]
  ⑪ 파일 저장 → certificate_files 레코드
  ⑫ issue_request(ISSUED) + job(SUCCEEDED)
         ▲
@@ -347,7 +349,7 @@ PENDING → CLAIMED → RUNNING → SUCCEEDED
 
 **서버 인증** — `X-Agent-Token`
 
-- 관리자가 서버 CLI 로 토큰 발급 → 1회 노출 → 맥북에서 `setup` 시 입력.
+- 관리자가 서버 CLI 로 토큰 발급 → 1회 노출 → Windows PC 에서 `setup` 시 입력.
 - 서버는 SHA-256 해시만 저장. 토큰 유출 시 `DELETE /api/agent/agents/{id}` 로 즉시 폐기.
 
 ### 3-9-7. 개발·실행 명령 (사무실 Wi-Fi 로컬)
@@ -404,12 +406,30 @@ curl -X POST http://localhost:8100/api/user/issue-requests \
   -d '{"cert_type":"BUSINESS_REGISTRATION","business_number":"..."}'
 ```
 
+### 3-9-7-1. 착수 순서 (2026-09-18 작업)
+
+증명원은 **사업자등록증명 1종만**. 로그인 경로를 두 단계로 나눠 진행한다.
+
+**1단계 — 개인사업자 아이디 로그인 (현재)**
+
+1. Windows PC ↔ 맥북 연결 확인 (`setup` → `dummy` 모드 1회 왕복 성공)
+2. `CERT_AGENT_MODE=phase1` — 사용자 개인사업자 아이디·비밀번호·주민번호 앞6/뒤1 로 홈택스 로그인
+3. 즉시발급증명 카탈로그 → 사업자등록증명 → [신청]→[발급]→[출력] 자동 클릭 → 파일 회수 → 맥북 업로드
+
+**2단계 — 세무사 아이디 + 공동인증서 로그인 (1단계 성공 후)**
+
+- 원래 Phase 2 스코프였으나, 실제 운영 경로가 세무사 대리 로그인이므로 Phase 1.5 에서 미리 실측한다.
+- 추가 자격증명 (`setup` 확장): `hometax_cert_path` (인증서 파일 경로 또는 저장소 위치), `hometax_cert_pw`.
+- **인증서 선택 창·비밀번호 입력은 Playwright 로 조작 가능** (2026-09-18 사용자 확인). 이 부분은 미지수가 아니다.
+- 남은 실측 대상: 공동인증서 로그인이 **브라우저 확장·nProtect 등 별도 모듈**을 요구하는지, 인증서를 어느 저장 위치(하드디스크·브라우저 인증서 저장소)에서 읽는지 (`plan/16-wehago-rpa.md` §3-1 과 결과 공유).
+- 세무대리 관리번호·수임처 다중 선택은 이 단계에서도 **범위 밖** — Phase 2.
+
 ### 3-9-8. Phase 1.5 완료 판정
 
-1. 맥미니에서 `POST /api/user/issue-requests` 로 발급 요청 → 202 응답 + issue_request_id
-2. 맥북 에이전트 로그에 `[+] job claimed: {id}` → `[+] login ok` → `[+] popup captured` → `[+] uploaded`
-3. 맥미니 `GET /api/user/issue-requests/{id}` 상태 `ISSUED`
-4. 맥미니 `GET /api/user/issue-requests/{id}/download` 로 사업자등록증명 파일 획득
+1. 맥북에서 `POST /api/user/issue-requests` 로 발급 요청 → 202 응답 + issue_request_id
+2. Windows 에이전트 로그에 `[+] job claimed: {id}` → `[+] login ok` → `[+] popup captured` → `[+] uploaded`
+3. 맥북 `GET /api/user/issue-requests/{id}` 상태 `ISSUED`
+4. 맥북 `GET /api/user/issue-requests/{id}/download` 로 사업자등록증명 파일 획득
 5. 위 흐름이 사용자 조작 없이 (setup 이후) 반복 가능
 
 ### 3-9-9. Phase 1.5 → Phase 2 교체 지점
@@ -629,7 +649,7 @@ Phase 1이 확인해준 셀렉터·타이밍·인증서 처리 방식을 그대�
 | Phase | 기간 | 산출물 | 종속 |
 |-------|------|--------|------|
 | **1 (시뮬레이션)** | 1~2주 · 개발자 혼자 | `rpa/certificate-poc/` + 우선순위 4종 로컬 발급 + NOTES.md 실측 결과 9개 | 개발자 개인 PC · 개인사업자 홈택스 계정 (기존 보유) |
-| **1.5 (2대 분리 시뮬)** | 1~2주 | 맥미니 얇은 서버 + 맥북 에이전트 + HTTPS 폴링 + 로컬 PDF 저장 (사용자 개인 사업자 발급) | Phase 1 완료 · 사용자 소유 맥북 |
+| **1.5 (2대 분리 시뮬)** | 1~2주 | 맥북 얇은 서버 + Windows 에이전트 + HTTP(사무실 LAN) 폴링 + 로컬 PDF 저장 (사용자 개인 사업자 발급) | Phase 1 완료 · 사용자 소유 Windows PC |
 | **2 (프로덕션)** | 4~8주 | 사이드바 "증명발급" 메뉴 · 세무사 대리 로그인 · 우선순위 7종 · 이메일 · 문자 · 다운로드 발송 | Phase 1 완료 · `plan/16-wehago-rpa.md` Phase 2 배포 (세무사 대리 로그인·자동화 노트북·자격 증명 관리자 공유) · `plan/13-messaging-activation.md` 알림톡 심사 · 이메일 게이트웨이 결정 |
 | **3 (확장)** | 후속 | 팩스 자동발송 · 확장 대상 4종 (휴업·표준재무제표·종된사업장·소득확인) · 자동 재발급(만료 30일 전 알림 + 원클릭) · 반복 예약 | 사용자 요구 데이터 · 팩스 게이트웨이 선정 |
 

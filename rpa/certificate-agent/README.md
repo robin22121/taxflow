@@ -20,8 +20,8 @@ uv run python -m certificate_agent setup
 ```
 
 프롬프트 순서:
-1. 서버 URL (`http://<맥미니 LAN IP>:8100`)
-2. 에이전트 토큰 (맥미니 admin CLI 에서 발급)
+1. 서버 URL (`http://<맥북 LAN IP>:8100`)
+2. 에이전트 토큰 (맥북 admin CLI 에서 발급)
 3. 홈택스 아이디
 4. 홈택스 비밀번호
 5. 2차 인증 주민번호 앞 6자리

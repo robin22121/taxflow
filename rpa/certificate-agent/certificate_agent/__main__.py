@@ -1,9 +1,9 @@
 """CLI 진입점.
 
-  python -m certificate_agent setup   자격증명 등록 (keychain)
+  python -m certificate_agent setup   자격증명 등록 (Windows 자격 증명 관리자)
   python -m certificate_agent run     폴링 루프 시작
-  python -m certificate_agent show    keychain 저장 상태 확인 (값 마스킹)
-  python -m certificate_agent clear   keychain 항목 삭제
+  python -m certificate_agent show    저장 상태 확인 (값 마스킹)
+  python -m certificate_agent clear   저장 항목 삭제
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _mask(v: str | None) -> str:
 @app.command()
 def setup() -> None:
     """대화형으로 자격증명·서버 URL·에이전트 토큰 저장."""
-    typer.echo("[*] 값은 macOS keychain 에 저장됩니다. 파일에 남지 않습니다.")
+    typer.echo("[*] 값은 Windows 자격 증명 관리자에 저장됩니다. 파일에 남지 않습니다.")
     server_url = input("서버 URL (예: http://192.168.1.10:8100): ").strip()
     agent_token = getpass("에이전트 토큰 (관리자 CLI 로 발급받은 값): ").strip()
     hometax_id = input("홈택스 아이디: ").strip()
@@ -56,7 +56,7 @@ def show() -> None:
 
 @app.command()
 def clear() -> None:
-    """keychain 항목 삭제."""
+    """저장된 자격증명 삭제."""
     config.clear()
     typer.echo("[+] cleared.")
 

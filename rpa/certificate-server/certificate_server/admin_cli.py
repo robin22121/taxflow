@@ -1,7 +1,7 @@
 """관리자 CLI — 에이전트 등록·토큰 발급·폐기.
 
 실행:
-  uv run python -m certificate_server.admin_cli register --name 맥북-김연호
+  uv run python -m certificate_server.admin_cli register --name Windows-김연호
   uv run python -m certificate_server.admin_cli list
   uv run python -m certificate_server.admin_cli revoke <agent_id>
 """
@@ -36,7 +36,7 @@ def register(name: str = typer.Option(..., help="에이전트 이름")) -> None:
         db.close()
     typer.echo(f"id: {agent.id}")
     typer.echo(f"name: {agent.name}")
-    typer.echo(f"token: {token}   ← 1회만 표시. 맥북 setup 에 넣으세요.")
+    typer.echo(f"token: {token}   ← 1회만 표시. Windows PC setup 에 넣으세요.")
 
 
 @app.command("list")
