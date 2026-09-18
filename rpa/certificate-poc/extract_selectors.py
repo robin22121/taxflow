@@ -16,8 +16,12 @@ from pathlib import Path
 OUT = Path(__file__).parent / "out"
 
 KEYWORDS = ["사업자등록증명", "신청", "발급", "출력", "즉시발급", "조회", "확인"]
-CLICKABLE = {"a", "button", "input", "span", "td", "li"}
-ATTRS = ("id", "class", "title", "value", "type", "href", "onclick")
+# 폼 컨트롤은 키워드와 무관하게 전부 뽑는다 (사용용도·제출처·수령방법 등 select 포함)
+ALWAYS = {"input", "button", "select", "option"}
+# 텍스트가 키워드에 걸릴 때만 뽑는다
+KEYWORD_ONLY = {"a", "span", "td", "li"}
+CLICKABLE = ALWAYS | KEYWORD_ONLY
+ATTRS = ("id", "class", "title", "value", "type", "href", "onclick", "name")
 
 
 def mask(text: str) -> str:
@@ -40,12 +44,11 @@ class Collector(HTMLParser):
             return
         d = {k: v for k, v in attrs if k in ATTRS and v}
         self.stack.append((tag, d, len(self.hits)))
-        # input 은 텍스트가 없으므로 value/title 로 바로 판정
-        if tag == "input":
-            blob = " ".join(d.get(k, "") for k in ("value", "title", "id"))
-            if any(kw in blob for kw in KEYWORDS):
-                self.emit(tag, d, "")
-            self.stack.pop()
+        # 폼 컨트롤은 텍스트 없이도 그 자체가 필요하므로 무조건 emit
+        if tag in ALWAYS:
+            self.emit(tag, d, "")
+            if tag in ("input", "option"):
+                self.stack.pop()
 
     def handle_endtag(self, tag: str) -> None:
         if not self.stack or self.stack[-1][0] != tag:
@@ -56,9 +59,9 @@ class Collector(HTMLParser):
         text = data.strip()
         if not text or not self.stack:
             return
-        if not any(kw in text for kw in KEYWORDS):
-            return
         tag, d, _ = self.stack[-1]
+        if tag in KEYWORD_ONLY and not any(kw in text for kw in KEYWORDS):
+            return
         self.emit(tag, d, text)
 
     def emit(self, tag: str, d: dict, text: str) -> None:
