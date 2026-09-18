@@ -478,6 +478,36 @@ curl -X POST http://localhost:8100/api/user/issue-requests \
 - 남은 실측 대상: 공동인증서 로그인이 **브라우저 확장·nProtect 등 별도 모듈**을 요구하는지, 인증서를 어느 저장 위치(하드디스크·브라우저 인증서 저장소)에서 읽는지 (`plan/16-wehago-rpa.md` §3-1 과 결과 공유).
 - 세무대리 관리번호·수임처 다중 선택은 이 단계에서도 **범위 밖** — Phase 2.
 
+### 3-9-7-2. 1단계 완료 (2026-09-18)
+
+맥북 요청 1건 → Windows 자동 발급 → 맥북 PDF 회수까지 **사람 개입 없이 50초**에 성공.
+
+```
+POST /api/user/issue-requests {business_number:"356-79-00345", options:{rrn_disclosed:false}}
+  → RUNNING (0s) → ISSUED (50s)
+  → job: SUCCEEDED "issued for 356-79-00345"
+  → file: application/pdf, 345,471 bytes (%PDF-1.4)
+  → GET .../download → HTTP 200 application/pdf
+```
+
+- **PDF 직접 회수 성공.** clipreport 팝업에 CDP `Page.printToPDF` 를 걸면 headless 가
+  아니어도 동작한다. 브라우저 인쇄 대화상자를 거치지 않으므로 PNG 폴백은 쓰이지 않았다.
+- 자동화 구간: 로그인(2차 인증 포함) → 상단 메뉴 → 국세 민원 서류 찾기 → 카탈로그에서
+  사업자등록증명 행 → 사업자번호 선택 → 한글증명 → 사용용도·제출처 '기타' →
+  주민번호 비공개 → 수령방법 인터넷발급 → 작성완료 → 확인 모달 2개 →
+  민원처리결과 조회 → 조회 → 출력 → 위·변조 경고 [예] → 팝업 → PDF → 업로드
+
+**구현 중 걸린 함정 (재발 방지용)**
+
+| 증상 | 원인 | 대응 |
+|------|------|------|
+| 모든 토큰이 401 | 맥북에 클론이 2개(`~/v`, `~/w`). 토큰은 v 의 db.sqlite 에 등록, 서버는 w 에서 실행 | 프로세스 cwd 를 먼저 확인 |
+| phase1 요청이 1초 만에 더미로 끝남 | dummy 모드 에이전트 프로세스가 살아남아 잡을 선점 | Windows 에서 python 프로세스 전부 종료 후 1개만 기동 |
+| 코드 수정이 반영 안 됨 | `git pull` 만 하고 에이전트를 재시작 안 함 | 파이썬은 기동 시 코드를 읽는다. 반드시 재시작 |
+| 신청 화면 진입 실패 | `menuCd` URL 직행이 WebSquare SPA 에서 안 먹음 | 상단 메뉴 클릭이 정상 경로 |
+| 납세자 구분이 disabled | 카탈로그에서 첫 행(납부내역증명)이 눌림. 이 증명원은 간편인증 요구 | 행을 제목으로 찾는다 (조상 탐색 금지) |
+| 라디오 클릭이 viewport 밖 | WebSquare 는 `<input>` 을 화면 밖에 숨기고 `<label>` 만 렌더 | 이미 선택돼 있으면 건너뛰고, 아니면 label 클릭 → dispatch_event 폴백 |
+
 ### 3-9-8. Phase 1.5 완료 판정
 
 1. 맥북에서 `POST /api/user/issue-requests` 로 발급 요청 → 202 응답 + issue_request_id

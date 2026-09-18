@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import threading
 from pathlib import Path
 
 from playwright.sync_api import (
@@ -117,6 +118,36 @@ def dump_last_screens(context: BrowserContext) -> None:
         capture(page, tab_id, "last")
 
 
+class Console:
+    """stdin 을 백그라운드로 읽는다 — Enter=캡처 요청, q=종료.
+
+    sync Playwright 는 API 호출 중에만 이벤트를 처리한다. input() 으로 막으면
+    팝업·네비 이벤트가 전부 밀려 타임스탬프가 뭉개지고 먼저 닫힌 팝업은 놓친다.
+    """
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.captures = 0
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def _reader(self) -> None:
+        while True:
+            try:
+                line = input()
+            except Exception:  # noqa: BLE001
+                break
+            if line.strip().lower() == "q":
+                break
+            self.captures += 1
+        self.done.set()
+
+    def take_request(self) -> bool:
+        if self.captures > 0:
+            self.captures -= 1
+            return True
+        return False
+
+
 def main() -> None:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False, slow_mo=100)
@@ -135,23 +166,24 @@ def main() -> None:
 
         print()
         print("=" * 60)
-        print("브라우저에서 직접 로그인·발급 흐름을 진행하세요.")
-        print()
-        print("  1. 로그인 (아이디 · 비번 · 생년월일 추가인증)")
-        print("  2. 국세증명·사업자등록·세금관련 신청/신고")
-        print("     → 즉시발급증명 → 사업자등록증명")
-        print("  3. [신청하기] → [발급하기] → [출력하기]")
-        print("  4. PDF 다운 여부·인쇄 대화상자 여부 확인")
-        print()
-        print("스크립트가 URL 이동·팝업·다운로드·다이얼로그를 자동 기록합니다.")
-        print("완료되면 이 터미널에서 Enter → 마지막 화면들을 캡처하고 종료합니다.")
+        print("브라우저에서 한 단계씩 진행하고, 매 단계마다 이 창에서 Enter.")
+        print("Enter 를 칠 때마다 그 시점 화면의 HTML·PNG 를 저장합니다.")
+        print("끝나면 q + Enter 로 종료 (팝업·인증서 창은 닫지 마세요).")
         print("=" * 60)
         print()
 
-        try:
-            input()
-        except KeyboardInterrupt:
-            log("KEYBOARD INTERRUPT")
+        console = Console()
+        step = 0
+        while not console.done.is_set():
+            try:
+                page.wait_for_timeout(500)
+            except Exception:  # noqa: BLE001
+                break
+            if console.take_request():
+                step += 1
+                log(f"MANUAL CAPTURE {step}")
+                for pg in list(context.pages):
+                    capture(pg, tab_ids.get(pg, 0), f"step{step:02d}")
 
         dump_last_screens(context)
 
