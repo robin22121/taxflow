@@ -81,9 +81,9 @@ MENU_ANCHOR = "#a_4315010800"  # 전체메뉴 > 즉시발급 증명 > 사업자�
 
 
 def _dump(page, tag: str) -> str:
-    """실패 지점 화면을 남긴다. 저장 경로 반환 (실패해도 흐름은 계속)."""
+    """화면을 HTML·PNG 로 남긴다 (실패 지점·셀렉터 수집). 저장 경로 반환."""
     WORK.mkdir(exist_ok=True)
-    stem = WORK / f"fail_{tag}_{int(time.time())}"
+    stem = WORK / f"{tag}_{int(time.time())}"
     try:
         stem.with_suffix(".html").write_text(page.content(), encoding="utf-8")
     except Exception:  # noqa: BLE001
@@ -157,7 +157,7 @@ def _goto_application(page) -> None:
                 print(f"[!] {label} 실패: {exc2.__class__.__name__}")
 
     if page.locator(SEL_BSNO).count() == 0:
-        path = _dump(page, "nav")
+        path = _dump(page, "fail_nav")
         raise RuntimeError(
             f"신청 화면 진입 실패. url={page.url} title={page.title()!r} dump={path}"
         )
@@ -265,6 +265,71 @@ def _capture_popup(context, page) -> tuple[bytes, str, str]:
         print(f"[!] printToPDF 실패, PNG 로 대체: {exc.__class__.__name__}: {exc}")
         png = popup.screenshot(full_page=True, timeout=20000)
         return png, "cert.png", "image/png"
+    finally:
+        # 부착 모드는 브라우저를 닫지 않으므로 뷰어 팝업이 쌓이지 않게 닫는다
+        popup.close()
+
+
+def issue_business_registration(context, page, job: dict) -> tuple[bytes, str, str, str]:
+    """로그인된 홈택스 탭에서 신청 → 발급 → 출력 팝업 → 파일 회수.
+
+    로그인 방식(자동 로그인 / 이미 로그인된 브라우저에 부착)과 무관한 공통 구간.
+    """
+    _goto_application(page)
+
+    picked = _fill_application(page, job)
+
+    # "신청하시겠습니까?" → 신청하기
+    page.locator(SEL_MODAL_SUBMIT).click(timeout=20000)
+    time.sleep(2.0)
+    # "정상적으로 접수되었습니다" → 확인
+    page.locator(SEL_MODAL_CONFIRM).click(timeout=20000)
+    print("[+] 접수 완료")
+    time.sleep(2.0)
+
+    page.locator(SEL_GOTO_RESULT).click(timeout=20000)
+    time.sleep(3.0)
+    page.locator(SEL_RESULT_SEARCH).click(timeout=20000)
+    time.sleep(3.0)
+
+    data, filename, mime = _capture_popup(context, page)
+    return data, filename, mime, f"issued for {picked}"
+
+
+def _find_hometax_page(context):
+    """부착한 브라우저에서 홈택스 본 탭을 고른다 (clipreport 뷰어 팝업 제외)."""
+    candidates = [
+        pg for pg in context.pages
+        if "hometax.go.kr" in pg.url and "sesw.hometax.go.kr" not in pg.url
+    ]
+    if not candidates:
+        urls = [pg.url for pg in context.pages]
+        raise RuntimeError(f"홈택스 탭 없음. 열린 탭: {urls}")
+    page = candidates[-1]
+    page.bring_to_front()
+    if page.get_by_text("로그아웃").count() == 0:
+        print("[!] '로그아웃' 버튼이 안 보임 — 로그인 상태가 아닐 수 있음")
+    return page
+
+
+def execute_attached(job: dict, cdp_url: str) -> tuple[bytes, str, str, str]:
+    """개발용 — 사용자가 이미 로그인해 둔 Chrome 에 CDP 로 붙어 발급.
+
+    로그인 단계를 매번 건너뛰어 발급 구간만 빠르게 반복한다. 브라우저·탭은
+    사용자 것이므로 닫지 않고 연결만 끊는다 (with 블록 종료 시 disconnect).
+    """
+    from playwright.sync_api import sync_playwright  # noqa: WPS433
+
+    with sync_playwright() as p:
+        browser = p.chromium.connect_over_cdp(cdp_url)
+        context = browser.contexts[0]
+        page = _find_hometax_page(context)
+        print(f"[+] 부착: {page.url}")
+        try:
+            return issue_business_registration(context, page, job)
+        except Exception as exc:  # noqa: BLE001
+            path = _dump(page, "fail_attach")
+            raise RuntimeError(f"{exc.__class__.__name__}: {exc} | dump={path}") from exc
 
 
 def execute_phase1(job: dict, cfg: AgentConfig) -> tuple[bytes, str, str, str]:
@@ -295,27 +360,9 @@ def execute_phase1(job: dict, cfg: AgentConfig) -> tuple[bytes, str, str, str]:
             print("[+] login ok")
             time.sleep(2.0)
 
-            _goto_application(page)
-
-            picked = _fill_application(page, job)
-
-            # "신청하시겠습니까?" → 신청하기
-            page.locator(SEL_MODAL_SUBMIT).click(timeout=20000)
-            time.sleep(2.0)
-            # "정상적으로 접수되었습니다" → 확인
-            page.locator(SEL_MODAL_CONFIRM).click(timeout=20000)
-            print("[+] 접수 완료")
-            time.sleep(2.0)
-
-            page.locator(SEL_GOTO_RESULT).click(timeout=20000)
-            time.sleep(3.0)
-            page.locator(SEL_RESULT_SEARCH).click(timeout=20000)
-            time.sleep(3.0)
-
-            data, filename, mime = _capture_popup(context, page)
-            return data, filename, mime, f"issued for {picked}"
+            return issue_business_registration(context, page, job)
         except Exception as exc:  # noqa: BLE001
-            path = _dump(page, "flow")
+            path = _dump(page, "fail_flow")
             raise RuntimeError(f"{exc.__class__.__name__}: {exc} | dump={path}") from exc
         finally:
             context.close()

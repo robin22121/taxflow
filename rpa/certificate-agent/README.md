@@ -47,6 +47,22 @@ CERT_AGENT_MODE=phase1 uv run python -m certificate_agent run
 `phase1` 모드는 `../certificate-poc/hometax_login.py` 를 `sys.path` 로 재사용.
 카탈로그→신청→발급 자동화가 완성되기 전까지는 이미 발급해둔 이력의 첫 [출력]을 클릭해 결과 PNG 를 얻는다.
 
+## 개발 모드 — 로그인해 둔 Chrome 에 부착
+
+매번 로그인하지 않고 발급 구간만 반복할 때. 서버·`setup` 불필요, 맥북·Windows 공통.
+Playwright 번들 chromium 대신 **시스템 Google Chrome** 을 쓴다.
+
+```
+uv run python -m certificate_agent chrome                    # CDP :9222 로 Chrome 실행 → 홈택스 직접 로그인 (창 유지)
+uv run python -m certificate_agent attach --biz <사업자번호>  # 사업자등록증명 발급 → work/<ts>_cert.pdf
+uv run python -m certificate_agent attach --biz <사업자번호> --rrn-disclosed   # 주민번호 공개
+uv run python -m certificate_agent snap --tag <이름>          # 지금 화면 HTML·PNG → work/
+```
+
+- 끝나도 브라우저·로그인 유지. 코드 수정 후 `attach` 만 다시 실행.
+- 전용 프로필 `work/chrome-profile/` 에 홈택스 쿠키가 남는다 (커밋 제외, 외부 복사 금지).
+- 근거·구조: `plan/17-certificate-issuance.md` §3-9-7-3
+
 ## 흐름
 
 ```
