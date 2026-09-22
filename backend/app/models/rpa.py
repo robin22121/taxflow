@@ -11,6 +11,10 @@ from app.models._base import Base, IdMixin, TimestampMixin
 class RpaJobKind(str, enum.Enum):
     WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"  # 게이트 1 후 — 위하고T 급여자료 자동입력만
     MONTHLY_PRODUCTION = "MONTHLY_PRODUCTION"  # 게이트 2 후 — 위하고 원천세·지방세 마감·제작 + 홈택스·위택스 신고 일괄
+    CERTIFICATE_ISSUE = "CERTIFICATE_ISSUE"  # 증명원 발급 요청 1건 (plan/17 §4-9) — 신고와 무관
+
+# 위하고 에이전트가 가져가는 작업. 증명원은 증명발급 에이전트 전용 claim 으로만 나간다.
+WEHAGO_JOB_KINDS = (RpaJobKind.WEHAGO_PAYROLL_INPUT, RpaJobKind.MONTHLY_PRODUCTION)
 
 
 class RpaJobStatus(str, enum.Enum):
@@ -60,9 +64,10 @@ class RpaJob(Base, IdMixin, TimestampMixin):
         Enum(RpaJobStatus, native_enum=False, length=20),
         default=RpaJobStatus.PENDING,
     )
-    monthly_filing_id: Mapped[str] = mapped_column(ForeignKey("monthly_filings.id"))
+    # 신고 작업만 채운다 — 증명원 발급(CERTIFICATE_ISSUE)은 신고월과 무관해 None
+    monthly_filing_id: Mapped[str | None] = mapped_column(ForeignKey("monthly_filings.id"))
     client_id: Mapped[str] = mapped_column(ForeignKey("clients.id"))
-    period: Mapped[str] = mapped_column(String(7))  # "YYYY-MM"
+    period: Mapped[str | None] = mapped_column(String(7))  # "YYYY-MM"
     business_number: Mapped[str] = mapped_column(String(20))
     business_name: Mapped[str] = mapped_column(String(200))
     requested_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))

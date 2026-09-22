@@ -64,6 +64,20 @@ uv run python -m certificate_agent snap --tag <이름>          # 지금 화면 
 - 전용 프로필 `work/chrome-profile/` 에 홈택스 쿠키가 남는다 (커밋 제외, 외부 복사 금지).
 - 근거·구조: `plan/17-certificate-issuance.md` §3-9-7-3
 
+## 이지원천 연동 — 증명원 발급 메뉴 (plan/17 §4-9)
+
+이지원천 상단 `증명원 발급` 팝업에서 요청한 건을 받아 발급한다. 지금은 개발 경로(로그인해 둔 Chrome 부착)만.
+
+```
+uv run python -m certificate_agent chrome     # 홈택스 직접 로그인 (창 유지)
+EASYONE_AGENT_TOKEN=rpa_... uv run python -m certificate_agent easyone --server https://api.easyonechon.co.kr \
+    --save-dir "D:\이지원천\증명원"
+```
+
+- 토큰은 이지원천 에이전트 토큰(`POST /api/v1/rpa/agents`, `rpa_` 로 시작). 위하고 에이전트와 같은 토큰을 써도 작업은 섞이지 않는다 (증명원은 `/api/v1/certificates/agent/claim` 전용).
+- 원본: `{save-dir}/{거래처}/{YYYYMMDD_HHMMSS}_{증명원}.pdf`. 서버에는 발송용 사본만 올라가고 30일 뒤 삭제된다.
+- 이지원천에서 [폴더 열어 확인]을 누르면 다음 폴링(5초) 때 이 PC 에서 탐색기(Finder)가 저장 파일을 선택한 채 열린다.
+
 ## 흐름
 
 ```

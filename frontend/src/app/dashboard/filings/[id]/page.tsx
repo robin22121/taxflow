@@ -29,6 +29,7 @@ import type { CollectPreview, ParsedEntryPreview } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Input, Modal } from "@/components/ui";
 import { useHeaderSlots } from "@/components/header-slot";
+import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -294,7 +295,13 @@ export default function FilingDetailPage({
         />
       )}
 
-      {showCertificate && <CertificateModal onClose={() => setShowCertificate(false)} />}
+      {showCertificate && (
+        <CertificateIssueModal
+          initialClientId={selectedSession?.client_id ?? null}
+          initialTab="EMPLOYEE"
+          onClose={() => setShowCertificate(false)}
+        />
+      )}
 
       {showBulkConfirm && (
         <Modal open={true} onClose={() => { setShowBulkConfirm(false); setBulkPassword(""); }} title="전체 업체 자료요청"
@@ -448,34 +455,6 @@ export default function FilingDetailPage({
         </Modal>
       )}
     </div>
-  );
-}
-
-/* ═══ 증명원 발급 (준비중 — 메뉴 자리) ═══ */
-
-const CERTIFICATE_KINDS = [
-  "근로소득 원천징수영수증",
-  "재직증명서",
-  "경력증명원",
-  "소득금액증명원",
-] as const;
-
-function CertificateModal({ onClose }: { onClose: () => void }) {
-  return (
-    <Modal open onClose={onClose} title="증명원 발급"
-      footer={<Button variant="ghost" onClick={onClose}>닫기</Button>}>
-      <p className="text-[13px] text-gray-700">
-        직원별 증명원을 이 화면에서 바로 발급할 수 있도록 준비하고 있습니다.
-      </p>
-      <div className="mt-3 space-y-1.5">
-        {CERTIFICATE_KINDS.map((kind) => (
-          <div key={kind} className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <span className="text-[12.5px] text-gray-500">{kind}</span>
-            <span className="text-[10.5px] font-semibold text-gray-400 border border-gray-200 bg-white rounded-full px-2 py-0.5">준비중</span>
-          </div>
-        ))}
-      </div>
-    </Modal>
   );
 }
 

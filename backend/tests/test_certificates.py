@@ -1,0 +1,149 @@
+"""증명원 발급 메뉴 — 요청 → 에이전트 발급 → 폴더 확인 → 고객 발송 → 30일 만료 (plan/17 §4-9)."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+
+BASE = "/api/v1/certificates"
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clean_state():
+    from sqlalchemy import delete
+
+    from app.db import SessionLocal
+    from app.models import CertificateIssue, RpaAgent, RpaJob, RpaNotification
+
+    async def _wipe():
+        async with SessionLocal() as db:
+            await db.execute(delete(CertificateIssue))
+            await db.execute(delete(RpaNotification))
+            await db.execute(delete(RpaJob))
+            await db.execute(delete(RpaAgent))
+            await db.commit()
+
+    await _wipe()
+    yield
+    await _wipe()
+
+
+async def _client_id(http: AsyncClient, auth_headers: dict) -> str:
+    clients = (await http.get("/api/v1/clients", headers=auth_headers)).json()
+    return clients[0]["id"]
+
+
+async def _agent(http: AsyncClient, auth_headers: dict) -> dict[str, str]:
+    r = await http.post("/api/v1/rpa/agents", json={"name": "증명발급 PC"}, headers=auth_headers)
+    assert r.status_code == 201
+    return {"X-Agent-Token": r.json()["token"]}
+
+
+async def _issued_job(http: AsyncClient, auth_headers: dict) -> tuple[str, str, dict]:
+    """발급 요청 → 에이전트 발급·업로드·종료까지. 반환: (job_id, issue_id, agent_headers)."""
+    client_id = await _client_id(http, auth_headers)
+    r = await http.post(
+        f"{BASE}/issue-requests",
+        json={"client_id": client_id, "cert_types": ["BUSINESS_REGISTRATION"]},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    job_id = r.json()["job"]["id"]
+
+    agent = await _agent(http, auth_headers)
+    claimed = (await http.post(f"{BASE}/agent/claim", headers=agent)).json()
+    assert claimed["job"]["id"] == job_id
+    issue_id = claimed["issues"][0]["id"]
+
+    r = await http.post(
+        f"{BASE}/agent/issues/{issue_id}/file",
+        files={"file": ("사업자등록증명.pdf", b"%PDF-1.4 test", "application/pdf")},
+        data={"local_path": r"D:\이지원천\증명원\상도기업\20260922_사업자등록증명.pdf"},
+        headers=agent,
+    )
+    assert r.status_code == 200, r.text
+    r = await http.post(f"{BASE}/agent/jobs/{job_id}/finish", json={"status": "SUCCEEDED"}, headers=agent)
+    assert r.json()["status"] == "SUCCEEDED"
+    return job_id, issue_id, agent
+
+
+@pytest.mark.asyncio
+async def test_catalog_and_unavailable_rejected(http: AsyncClient, auth_headers: dict):
+    catalog = (await http.get(f"{BASE}/catalog", headers=auth_headers)).json()
+    assert {c["category"] for c in catalog} == {"HOMETAX", "WETAX", "EMPLOYEE"}
+    assert {c["code"] for c in catalog if c["available"]} == {"BUSINESS_REGISTRATION", "TAX_CLEARANCE_ETC"}
+
+    r = await http.post(
+        f"{BASE}/issue-requests",
+        json={"client_id": await _client_id(http, auth_headers), "cert_types": ["EMPLOYMENT_CERT"]},
+        headers=auth_headers,
+    )
+    assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_wehago_agent_does_not_take_certificate_jobs(http: AsyncClient, auth_headers: dict):
+    await http.post(
+        f"{BASE}/issue-requests",
+        json={"client_id": await _client_id(http, auth_headers), "cert_types": ["TAX_CLEARANCE_ETC"]},
+        headers=auth_headers,
+    )
+    agent = await _agent(http, auth_headers)
+    assert (await http.post("/api/v1/rpa/agent/claim", headers=agent)).json()["job"] is None
+    assert (await http.post(f"{BASE}/agent/claim", headers=agent)).json()["job"] is not None
+
+
+@pytest.mark.asyncio
+async def test_issue_open_folder_then_deliver(http: AsyncClient, auth_headers: dict):
+    job_id, issue_id, agent = await _issued_job(http, auth_headers)
+
+    detail = (await http.get(f"{BASE}/jobs/{job_id}", headers=auth_headers)).json()
+    issue = detail["issues"][0]
+    assert issue["status"] == "ISSUED" and issue["has_file"] and issue["local_path"].endswith(".pdf")
+    assert detail["job"]["step_progress"]["BUSINESS_REGISTRATION"] == "done"
+
+    # 폴더 확인 전에는 발송 불가
+    r = await http.post(f"{BASE}/jobs/{job_id}/deliver", json={"channel": "sms", "phone": "010-1234-5678"}, headers=auth_headers)
+    assert r.status_code == 409
+
+    await http.post(f"{BASE}/jobs/{job_id}/open-folder", headers=auth_headers)
+    requests = (await http.get(f"{BASE}/agent/folder-requests", headers=agent)).json()
+    assert [i["id"] for i in requests] == [issue_id]
+    await http.post(f"{BASE}/agent/issues/{issue_id}/folder-opened", headers=agent)
+    assert (await http.get(f"{BASE}/agent/folder-requests", headers=agent)).json() == []
+
+    r = await http.post(f"{BASE}/jobs/{job_id}/deliver", json={"channel": "alimtalk", "phone": "010-1234-5678"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["accepted"] and "30일간 유효" in out["body"]
+
+    # 안내문의 공개 링크로 고객이 받을 수 있다
+    token_url = next(line.strip() for line in out["body"].splitlines() if "/public/certificates/" in line)
+    path = token_url[token_url.index("/api/v1/public/"):]
+    r = await http.get(path)
+    assert r.status_code == 200 and r.content == b"%PDF-1.4 test"
+
+    job = (await http.get(f"{BASE}/jobs/{job_id}", headers=auth_headers)).json()["job"]
+    assert job["step_progress"]["delivered"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_server_copy_deleted_after_30_days(http: AsyncClient, auth_headers: dict):
+    from app.db import SessionLocal
+    from app.models import CertificateIssue
+
+    job_id, issue_id, _ = await _issued_job(http, auth_headers)
+    async with SessionLocal() as db:
+        issue = await db.get(CertificateIssue, issue_id)
+        issue.expires_at = issue.expires_at - timedelta(days=31)
+        await db.commit()
+
+    r = await http.get(f"{BASE}/issues/{issue_id}/file", headers=auth_headers)
+    assert r.status_code == 410
+    detail = (await http.get(f"{BASE}/jobs/{job_id}", headers=auth_headers)).json()
+    assert detail["issues"][0]["has_file"] is False
+    # 원본 경로 기록은 남는다
+    assert detail["issues"][0]["local_path"]

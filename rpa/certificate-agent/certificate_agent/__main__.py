@@ -9,6 +9,9 @@
   python -m certificate_agent chrome  디버깅 포트 연 Chrome 실행 → 직접 홈택스 로그인
   python -m certificate_agent attach  그 Chrome 에 붙어 사업자등록증명 발급
   python -m certificate_agent snap    그 Chrome 의 지금 화면 HTML·PNG 저장 (셀렉터 수집)
+
+이지원천 연동 (증명원 발급 메뉴 — plan/17 §4-9):
+  python -m certificate_agent easyone --server <백엔드 URL> --token <rpa_ 토큰>
 """
 
 from __future__ import annotations
@@ -136,6 +139,20 @@ def attach(
     out = WORK / f"{int(time.time())}_{filename}"
     out.write_bytes(data)
     typer.echo(f"[+] {msg} → {out}")
+
+
+@app.command()
+def easyone(
+    server: str = typer.Option("http://localhost:8000", help="이지원천 백엔드 URL"),
+    token: str = typer.Option(..., envvar="EASYONE_AGENT_TOKEN", help="사무소 설정에서 발급한 rpa_ 에이전트 토큰"),
+    save_dir: Path = typer.Option(Path.home() / "이지원천" / "증명원", help="발급 원본 저장 폴더"),
+    port: int = CDP_PORT,
+) -> None:
+    """이지원천 증명원 발급 요청을 받아 로그인해 둔 Chrome 으로 발급 → 지정 폴더 저장 → 서버 사본 업로드."""
+    from certificate_agent.easyone import run_easyone_loop
+
+    save_dir.mkdir(parents=True, exist_ok=True)
+    run_easyone_loop(server, token, f"http://127.0.0.1:{port}", save_dir)
 
 
 @app.command()

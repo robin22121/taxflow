@@ -10,6 +10,7 @@ import { useMe } from "@/lib/queries";
 import { Button, Input, Modal } from "@/components/ui";
 import { HeaderSlotContext } from "@/components/header-slot";
 import { ActivityBar } from "@/components/rpa/activity-bar";
+import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "월별 신고" },
@@ -25,6 +26,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { data: me, isError } = useMe();
   const [showMenu, setShowMenu] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  // 증명원 발급 팝업 — 화면에서 선택된 거래처(?client_id)가 있으면 거래처 선택 단계를 건너뛴다
+  const [certificate, setCertificate] = useState<{ clientId: string | null } | null>(null);
   const [infoSlot, setInfoSlot] = useState<HTMLDivElement | null>(null);
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   const headerSlots = useMemo(() => ({ info: infoSlot, actions: actionsSlot }), [infoSlot, actionsSlot]);
@@ -79,6 +82,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </Link>
               );
             })}
+            <button
+              onClick={() => setCertificate({ clientId: new URLSearchParams(window.location.search).get("client_id") })}
+              className="px-2.5 sm:px-3 py-1.5 rounded-full text-[12px] sm:text-[13px] font-medium transition-colors text-gray-600 hover:bg-gray-100"
+            >
+              증명원 발급
+            </button>
           </nav>
         </div>
 
@@ -138,6 +147,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* 하단 자동화 작업바 (plan/17 §4-9) */}
       <ActivityBar />
+
+      {certificate && (
+        <CertificateIssueModal initialClientId={certificate.clientId} onClose={() => setCertificate(null)} />
+      )}
 
       {/* Profile modal */}
       {showProfile && me && (

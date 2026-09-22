@@ -31,6 +31,7 @@ from app.models import (
     RpaNotificationKind,
     User,
 )
+from app.models.rpa import WEHAGO_JOB_KINDS
 from app.schemas.rpa import (
     AgentFilingResultIn,
     FilingResultOut,
@@ -331,6 +332,7 @@ async def claim_job(
             select(RpaJob).where(
                 RpaJob.tax_office_id == agent.tax_office_id,
                 RpaJob.status == RpaJobStatus.RUNNING,
+                RpaJob.kind.in_(WEHAGO_JOB_KINDS),
             )
         )
     ).scalars().all()
@@ -364,6 +366,7 @@ async def claim_job(
             .where(
                 RpaJob.tax_office_id == agent.tax_office_id,
                 RpaJob.status == RpaJobStatus.PENDING,
+                RpaJob.kind.in_(WEHAGO_JOB_KINDS),  # 증명원은 /certificates/agent/claim
             )
             .order_by(RpaJob.created_at)
             .limit(1)

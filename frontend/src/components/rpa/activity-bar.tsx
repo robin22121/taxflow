@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 import { Button, Modal } from "@/components/ui";
 import { type RpaJob, acknowledgeJob, listJobs, listUnacknowledgedJobs } from "@/lib/rpa-api";
 
@@ -25,6 +26,7 @@ const PRODUCTION_STEPS: { key: string; label: string }[] = [
 const KIND_LABEL: Record<string, string> = {
   WEHAGO_PAYROLL_INPUT: "위하고 급여자료 입력",
   MONTHLY_PRODUCTION: "원천세 신고",
+  CERTIFICATE_ISSUE: "증명서 발급",
 };
 
 function isFinished(job: RpaJob) {
@@ -45,10 +47,11 @@ export function jobStage(job: RpaJob): { text: string; tone: Tone } {
     if (job.status === "FAILED") return { text: "원천세 신고 실패", tone: "fail" };
     return { text: "원천세 신고 취소", tone: "wait" };
   }
+  if (job.kind === "CERTIFICATE_ISSUE" && steps.delivered === "done") return { text: "고객발송 완료", tone: "done" };
   const kind = KIND_LABEL[job.kind] ?? job.kind;
   switch (job.status) {
     case "PENDING": return { text: `${kind} 대기`, tone: "wait" };
-    case "RUNNING": return { text: `${kind}중`, tone: "run" };
+    case "RUNNING": return { text: `${kind} 진행중`, tone: "run" };
     case "SUCCEEDED": return { text: `${kind} 완료`, tone: "done" };
     case "FAILED": return { text: `${kind} 실패`, tone: "fail" };
     default: return { text: `${kind} 취소`, tone: "wait" };
@@ -78,6 +81,7 @@ export function ActivityBar() {
   const qc = useQueryClient();
   const [detail, setDetail] = useState<RpaJob | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [certJobId, setCertJobId] = useState<string | null>(null);
 
   const { data: jobs = [] } = useQuery({
     queryKey: ["rpa", "jobs", "unacknowledged"],
@@ -127,14 +131,18 @@ export function ActivityBar() {
           onClose={() => setDetail(null)}
           onAck={() => ack.mutate(detail.id)}
           acking={ack.isPending}
+          onOpenCertificate={() => { setCertJobId(detail.id); setDetail(null); }}
         />
       )}
+      {certJobId && <CertificateIssueModal jobId={certJobId} onClose={() => setCertJobId(null)} />}
       {showAll && <AllJobsModal onClose={() => setShowAll(false)} onPick={(job) => { setShowAll(false); setDetail(job); }} />}
     </>
   );
 }
 
-function JobDetailModal({ job, onClose, onAck, acking }: { job: RpaJob; onClose: () => void; onAck: () => void; acking: boolean }) {
+function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
+  job: RpaJob; onClose: () => void; onAck: () => void; acking: boolean; onOpenCertificate: () => void;
+}) {
   const stage = jobStage(job);
   const steps = job.step_progress ?? {};
   const shownSteps = PRODUCTION_STEPS.filter((s) => s.key in steps);
@@ -147,6 +155,9 @@ function JobDetailModal({ job, onClose, onAck, acking }: { job: RpaJob; onClose:
       title={`${job.business_name} · ${KIND_LABEL[job.kind] ?? job.kind}`}
       footer={<>
         <Button variant="ghost" onClick={onClose}>닫기</Button>
+        {job.kind === "CERTIFICATE_ISSUE" && (
+          <Button variant="secondary" onClick={onOpenCertificate}>{isFinished(job) ? "다음 작업" : "진행 보기"}</Button>
+        )}
         {canAck && <Button onClick={onAck} disabled={acking}>{acking ? "처리중..." : "확인"}</Button>}
       </>}
     >
@@ -157,7 +168,7 @@ function JobDetailModal({ job, onClose, onAck, acking }: { job: RpaJob; onClose:
         </div>
         <dl className="grid grid-cols-[84px_1fr] gap-y-1.5 text-gray-700">
           <dt className="text-gray-400">사업자번호</dt><dd>{job.business_number}</dd>
-          <dt className="text-gray-400">귀속월</dt><dd>{job.period}</dd>
+          {job.period && <><dt className="text-gray-400">귀속월</dt><dd>{job.period}</dd></>}
           <dt className="text-gray-400">요청</dt><dd>{fmt(job.created_at)}</dd>
           <dt className="text-gray-400">시작</dt><dd>{fmt(job.claimed_at)}</dd>
           <dt className="text-gray-400">종료</dt><dd>{fmt(job.finished_at)}</dd>
@@ -205,7 +216,7 @@ function AllJobsModal({ onClose, onPick }: { onClose: () => void; onPick: (job: 
         <div className="max-h-[60vh] overflow-y-auto -mx-1">
           <table className="w-full text-[12px]">
             <thead className="text-gray-400 text-left sticky top-0 bg-white">
-              <tr><th className="px-2 py-1.5 font-medium">요청</th><th className="px-2 py-1.5 font-medium">거래처</th><th className="px-2 py-1.5 font-medium">귀속월</th><th className="px-2 py-1.5 font-medium">상태</th></tr>
+              <tr><th className="px-2 py-1.5 font-medium">요청</th><th className="px-2 py-1.5 font-medium">거래처</th><th className="px-2 py-1.5 font-medium">귀속월·종류</th><th className="px-2 py-1.5 font-medium">상태</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {jobs.map((job) => {
@@ -214,7 +225,7 @@ function AllJobsModal({ onClose, onPick }: { onClose: () => void; onPick: (job: 
                   <tr key={job.id} onClick={() => onPick(job)} className="cursor-pointer hover:bg-gray-50">
                     <td className="px-2 py-1.5 text-gray-500 whitespace-nowrap">{fmt(job.created_at)}</td>
                     <td className="px-2 py-1.5 text-gray-800">{job.business_name}</td>
-                    <td className="px-2 py-1.5 text-gray-500">{job.period}</td>
+                    <td className="px-2 py-1.5 text-gray-500">{job.period ?? KIND_LABEL[job.kind] ?? ""}</td>
                     <td className="px-2 py-1.5">
                       <span className={"inline-flex items-center gap-1 px-2 py-0.5 rounded-full border " + TONE_CLASS[stage.tone]}>
                         <span className={"w-1.5 h-1.5 rounded-full " + DOT_CLASS[stage.tone]} />{stage.text}

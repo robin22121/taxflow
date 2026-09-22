@@ -12,7 +12,7 @@
 
 import { api } from "./api";
 
-export type RpaJobKind = "WEHAGO_PAYROLL_INPUT" | "MONTHLY_PRODUCTION";
+export type RpaJobKind = "WEHAGO_PAYROLL_INPUT" | "MONTHLY_PRODUCTION" | "CERTIFICATE_ISSUE";
 
 export type RpaJobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 
@@ -20,9 +20,9 @@ export type RpaJob = {
   id: string;
   kind: RpaJobKind;
   status: RpaJobStatus;
-  monthly_filing_id: string;
+  monthly_filing_id: string | null;  // 증명원 발급 작업은 null
   client_id: string;
-  period: string;
+  period: string | null;
   business_number: string;
   business_name: string;
   agent_id: string | null;

@@ -794,6 +794,17 @@ Phase 1이 확인해준 셀렉터·타이밍·인증서 처리 방식을 그대�
 - 칩 클릭 → 상세 팝업, [확인] 누르면 바에서 사라짐 (`rpa_jobs.acknowledged_at`, 사무소 단위). 전체 내역에는 남는다.
 - 데이터는 `rpa_jobs`(kind·status·step_progress) 기반, 5초 폴링. 증명원 발급도 `rpa_jobs.kind=CERTIFICATE_ISSUE` 로 같은 바에 뜬다.
 
+**구현 (2026-09-22)**
+
+- 백엔드 `app/api/certificates.py` (`/api/v1/certificates`) · `certificate_issues` 테이블 (마이그레이션 `d0e1f2a3b4c5`, `rpa_jobs.monthly_filing_id`·`period` nullable).
+  요청 1건 = `rpa_jobs` 1건(작업바 칩 하나) + 증명원별 `certificate_issues`. 카탈로그는 `app/services/certificates.py` — 발급 가능은 사업자등록증명·납세증명서(기타용)만, 나머지는 '준비중'.
+- 에이전트 claim 분리: 위하고 claim(`/rpa/agent/claim`)은 증명원 작업을 가져가지 않고, 증명원은 `/certificates/agent/claim` 으로만 나간다.
+  동시 실행 제한도 종류별(위하고 1건 · 증명원 1건)이다 — §4-4 의 "원천세·증명발급 상호 mutex" 는 같은 노트북·같은 Chrome 을 쓰게 될 Phase 2 에서 다시 판단.
+- 발송: 폴더 확인 요청 전에는 서버가 발송을 거부(409). 문자·알림톡 본문에 증명원별 공개 링크(`/api/v1/public/certificates/{token}`) + "30일간 유효" 문구.
+  알림톡 템플릿 `CERT_ISSUED` 는 카카오 심사 전이라 stub 에서만 동작. 팩스는 버튼만(준비중).
+- 30일 만료 삭제는 조회·다운로드 시점에 지연 삭제(별도 스케줄러 없음). 조회가 없는 건은 서버에 남아 있을 수 있으므로 정기 정리 작업은 후속.
+- 에이전트 `certificate_agent easyone` (README) — 개발 경로(CDP 부착)만. 직원용 증명서는 카탈로그·탭만 있고 생성 로직은 후속.
+
 ## §5. 로드맵
 
 | Phase | 기간 | 산출물 | 종속 |

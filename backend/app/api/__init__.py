@@ -9,6 +9,7 @@ def register_routes(app: FastAPI) -> None:
         admin,
         auth,
         beta_signup,
+        certificates,
         clients,
         collect,
         employee_changes,
@@ -35,4 +36,6 @@ def register_routes(app: FastAPI) -> None:
     )
     app.include_router(public_collect.router, prefix="/api/v1/public", tags=["public"])
     app.include_router(rpa.router, prefix="/api/v1/rpa", tags=["rpa"])
+    app.include_router(certificates.router, prefix="/api/v1/certificates", tags=["certificates"])
+    app.include_router(certificates.public_router, prefix="/api/v1/public", tags=["public"])
     app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])

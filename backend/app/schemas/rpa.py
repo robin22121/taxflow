@@ -45,9 +45,9 @@ class RpaJobOut(BaseModel):
     id: str
     kind: str
     status: str
-    monthly_filing_id: str
+    monthly_filing_id: str | None
     client_id: str
-    period: str
+    period: str | None
     business_number: str
     business_name: str
     agent_id: str | None

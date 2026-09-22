@@ -36,6 +36,10 @@ class ObjectStorage(ABC):
     def presign_url(self, key: str, expires_in: int = 3600) -> str:
         """Generate presigned URL for a single GET (used by STT/Vision providers)."""
 
+    @abstractmethod
+    def delete_object(self, key: str) -> None:
+        """Delete object; missing key is not an error (보관기간 만료 삭제용)."""
+
     def make_key(self, kind: str, ext: str = "") -> str:
         ts = datetime.now(timezone.utc).strftime("%Y/%m/%d")
         return f"{kind}/{ts}/{uuid4().hex}{ext}"
@@ -62,6 +66,9 @@ class LocalFileStorage(ObjectStorage):
     def presign_url(self, key: str, expires_in: int = 3600) -> str:
         # No security in local; return file URL.
         return f"file://{(self.base / key).resolve()}"
+
+    def delete_object(self, key: str) -> None:
+        (self.base / key).unlink(missing_ok=True)
 
 
 class NcpObjectStorage(ObjectStorage):
@@ -91,6 +98,9 @@ class NcpObjectStorage(ObjectStorage):
         self.client.put_object(**kwargs)
         s = get_settings()
         return f"{s.ncp_object_storage_endpoint}/{self.bucket}/{key}"
+
+    def delete_object(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=key)
 
     def get_object(self, key: str) -> bytes:
         return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
