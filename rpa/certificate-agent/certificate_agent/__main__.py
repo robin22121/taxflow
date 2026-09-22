@@ -118,13 +118,16 @@ def chrome(port: int = CDP_PORT) -> None:
 
 @app.command()
 def attach(
-    biz: str = typer.Option(..., prompt="발급할 사업자등록번호", help="사업자등록번호 (하이픈 무관)"),
+    cert: str = typer.Option("BUSINESS_REGISTRATION", help="BUSINESS_REGISTRATION | TAX_CLEARANCE_ETC"),
+    biz: str = typer.Option("", help="사업자등록번호 (하이픈 무관, 사업자등록증명만)"),
     rrn_disclosed: bool = typer.Option(False, help="주민등록번호 공개 (기본 비공개)"),
     port: int = CDP_PORT,
 ) -> None:
-    """로그인해 둔 Chrome 에 붙어 사업자등록증명을 발급하고 work/ 에 저장."""
+    """로그인해 둔 Chrome 에 붙어 증명원을 발급하고 work/ 에 저장."""
+    if cert == "BUSINESS_REGISTRATION" and not biz:
+        biz = typer.prompt("발급할 사업자등록번호")
     job = {
-        "cert_type": "BUSINESS_REGISTRATION",
+        "cert_type": cert,
         "business_number": biz,
         "options": {"rrn_disclosed": rrn_disclosed},
     }

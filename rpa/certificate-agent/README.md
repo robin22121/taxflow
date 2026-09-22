@@ -56,6 +56,7 @@ Playwright 번들 chromium 대신 **시스템 Google Chrome** 을 쓴다.
 uv run python -m certificate_agent chrome                    # CDP :9222 로 Chrome 실행 → 홈택스 직접 로그인 (창 유지)
 uv run python -m certificate_agent attach --biz <사업자번호>  # 사업자등록증명 발급 → work/<ts>_cert.pdf
 uv run python -m certificate_agent attach --biz <사업자번호> --rrn-disclosed   # 주민번호 공개
+uv run python -m certificate_agent attach --cert TAX_CLEARANCE_ETC            # 납세증명서(기타용) — 로그인 납세자 기준
 uv run python -m certificate_agent snap --tag <이름>          # 지금 화면 HTML·PNG → work/
 ```
 
