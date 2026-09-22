@@ -30,6 +30,7 @@ class OfficeSummary(BaseModel):
     business_number: str | None = None
     representative: str | None = None
     phone: str | None = None
+    sms_sender: str | None = None
     email: str | None = None
     short_code: str | None = None
     approval_status: str
@@ -48,6 +49,7 @@ class OfficeDetail(OfficeSummary):
 
 
 class OfficeUpdate(BaseModel):
+    sms_sender: str | None = None  # Aligo 발신번호 등록 확인 후 입력, 빈 문자열 = 해제
     customer_class: str | None = None
     subscription_start: date | None = None
     subscription_end: date | None = None

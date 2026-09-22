@@ -1,6 +1,7 @@
 from datetime import date
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ClientCreate(BaseModel):
@@ -22,6 +23,10 @@ class ClientOut(BaseModel):
     contact_phone: str | None
     contact_email: str | None
     is_corporation: bool
+    vat_type: str | None = None
+    withholding_semiannual: bool = False
+    fiscal_year_end_month: int | None = None
+    sincere_filing: bool = False
     collect_email: str | None = None
     invite_sent: bool = False
 
@@ -35,6 +40,10 @@ class ClientUpdate(BaseModel):
     contact_phone: str | None = None
     contact_email: str | None = None
     is_corporation: bool | None = None
+    vat_type: Literal["GENERAL", "SIMPLIFIED", "EXEMPT"] | None = None
+    withholding_semiannual: bool | None = None
+    fiscal_year_end_month: int | None = Field(default=None, ge=1, le=12)
+    sincere_filing: bool | None = None
 
 
 class ChannelAttempt(BaseModel):

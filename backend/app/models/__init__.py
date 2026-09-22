@@ -16,6 +16,7 @@ from app.models.employee_change import (
 from app.models.filing_result import ClientFilingResult, FilingResultSource
 from app.models.kakao_binding import KakaoUserBinding
 from app.models.kakao_pending import KakaoPendingMessage
+from app.models.message_log import MessageLog
 from app.models.monthly_filing import MonthlyFiling, MonthlyFilingStatus
 from app.models.payroll import IncomeType, MatchStatus, PayrollEntry
 from app.models.promotion import Promotion
@@ -52,6 +53,7 @@ __all__ = [
     "KakaoUserBinding",
     "KakaoPendingMessage",
     "MatchStatus",
+    "MessageLog",
     "MonthlyFiling",
     "MonthlyFilingStatus",
     "OfficeApprovalStatus",

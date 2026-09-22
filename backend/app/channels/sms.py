@@ -53,11 +53,12 @@ class AligoSmsChannel(MessageChannel):
 
     name = "sms_aligo"
 
-    def __init__(self) -> None:
+    def __init__(self, sender: str | None = None, lms_title: str = "원천세 자료 요청") -> None:
         s = get_settings()
         self.api_key = s.aligo_api_key
         self.user_id = s.aligo_user_id
-        self.sender = s.aligo_sms_sender
+        self.sender = sender or s.aligo_sms_sender
+        self.lms_title = lms_title
 
     async def send(
         self,
@@ -105,7 +106,7 @@ class AligoSmsChannel(MessageChannel):
                     "receiver": receiver_clean,
                     "msg": body,
                     "msg_type": msg_type,
-                    "title": "원천세 자료 요청" if msg_type != "SMS" else "",
+                    "title": self.lms_title if msg_type != "SMS" else "",
                     "testmode_yn": "N",
                 },
             )
@@ -133,8 +134,11 @@ class AligoSmsChannel(MessageChannel):
         )
 
 
-def get_sms_channel() -> MessageChannel:
+def get_sms_channel(
+    sender: str | None = None, lms_title: str = "원천세 자료 요청"
+) -> MessageChannel:
+    """sender: 사무소별 발신번호(Aligo 사전 등록분). None 이면 전역 ALIGO_SMS_SENDER."""
     s = get_settings()
     if s.sms_provider == "aligo":
-        return AligoSmsChannel()
+        return AligoSmsChannel(sender=sender, lms_title=lms_title)
     return StubSmsChannel()

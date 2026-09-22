@@ -14,6 +14,7 @@ def register_routes(app: FastAPI) -> None:
         employee_changes,
         filings,
         imports,
+        messages,
         public_collect,
         rpa,
         webhooks,
@@ -25,6 +26,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(clients.router, prefix="/api/v1/clients", tags=["clients"])
     app.include_router(imports.router, prefix="/api/v1/clients", tags=["imports"])
     app.include_router(filings.router, prefix="/api/v1/filings", tags=["filings"])
+    app.include_router(messages.router, prefix="/api/v1/messages", tags=["messages"])
     app.include_router(collect.router, prefix="/api/v1/collect", tags=["collect"])
     app.include_router(
         employee_changes.router,

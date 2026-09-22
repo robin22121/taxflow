@@ -71,6 +71,61 @@ export type Client = {
   is_corporation: boolean;
   collect_email: string | null;
   invite_sent: boolean;
+  vat_type: VatType | null;
+  withholding_semiannual: boolean;
+  fiscal_year_end_month: number | null;
+  sincere_filing: boolean;
+};
+
+export type VatType = "GENERAL" | "SIMPLIFIED" | "EXEMPT";
+
+export type MessageTaxType = "WITHHOLDING" | "VAT" | "INCOME" | "CORPORATE";
+
+export type MessageTemplate = {
+  code: string;
+  tax_type: MessageTaxType;
+  label: string;
+  sms_body: string;
+};
+
+export type FilingNoticeTarget = {
+  client_id: string;
+  business_name: string;
+  representative: string | null;
+  contact_phone: string | null;
+  eligible: boolean;
+  reason: string | null;
+};
+
+export type FilingNoticeSendResult = {
+  sent: number;
+  failed: number;
+  results: {
+    client_id: string;
+    business_name: string;
+    accepted: boolean;
+    channel: string;
+    error: string | null;
+  }[];
+};
+
+export type MessageHistoryItem = {
+  id: string;
+  created_at: string;
+  client_id: string | null;
+  business_name: string | null;
+  tax_type: string | null;
+  requested_channel: string | null;
+  channel: string;
+  to_phone: string | null;
+  body: string;
+  accepted: boolean;
+  error: string | null;
+};
+
+export type MessageHistoryPage = {
+  total: number;
+  items: MessageHistoryItem[];
 };
 
 export type PortalLink = {

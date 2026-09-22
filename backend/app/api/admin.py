@@ -50,6 +50,7 @@ def _summary(office: TaxOffice, user_count: int, promo_count: int) -> OfficeSumm
         business_number=office.business_number,
         representative=office.representative,
         phone=office.phone,
+        sms_sender=office.sms_sender,
         email=office.email,
         short_code=office.short_code,
         approval_status=office.approval_status.value,
@@ -162,6 +163,8 @@ async def update_office(
         office.subscription_end = payload.subscription_end
     if payload.admin_memo is not None:
         office.admin_memo = payload.admin_memo
+    if payload.sms_sender is not None:
+        office.sms_sender = payload.sms_sender.strip() or None
     await db.commit()
     user_counts, promo_counts = await _counts(db)
     return _summary(office, user_counts.get(office.id, 0), promo_counts.get(office.id, 0))

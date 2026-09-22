@@ -19,10 +19,15 @@ import type {
   EmployeeChangeRequest,
   Filing,
   FilingDashboard,
+  FilingNoticeSendResult,
+  FilingNoticeTarget,
   FilingResultPatch,
   ImportEmployeeResult,
   ImportPayrollResult,
   InsuranceSummary,
+  MessageHistoryPage,
+  MessageTaxType,
+  MessageTemplate,
   PayrollDefault,
   PayrollDefaultPatch,
   PayrollEntry,
@@ -674,5 +679,49 @@ export function useReviewEmployeeChange() {
       // 승인 시 직원 마스터가 바뀐다 — 거래처 화면의 직원 목록도 다시 받는다.
       qc.invalidateQueries({ queryKey: ["employees"] });
     },
+  });
+}
+
+export function useMessageTemplates() {
+  return useQuery({
+    queryKey: ["messages", "templates"],
+    queryFn: () => api<MessageTemplate[]>("/api/v1/messages/templates"),
+  });
+}
+
+export function useFilingNoticeTargets(taxType: MessageTaxType, scope: string) {
+  return useQuery({
+    queryKey: ["messages", "targets", taxType, scope],
+    queryFn: () =>
+      api<{ items: FilingNoticeTarget[] }>("/api/v1/messages/filing-notice/targets", {
+        method: "POST",
+        json: { tax_type: taxType, scope },
+      }),
+  });
+}
+
+export function useSendFilingNotice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      tax_type: MessageTaxType;
+      channel: "sms" | "alimtalk";
+      client_ids: string[];
+      body: string;
+      deadline: string;
+    }) =>
+      api<FilingNoticeSendResult>("/api/v1/messages/filing-notice/send", {
+        method: "POST",
+        json: payload,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["messages", "history"] }),
+  });
+}
+
+export function useMessageHistory(limit: number, offset: number) {
+  return useQuery({
+    queryKey: ["messages", "history", limit, offset],
+    queryFn: () =>
+      api<MessageHistoryPage>(`/api/v1/messages/history?limit=${limit}&offset=${offset}`),
   });
 }

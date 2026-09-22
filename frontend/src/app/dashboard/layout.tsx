@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "월별 신고" },
   { href: "/dashboard/clients", label: "거래처" },
   { href: "/dashboard/employee-changes", label: "직원 변동" },
+  { href: "/dashboard/messages", label: "문자발송" },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

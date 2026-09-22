@@ -37,7 +37,14 @@ import type {
   ImportPayrollResult,
   PayrollDefault,
   PayrollDefaultPatch,
+  VatType,
 } from "@/lib/types";
+
+const VAT_TYPE_KO: Record<VatType, string> = {
+  GENERAL: "일반과세",
+  SIMPLIFIED: "간이과세",
+  EXEMPT: "면세",
+};
 
 export default function ClientDetailPage({
   params,
@@ -101,6 +108,25 @@ export default function ClientDetailPage({
             <span className="text-gray-500">이메일</span>
             <p className="text-gray-900">{client.contact_email || "—"}</p>
           </div>
+          <div>
+            <span className="text-gray-500">부가세 과세유형</span>
+            <p className="text-gray-900">{client.vat_type ? VAT_TYPE_KO[client.vat_type] : "미지정"}</p>
+          </div>
+          <div>
+            <span className="text-gray-500">원천세 납부</span>
+            <p className="text-gray-900">{client.withholding_semiannual ? "반기납부" : "매월납부"}</p>
+          </div>
+          {client.is_corporation ? (
+            <div>
+              <span className="text-gray-500">결산월</span>
+              <p className="text-gray-900">{client.fiscal_year_end_month ? `${client.fiscal_year_end_month}월` : "미지정"}</p>
+            </div>
+          ) : (
+            <div>
+              <span className="text-gray-500">성실신고</span>
+              <p className="text-gray-900">{client.sincere_filing ? "대상" : "비대상"}</p>
+            </div>
+          )}
         </div>
         {client.collect_email && (
           <div className="mt-3 p-3 rounded-lg bg-blue-50/30 border border-blue-600/20">
@@ -1191,6 +1217,10 @@ function ClientEditModal({
   const [phone, setPhone] = useState(digitsOnly(client.contact_phone ?? ""));
   const [email, setEmail] = useState(client.contact_email ?? "");
   const [isCorporation, setIsCorporation] = useState(client.is_corporation);
+  const [vatType, setVatType] = useState<VatType | "">(client.vat_type ?? "");
+  const [withholdingSemiannual, setWithholdingSemiannual] = useState(client.withholding_semiannual);
+  const [fiscalYearEndMonth, setFiscalYearEndMonth] = useState<number | null>(client.fiscal_year_end_month);
+  const [sincereFiling, setSincereFiling] = useState(client.sincere_filing);
   const [err, setErr] = useState<string | null>(null);
 
   return (
@@ -1218,6 +1248,12 @@ function ClientEditModal({
                   contact_phone: digitsOnly(phone) || null,
                   contact_email: email.trim() || null,
                   is_corporation: isCorporation,
+                  vat_type: vatType || null,
+                  withholding_semiannual: withholdingSemiannual,
+                  // 결산월은 법인, 성실신고는 개인에만 의미가 있다 — 반대쪽 값은 보낸 그대로 둔다.
+                  ...(isCorporation
+                    ? { fiscal_year_end_month: fiscalYearEndMonth }
+                    : { sincere_filing: sincereFiling }),
                 });
               } catch (e) {
                 setErr((e as Error).message);
@@ -1289,6 +1325,61 @@ function ClientEditModal({
             법인 거래처
           </label>
         </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">부가세 과세유형</label>
+          <select
+            value={vatType}
+            onChange={(e) => setVatType(e.target.value as VatType | "")}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-[13px] text-gray-700 outline-none focus:border-blue-500"
+          >
+            <option value="">미지정</option>
+            <option value="GENERAL">일반과세</option>
+            <option value="SIMPLIFIED">간이과세</option>
+            <option value="EXEMPT">면세</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            id="edit_withholding_semiannual"
+            type="checkbox"
+            checked={withholdingSemiannual}
+            onChange={(e) => setWithholdingSemiannual(e.target.checked)}
+            className="h-4 w-4 accent-blue-600"
+          />
+          <label htmlFor="edit_withholding_semiannual" className="text-[13px] text-gray-900">
+            원천세 반기납부
+          </label>
+        </div>
+        {isCorporation ? (
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">법인 결산월</label>
+            <select
+              value={fiscalYearEndMonth ?? ""}
+              onChange={(e) => setFiscalYearEndMonth(e.target.value ? Number(e.target.value) : null)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-[13px] text-gray-700 outline-none focus:border-blue-500"
+            >
+              <option value="">미지정</option>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>
+                  {m}월
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              id="edit_sincere_filing"
+              type="checkbox"
+              checked={sincereFiling}
+              onChange={(e) => setSincereFiling(e.target.checked)}
+              className="h-4 w-4 accent-blue-600"
+            />
+            <label htmlFor="edit_sincere_filing" className="text-[13px] text-gray-900">
+              성실신고 대상
+            </label>
+          </div>
+        )}
         {err && <p className="text-red-600">{err}</p>}
       </div>
     </Modal>

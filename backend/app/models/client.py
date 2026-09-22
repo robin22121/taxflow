@@ -28,6 +28,11 @@ class Client(Base, IdMixin, TimestampMixin):
     is_corporation: Mapped[bool] = mapped_column(Boolean, default=False)  # 법인/개인 구분 (A01/A02)
     file_password: Mapped[bytes | None] = mapped_column(LargeBinary)  # 암호화 첨부파일 비밀번호 (AES 암호화 저장)
     invite_sent: Mapped[bool] = mapped_column(Boolean, default=False)  # 초대장 발송 여부
+    # 세목 속성 — 신고안내 대상 필터 (plan/13-messaging-activation.md §5.3)
+    vat_type: Mapped[str | None] = mapped_column(String(20))  # GENERAL | SIMPLIFIED | EXEMPT
+    withholding_semiannual: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    fiscal_year_end_month: Mapped[int | None] = mapped_column(Integer)  # 법인 결산월 (None = 12월)
+    sincere_filing: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # 성실신고 대상
     # 사업주 포털 PIN (plan/12-owner-portal.md §4.3.3) — None이면 게이트 뒤 구역을 노출하지 않는다
     portal_pin_hash: Mapped[str | None] = mapped_column(String(128))
     portal_pin_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

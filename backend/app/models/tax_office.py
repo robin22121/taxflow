@@ -28,6 +28,8 @@ class TaxOffice(Base, IdMixin, TimestampMixin):
     business_number: Mapped[str | None] = mapped_column(String(20))
     representative: Mapped[str | None] = mapped_column(String(100))
     phone: Mapped[str | None] = mapped_column(String(40))
+    # Aligo 에 사전 등록된 SMS 발신번호 — 등록 확인 후 관리자가 입력. None 이면 전역 ALIGO_SMS_SENDER
+    sms_sender: Mapped[str | None] = mapped_column(String(40))
     email: Mapped[str | None] = mapped_column(String(200))
     address: Mapped[str | None] = mapped_column(String(500))
 
