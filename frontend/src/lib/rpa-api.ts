@@ -31,6 +31,7 @@ export type RpaJob = {
   result_message: string | null;
   step_progress: Record<string, unknown> | null;
   compare_diff: Record<string, unknown> | null;
+  acknowledged_at: string | null;
   created_at: string;
 };
 
@@ -107,6 +108,15 @@ export function publishFilingResult(filingResultId: string): Promise<FilingResul
 export function listJobs(filingId?: string): Promise<RpaJob[]> {
   const qs = filingId ? `?filing_id=${encodeURIComponent(filingId)}` : "";
   return api<RpaJob[]>(`/api/v1/rpa/jobs${qs}`);
+}
+
+/** 하단 작업바 — 진행중 + 끝났지만 아직 [확인] 안 한 작업. */
+export function listUnacknowledgedJobs(): Promise<RpaJob[]> {
+  return api<RpaJob[]>("/api/v1/rpa/jobs?unacknowledged=true");
+}
+
+export function acknowledgeJob(jobId: string): Promise<RpaJob> {
+  return api<RpaJob>(`/api/v1/rpa/jobs/${jobId}/acknowledge`, { method: "POST" });
 }
 
 export function cancelJob(jobId: string): Promise<RpaJob> {

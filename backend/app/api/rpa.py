@@ -255,6 +255,7 @@ async def create_wehago_uploads(
 @router.get("/jobs", response_model=list[RpaJobOut])
 async def list_jobs(
     filing_id: str | None = None,
+    unacknowledged: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[RpaJob]:
@@ -262,6 +263,8 @@ async def list_jobs(
     query = select(RpaJob).where(RpaJob.tax_office_id == office_id)
     if filing_id:
         query = query.where(RpaJob.monthly_filing_id == filing_id)
+    if unacknowledged:  # 하단 작업바 — 진행중 + 끝났지만 아직 [확인] 안 한 작업
+        query = query.where(RpaJob.acknowledged_at.is_(None))
     rows = await db.execute(query.order_by(RpaJob.created_at.desc()).limit(200))
     return list(rows.scalars().all())
 
@@ -286,6 +289,26 @@ async def cancel_job(
         raise HTTPException(status.HTTP_409_CONFLICT, "대기 중인 작업만 취소할 수 있습니다")
     await db.commit()
     await db.refresh(job)
+    return job
+
+
+@router.post("/jobs/{job_id}/acknowledge", response_model=RpaJobOut)
+async def acknowledge_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RpaJob:
+    """하단 작업바 [확인] — 끝난 작업을 바에서 내린다. 진행 중인 작업은 내릴 수 없다."""
+    office_id = _office_id(user)
+    job = await db.get(RpaJob, job_id)
+    if not job or job.tax_office_id != office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "작업을 찾을 수 없습니다")
+    if job.status in (RpaJobStatus.PENDING, RpaJobStatus.RUNNING):
+        raise HTTPException(status.HTTP_409_CONFLICT, "진행 중인 작업은 확인 처리할 수 없습니다")
+    if job.acknowledged_at is None:
+        job.acknowledged_at = _utcnow()
+        await db.commit()
+        await db.refresh(job)
     return job
 
 
@@ -656,6 +679,23 @@ async def publish_filing_result(
 
     result.published_at = _utcnow()
     result.confirmed_by_user_id = user.id
+
+    # 하단 작업바: 이 신고의 제작 작업에 '납부서 전송완료' 단계를 남기고 바에 다시 올린다
+    job = (
+        await db.execute(
+            select(RpaJob)
+            .where(
+                RpaJob.client_id == result.client_id,
+                RpaJob.period == result.period,
+                RpaJob.kind == RpaJobKind.MONTHLY_PRODUCTION,
+            )
+            .order_by(RpaJob.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if job is not None:
+        job.step_progress = {**(job.step_progress or {}), "published": "done"}
+        job.acknowledged_at = None
     # 실제 문자 발송은 별도 서비스(13-messaging-activation.md 전제) — 여기선 flag만 세팅
     await db.commit()
     await db.refresh(result)

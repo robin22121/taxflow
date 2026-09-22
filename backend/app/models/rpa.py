@@ -80,6 +80,10 @@ class RpaJob(Base, IdMixin, TimestampMixin):
     # 예: {"income_tax":{"expected":123000,"found":124000}}
     compare_diff: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
+    # 하단 작업바에서 [확인]을 누른 시각 (사무소 단위). 채워지면 바에서 사라지고 전체 내역에만 남는다.
+    # 이후 단계가 진행되면(예: 게이트 3 발송 확정) 다시 비워 바에 올린다.
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
 
 class RpaNotificationKind(str, enum.Enum):
     GATE2_REVIEW = "GATE2_REVIEW"  # 위하고 자동입력 완료 → 사용자 검토·제작 클릭 필요

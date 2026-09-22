@@ -9,6 +9,7 @@ import { api, clearTokens, getToken } from "@/lib/api";
 import { useMe } from "@/lib/queries";
 import { Button, Input, Modal } from "@/components/ui";
 import { HeaderSlotContext } from "@/components/header-slot";
+import { ActivityBar } from "@/components/rpa/activity-bar";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "월별 신고" },
@@ -133,6 +134,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </HeaderSlotContext.Provider>
         </div>
       </main>
+
+      {/* 하단 자동화 작업바 (plan/17 §4-9) */}
+      <ActivityBar />
 
       {/* Profile modal */}
       {showProfile && me && (

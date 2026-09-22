@@ -56,6 +56,7 @@ class RpaJobOut(BaseModel):
     result_message: str | None
     step_progress: dict[str, Any] | None = None
     compare_diff: dict[str, Any] | None = None
+    acknowledged_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -293,3 +293,44 @@ async def test_agent_filing_result_rejects_mismatched_client(
     )
     assert bad.status_code == 400
     assert "일치하지 않습니다" in bad.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# 하단 작업바 — [확인] 처리 (plan/17-certificate-issuance.md §4-9)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_hides_finished_job_from_bar(http: AsyncClient, auth_headers: dict):
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+    agent = await _issue_agent(http, auth_headers)
+
+    r = await http.post(
+        "/api/v1/rpa/wehago-uploads",
+        json={"filing_id": filing_id, "client_ids": [client_id]},
+        headers=auth_headers,
+    )
+    job_id = r.json()[0]["id"]
+    bar = "/api/v1/rpa/jobs?unacknowledged=true"
+
+    # 진행 중에는 바에 있고, 확인 처리할 수 없다
+    assert job_id in [j["id"] for j in (await http.get(bar, headers=auth_headers)).json()]
+    r = await http.post(f"/api/v1/rpa/jobs/{job_id}/acknowledge", headers=auth_headers)
+    assert r.status_code == 409
+
+    await http.post(CLAIM, headers=agent)
+    await http.post(
+        f"/api/v1/rpa/agent/jobs/{job_id}/result",
+        json={"status": "SUCCEEDED", "message": "완료"},
+        headers=agent,
+    )
+
+    r = await http.post(f"/api/v1/rpa/jobs/{job_id}/acknowledge", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["acknowledged_at"] is not None
+
+    # 바에서는 사라지고 전체 내역에는 남는다
+    assert job_id not in [j["id"] for j in (await http.get(bar, headers=auth_headers)).json()]
+    assert job_id in [
+        j["id"] for j in (await http.get("/api/v1/rpa/jobs", headers=auth_headers)).json()
+    ]
