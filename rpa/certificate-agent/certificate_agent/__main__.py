@@ -109,6 +109,7 @@ def chrome(port: int = CDP_PORT) -> None:
         f"--user-data-dir={CHROME_PROFILE}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--window-size=1600,1000",  # 좁으면 홈택스 상단 메뉴가 접힌다
         "https://www.hometax.go.kr/",
     ])
     typer.echo(f"[+] Chrome 실행 (CDP :{port}, 프로필 {CHROME_PROFILE})")

@@ -312,6 +312,23 @@ def _find_hometax_page(context):
     return page
 
 
+MIN_WINDOW_WIDTH = 1600  # 1200px 에선 홈택스가 상단 메뉴를 접어 '사업장현황' 이 안 보인다 (2026-09-22 실측)
+
+
+def _ensure_wide_window(page) -> None:
+    """부착한 창이 좁으면 넓힌다. 좁은 창에선 _goto_application 의 상단 메뉴 경로가 막힌다."""
+    if page.evaluate("innerWidth") >= MIN_WINDOW_WIDTH:
+        return
+    cdp = page.context.new_cdp_session(page)
+    wid = cdp.send("Browser.getWindowForTarget")["windowId"]
+    cdp.send("Browser.setWindowBounds", {
+        "windowId": wid,
+        "bounds": {"windowState": "normal", "width": MIN_WINDOW_WIDTH, "height": 1000},
+    })
+    time.sleep(1.0)
+    print(f"[*] 창 폭을 {MIN_WINDOW_WIDTH}px 로 넓힘")
+
+
 def execute_attached(job: dict, cdp_url: str) -> tuple[bytes, str, str, str]:
     """개발용 — 사용자가 이미 로그인해 둔 Chrome 에 CDP 로 붙어 발급.
 
@@ -325,6 +342,7 @@ def execute_attached(job: dict, cdp_url: str) -> tuple[bytes, str, str, str]:
         context = browser.contexts[0]
         page = _find_hometax_page(context)
         print(f"[+] 부착: {page.url}")
+        _ensure_wide_window(page)
         try:
             return issue_business_registration(context, page, job)
         except Exception as exc:  # noqa: BLE001
