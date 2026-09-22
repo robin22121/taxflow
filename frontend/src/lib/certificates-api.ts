@@ -12,7 +12,12 @@ export type CatalogItem = {
   category: CertCategory;
   title: string;
   available: boolean;
+  period: boolean; // 기간 입력 필요 → 최근 1·3·5년
+  note: string | null; // 발급 대상 제한 안내
 };
+
+export const PERIOD_YEARS = [1, 3, 5] as const;
+export type PeriodYears = (typeof PERIOD_YEARS)[number];
 
 export type CertificateIssue = {
   id: string;
@@ -44,10 +49,12 @@ export function getCatalog(): Promise<CatalogItem[]> {
   return api<CatalogItem[]>("/api/v1/certificates/catalog");
 }
 
-export function createIssueRequest(clientId: string, certTypes: string[], rrnDisclosed: boolean): Promise<CertificateJob> {
+export function createIssueRequest(
+  clientId: string, certTypes: string[], rrnDisclosed: boolean, periodYears: PeriodYears,
+): Promise<CertificateJob> {
   return api<CertificateJob>("/api/v1/certificates/issue-requests", {
     method: "POST",
-    json: { client_id: clientId, cert_types: certTypes, rrn_disclosed: rrnDisclosed },
+    json: { client_id: clientId, cert_types: certTypes, rrn_disclosed: rrnDisclosed, period_years: periodYears },
   });
 }
 

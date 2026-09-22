@@ -134,6 +134,7 @@ def _goto_application(page, spec: dict) -> None:
     먼저 열어야 한다. 구분자가 화면마다 ·/ㆍ/･ 로 달라 '사업장현황' 만 매칭한다.
     카탈로그 행 id(gen_cvaInf_{n})는 순서가 고정이 아니라 제목으로 행을 찾는다.
     """
+    _dismiss_notices(page)  # 이전 실행이 남긴 안내 모달이 메뉴를 가린다 (부착 모드)
     try:
         # 스크롤이 내려가 있으면 헤더가 축소되며 GNB 가 숨는다 (부착 모드에서 흔함)
         page.evaluate("window.scrollTo(0, 0)")
@@ -167,10 +168,31 @@ def _goto_application(page, spec: dict) -> None:
                 print(f"[!] {label} 실패: {exc2.__class__.__name__}")
 
     if page.locator(spec["ready"]).count() == 0:
+        notice = _visible_notice(page)
+        if notice:  # 예: "폐업이력이 없는 사업자는 증명을 신청할 수 없습니다"
+            _dismiss_notices(page)
+            raise RuntimeError(f"홈택스 안내: {notice}")
         path = _dump(page, "fail_nav")
         raise RuntimeError(
             f"신청 화면 진입 실패. url={page.url} title={page.title()!r} dump={path}"
         )
+
+
+def _dismiss_notices(page) -> None:
+    """떠 있는 홈택스 알림 레이어를 [닫기]로 닫는다."""
+    buttons = page.locator("input[id*='_wframe_btn_close']:visible")
+    for i in range(buttons.count()):
+        try:
+            buttons.nth(0).click(timeout=3000)
+            time.sleep(0.5)
+        except Exception:  # noqa: BLE001
+            break
+
+
+def _visible_notice(page) -> str:
+    """화면에 떠 있는 홈택스 알림 창(info…_wframe_tbx_message) 문구. 없으면 빈 문자열."""
+    texts = page.locator("[id$='_wframe_tbx_message']:visible").all_inner_texts()
+    return re.sub(r"\s+", " ", " ".join(texts)).strip()[:200]
 
 
 def _pick_business_number(page, wanted: str) -> str:
@@ -270,9 +292,133 @@ def _fill_tax_clearance(page, job: dict) -> str:
     return "로그인 납세자"
 
 
+# --- 기간 선택 증명원 (2026-09-22 맥북 실측) ---
+# 기간은 최근 1·3·5년 중 선택(options.period_years). 끝 시점은 홈택스가 기본값으로 채워 두는
+# '발급 가능한 최근 시점'을 그대로 쓰고, 시작 시점만 거꾸로 계산한다.
+SEL_APLN = "#mf_txppWframe_btn_apln"  # 작성완료·신청하기 (사업자등록증명 외 공통)
+SEL_INC_START_YR = "#mf_txppWframe_cal_txnrmStrtYr_input"  # 소득금액증명 과세기간 (연도 입력칸)
+SEL_INC_END_YR = "#mf_txppWframe_cal_txnrmEndYr_input"
+SEL_VAT_START_YR = "#mf_txppWframe_sbx_txnrmStrtYear"  # 부가세 과표증명 과세기간 (연도 + 1기/2기)
+SEL_VAT_START_HT = "#mf_txppWframe_sbx_strtHt"
+SEL_VAT_END_YR = "#mf_txppWframe_sbx_txnrmEndYear"
+SEL_VAT_END_HT = "#mf_txppWframe_sbx_endHt"
+SEL_VAT_OPEN_DT = "#mf_txppWframe_sbx_bmanOfbDt"  # 발급희망개업일자 (사업자 선택 후 채워짐)
+SEL_PAY_START_YR = "#mf_txppWframe_sbx_cerStrtYr"  # 납부내역증명 수납기간 (연도 + 월)
+SEL_PAY_START_MM = "#mf_txppWframe_sbx_cerStrtMm"
+SEL_PAY_END_YR = "#mf_txppWframe_sbx_cerEndYr"
+SEL_PAY_END_MM = "#mf_txppWframe_sbx_cerEndMm"
+SEL_PAY_USE = "#mf_txppWframe_sbx_fctCerTypeCd"  # 납부내역증명 사용용도 (id 다름)
+PERIOD_YEARS = (1, 3, 5)
+
+
+def _period_years(job: dict) -> int:
+    n = int((job.get("options") or {}).get("period_years") or 1)
+    if n not in PERIOD_YEARS:
+        raise RuntimeError(f"기간은 최근 {PERIOD_YEARS}년 중 하나여야 합니다: {n}")
+    return n
+
+
+def _selected(page, selector: str) -> str:
+    return page.locator(f"{selector} option:checked").inner_text().strip()
+
+
+def _select_etc(page, *use_selectors: str) -> None:
+    """사용용도·제출처를 '기타'로 (2026-09-18 결정 — 증명 내용과 무관)."""
+    for sel in use_selectors:
+        if page.locator(sel).count():
+            page.select_option(sel, label=USE_PURPOSE_LABEL)
+    if page.locator(SEL_SUBMIT_ORG).count():
+        page.select_option(SEL_SUBMIT_ORG, label=SUBMIT_ORG_LABEL)
+
+
+def _fill_income_amount(page, job: dict) -> str:
+    """소득금액증명 — 과세기간 = 최근 N개 과세연도. 납세자 구분은 로그인 주체 고정(개인)."""
+    n = _period_years(job)
+    time.sleep(1.0)
+    end = int(page.locator(SEL_INC_END_YR).input_value())
+    start = end - n + 1
+    box = page.locator(SEL_INC_START_YR)
+    box.fill(str(start))
+    box.press("Tab")
+    if box.input_value() != str(start):
+        raise RuntimeError(f"과세기간 시작연도 입력 실패: {box.input_value()!r}")
+    _select_etc(page, SEL_USE_PURPOSE)
+    _choose_rrn_and_receive(page, job)
+    page.locator(SEL_APLN).click(timeout=10000)
+    return f"과세기간 {start}~{end}"
+
+
+def _fill_vat_base(page, job: dict) -> str:
+    """부가가치세 과세표준증명 — 과세기간 = 최근 N년(2N개 기)."""
+    n = _period_years(job)
+    time.sleep(1.0)
+    picked = _pick_business_number(page, job["business_number"])
+    time.sleep(2.0)
+    end_y = int(_selected(page, SEL_VAT_END_YR))
+    end_h = 1 if _selected(page, SEL_VAT_END_HT).startswith("1") else 2
+    start_y, start_h = divmod(end_y * 2 + (end_h - 1) - (2 * n - 1), 2)
+    start_h += 1
+    page.select_option(SEL_VAT_START_YR, label=str(start_y))
+    time.sleep(0.5)
+    page.select_option(SEL_VAT_START_HT, label=f"{start_h}기")
+    dates = [o.strip() for o in page.locator(f"{SEL_VAT_OPEN_DT} option").all_text_contents()]
+    dates = [d for d in dates if d and "선택" not in d]
+    if dates:  # 개업일자가 여럿이면(재개업) 첫 항목
+        page.select_option(SEL_VAT_OPEN_DT, label=dates[0])
+    _select_etc(page, SEL_USE_PURPOSE)
+    _choose_rrn_and_receive(page, job)
+    page.locator(SEL_APLN).click(timeout=10000)
+    return f"{picked} {start_y}년 {start_h}기~{end_y}년 {end_h}기"
+
+
+def _fill_payment_history(page, job: dict) -> str:
+    """납부내역증명(납세사실증명) — 수납기간 = 최근 N년(끝 연월 기본값에서 N×12개월). 세목은 전체."""
+    n = _period_years(job)
+    time.sleep(1.0)
+    end_y = int(_selected(page, SEL_PAY_END_YR))
+    end_m = int(_selected(page, SEL_PAY_END_MM))
+    start_y, start_m = divmod(end_y * 12 + (end_m - 1) - (12 * n - 1), 12)
+    start_m += 1
+    page.select_option(SEL_PAY_START_YR, label=str(start_y))
+    time.sleep(0.8)  # 연도를 바꾸면 월 목록이 다시 채워진다
+    page.select_option(SEL_PAY_START_MM, label=f"{start_m:02d}")
+    _select_etc(page, SEL_PAY_USE)
+    _choose_rrn_and_receive(page, job)
+    page.locator(SEL_APLN).click(timeout=10000)
+    return f"수납기간 {start_y}.{start_m:02d}~{end_y}.{end_m:02d}"
+
+
+def _fill_generic(page, job: dict) -> str:
+    """신청 화면을 실측하지 못한 증명원(면세사업자 수입금액·폐업사실) — 공통 항목만 채운다.
+
+    테스트 계정이 대상이 아니라(과세·계속사업자) 홈택스가 신청 화면을 열어 주지 않았다.
+    대상 거래처로 처음 발급할 때 실패 덤프로 셀렉터를 보강한다.
+    """
+    time.sleep(1.0)
+    picked = ""
+    if page.locator(SEL_BSNO).count():
+        picked = _pick_business_number(page, job["business_number"])
+        time.sleep(2.0)
+    _select_etc(page, SEL_USE_PURPOSE, SEL_PAY_USE)
+    if page.locator(SEL_RRN_HIDDEN).count():
+        _choose_rrn_and_receive(page, job)
+    elif page.locator(SEL_RECEIVE_METHOD).count():
+        page.select_option(SEL_RECEIVE_METHOD, label=RECEIVE_METHOD_LABEL)
+    button = SEL_WRITE_DONE if page.locator(SEL_WRITE_DONE).count() else SEL_APLN
+    page.locator(button).click(timeout=10000)
+    return picked or "로그인 납세자"
+
+
+READY_ANY = f"{SEL_APLN}, {SEL_WRITE_DONE}"
+
 CERT_SPECS = {
     "BUSINESS_REGISTRATION": {"title": "사업자등록증명", "ready": SEL_BSNO, "fill": _fill_application},
     "TAX_CLEARANCE_ETC": {"title": "납세증명서(기타용)", "ready": SEL_TC_WRITE_DONE, "fill": _fill_tax_clearance},
+    "TAX_PAYMENT_HISTORY": {"title": "납부내역증명", "ready": SEL_PAY_END_YR, "fill": _fill_payment_history},
+    "INCOME_AMOUNT": {"title": "소득금액증명", "ready": SEL_INC_END_YR, "fill": _fill_income_amount},
+    "VAT_BASE": {"title": "부가가치세과세표준증명", "ready": SEL_VAT_END_YR, "fill": _fill_vat_base},
+    "VAT_EXEMPT_INCOME": {"title": "부가가치세면세사업자수입금액증명", "ready": READY_ANY, "fill": _fill_generic},
+    "BUSINESS_CLOSURE": {"title": "폐업사실증명", "ready": READY_ANY, "fill": _fill_generic},
 }
 
 

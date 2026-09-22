@@ -57,6 +57,9 @@ uv run python -m certificate_agent chrome                    # CDP :9222 로 Chr
 uv run python -m certificate_agent attach --biz <사업자번호>  # 사업자등록증명 발급 → work/<ts>_cert.pdf
 uv run python -m certificate_agent attach --biz <사업자번호> --rrn-disclosed   # 주민번호 공개
 uv run python -m certificate_agent attach --cert TAX_CLEARANCE_ETC            # 납세증명서(기타용) — 로그인 납세자 기준
+uv run python -m certificate_agent attach --cert INCOME_AMOUNT --years 3       # 소득금액증명 최근 3년 (1·3·5)
+uv run python -m certificate_agent attach --cert VAT_BASE --biz <사업자번호> --years 1
+uv run python -m certificate_agent attach --cert TAX_PAYMENT_HISTORY --years 5
 uv run python -m certificate_agent snap --tag <이름>          # 지금 화면 HTML·PNG → work/
 ```
 

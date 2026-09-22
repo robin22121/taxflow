@@ -74,7 +74,9 @@ async def _issued_job(http: AsyncClient, auth_headers: dict) -> tuple[str, str, 
 async def test_catalog_and_unavailable_rejected(http: AsyncClient, auth_headers: dict):
     catalog = (await http.get(f"{BASE}/catalog", headers=auth_headers)).json()
     assert {c["category"] for c in catalog} == {"HOMETAX", "WETAX", "EMPLOYEE"}
-    assert {c["code"] for c in catalog if c["available"]} == {"BUSINESS_REGISTRATION", "TAX_CLEARANCE_ETC"}
+    hometax = [c for c in catalog if c["category"] == "HOMETAX"]
+    assert all(c["available"] for c in hometax)
+    assert {c["code"] for c in catalog if c["period"]} == {"TAX_PAYMENT_HISTORY", "INCOME_AMOUNT", "VAT_BASE"}
 
     r = await http.post(
         f"{BASE}/issue-requests",
@@ -82,6 +84,30 @@ async def test_catalog_and_unavailable_rejected(http: AsyncClient, auth_headers:
         headers=auth_headers,
     )
     assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_period_years_only_on_period_certificates(http: AsyncClient, auth_headers: dict):
+    r = await http.post(
+        f"{BASE}/issue-requests",
+        json={
+            "client_id": await _client_id(http, auth_headers),
+            "cert_types": ["INCOME_AMOUNT", "BUSINESS_REGISTRATION"],
+            "period_years": 3,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    options = {i["cert_type"]: i["options"] for i in r.json()["issues"]}
+    assert options["INCOME_AMOUNT"]["period_years"] == 3
+    assert "period_years" not in options["BUSINESS_REGISTRATION"]
+
+    bad = await http.post(
+        f"{BASE}/issue-requests",
+        json={"client_id": await _client_id(http, auth_headers), "cert_types": ["VAT_BASE"], "period_years": 2},
+        headers=auth_headers,
+    )
+    assert bad.status_code == 422
 
 
 @pytest.mark.asyncio

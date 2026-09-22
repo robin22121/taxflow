@@ -61,12 +61,15 @@ class CatalogItem(BaseModel):
     category: str
     title: str
     available: bool
+    period: bool = False  # 기간 입력 필요 → 최근 1·3·5년
+    note: str | None = None  # 발급 대상 제한 안내
 
 
 class IssueRequestIn(BaseModel):
     client_id: str
     cert_types: list[str] = Field(min_length=1, max_length=20)
     rrn_disclosed: bool = False
+    period_years: Literal[1, 3, 5] = 1  # 기간 있는 증명원에만 적용 (PERIOD_YEARS)
 
 
 class CertificateIssueOut(BaseModel):
@@ -216,7 +219,10 @@ async def create_issue_request(
                 rpa_job_id=job.id,
                 cert_type=code,
                 title=CATALOG_BY_CODE[code]["title"],
-                options={"rrn_disclosed": payload.rrn_disclosed},
+                options={
+                    "rrn_disclosed": payload.rrn_disclosed,
+                    **({"period_years": payload.period_years} if CATALOG_BY_CODE[code].get("period") else {}),
+                },
                 business_number=job.business_number or None,
                 business_name=client.business_name,
             )
