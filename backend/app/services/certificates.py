@@ -33,8 +33,9 @@ CATALOG: list[dict] = [
     {"code": "LOCAL_TAX_PAYMENT", "category": "WETAX", "title": "지방세 납부확인서", "available": False},
     # 직원용 — 신고 화면의 '준비중' 모달을 흡수 (§4-9)
     {"code": "WITHHOLDING_RECEIPT", "category": "EMPLOYEE", "title": "근로소득 원천징수영수증", "available": False},
-    {"code": "EMPLOYMENT_CERT", "category": "EMPLOYEE", "title": "재직증명서", "available": False},
-    {"code": "CAREER_CERT", "category": "EMPLOYEE", "title": "경력증명서", "available": False},
+    {"code": "EMPLOYMENT_CERT", "category": "EMPLOYEE", "title": "재직증명서", "available": True,
+     "note": "재직 중인 직원만"},
+    {"code": "CAREER_CERT", "category": "EMPLOYEE", "title": "경력증명서", "available": True},
     {"code": "EMPLOYEE_INCOME_AMOUNT", "category": "EMPLOYEE", "title": "소득금액증명원", "available": False},
 ]
 

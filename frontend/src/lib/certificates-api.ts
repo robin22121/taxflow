@@ -23,6 +23,7 @@ export type CertificateIssue = {
   id: string;
   client_id: string;
   rpa_job_id: string;
+  employee_id: string | null;
   cert_type: string;
   title: string;
   options: Record<string, unknown> | null;
@@ -49,12 +50,26 @@ export function getCatalog(): Promise<CatalogItem[]> {
   return api<CatalogItem[]>("/api/v1/certificates/catalog");
 }
 
-export function createIssueRequest(
-  clientId: string, certTypes: string[], rrnDisclosed: boolean, periodYears: PeriodYears,
-): Promise<CertificateJob> {
+export type IssueRequestInput = {
+  clientId: string;
+  certTypes: string[];
+  rrnDisclosed: boolean;
+  periodYears: PeriodYears;
+  employeeIds: string[]; // 직원용 증명서 대상
+  purpose: string; // 직원용 증명서 '용도'
+};
+
+export function createIssueRequest(input: IssueRequestInput): Promise<CertificateJob> {
   return api<CertificateJob>("/api/v1/certificates/issue-requests", {
     method: "POST",
-    json: { client_id: clientId, cert_types: certTypes, rrn_disclosed: rrnDisclosed, period_years: periodYears },
+    json: {
+      client_id: input.clientId,
+      cert_types: input.certTypes,
+      rrn_disclosed: input.rrnDisclosed,
+      period_years: input.periodYears,
+      employee_ids: input.employeeIds,
+      purpose: input.purpose || null,
+    },
   });
 }
 

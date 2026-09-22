@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button, Input, Modal } from "@/components/ui";
-import { useClients } from "@/lib/queries";
+import { useClientEmployees, useClients } from "@/lib/queries";
 import type { Client } from "@/lib/types";
 import {
   type CertCategory,
@@ -58,6 +58,8 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
   const [checked, setChecked] = useState<string[]>([]);
   const [rrnDisclosed, setRrnDisclosed] = useState(false);
   const [periodYears, setPeriodYears] = useState<PeriodYears>(1);
+  const [employeeIds, setEmployeeIds] = useState<string[]>([]);
+  const [purpose, setPurpose] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const { data: clients = [] } = useClients();
@@ -83,7 +85,7 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
   const shownStep: Step = step === "progress" && finished ? (initialJobId ? "next" : "done") : step;
 
   const issue = useMutation({
-    mutationFn: () => createIssueRequest(clientId!, checked, rrnDisclosed, periodYears),
+    mutationFn: () => createIssueRequest({ clientId: clientId!, certTypes: checked, rrnDisclosed, periodYears, employeeIds, purpose }),
     onSuccess: (data) => {
       setJobId(data.job.id);
       setStep("progress");
@@ -94,6 +96,16 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
   });
 
   const title = client ? `증명원 발급 · ${client.business_name}` : "증명원 발급";
+  const isEmployee = (code: string) => catalog.find((c) => c.code === code)?.category === "EMPLOYEE";
+  const employeeMode = checked.some(isEmployee);
+
+  // 직원용 증명서는 서버가 만들고 홈택스 증명원은 에이전트가 발급 — 한 요청에 섞지 않는다
+  function toggle(code: string) {
+    setChecked((prev) => {
+      if (prev.includes(code)) return prev.filter((c) => c !== code);
+      return [...prev.filter((c) => isEmployee(c) === isEmployee(code)), code];
+    });
+  }
 
   return (
     <Modal open onClose={onClose} title={title} size="lg" footer={footer()}>
@@ -107,11 +119,16 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
           tab={tab}
           setTab={setTab}
           checked={checked}
-          toggle={(code) => setChecked((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]))}
+          toggle={toggle}
           rrnDisclosed={rrnDisclosed}
           setRrnDisclosed={setRrnDisclosed}
           periodYears={periodYears}
           setPeriodYears={setPeriodYears}
+          clientId={clientId}
+          employeeIds={employeeIds}
+          setEmployeeIds={setEmployeeIds}
+          purpose={purpose}
+          setPurpose={setPurpose}
           onChangeClient={() => setStep("client")}
           clientLabel={client ? `${client.business_name}${client.business_number ? ` (${client.business_number})` : ""}` : ""}
         />
@@ -128,7 +145,7 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
     if (shownStep === "select") {
       return <>
         <Button variant="ghost" onClick={onClose}>취소</Button>
-        <Button onClick={() => issue.mutate()} disabled={!checked.length || issue.isPending}>
+        <Button onClick={() => issue.mutate()} disabled={!checked.length || (employeeMode && !employeeIds.length) || issue.isPending}>
           {issue.isPending ? "요청중..." : `발급 (${checked.length})`}
         </Button>
       </>;
@@ -168,7 +185,8 @@ function ClientPicker({ clients, onPick }: { clients: Client[]; onPick: (id: str
 }
 
 function SelectStep({
-  catalog, tab, setTab, checked, toggle, rrnDisclosed, setRrnDisclosed, periodYears, setPeriodYears, onChangeClient, clientLabel,
+  catalog, tab, setTab, checked, toggle, rrnDisclosed, setRrnDisclosed, periodYears, setPeriodYears,
+  clientId, employeeIds, setEmployeeIds, purpose, setPurpose, onChangeClient, clientLabel,
 }: {
   catalog: Awaited<ReturnType<typeof getCatalog>>;
   tab: CertCategory;
@@ -179,11 +197,17 @@ function SelectStep({
   setRrnDisclosed: (v: boolean) => void;
   periodYears: PeriodYears;
   setPeriodYears: (v: PeriodYears) => void;
+  clientId: string | null;
+  employeeIds: string[];
+  setEmployeeIds: (v: string[]) => void;
+  purpose: string;
+  setPurpose: (v: string) => void;
   onChangeClient: () => void;
   clientLabel: string;
 }) {
   const items = catalog.filter((c) => c.category === tab);
   const periodTitles = catalog.filter((c) => c.period && checked.includes(c.code)).map((c) => c.title);
+  const employeeChecked = catalog.some((c) => c.category === "EMPLOYEE" && checked.includes(c.code));
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
@@ -235,11 +259,58 @@ function SelectStep({
         </div>
       )}
 
+      {tab === "EMPLOYEE" && (
+        <p className="text-[11px] text-gray-400">직원용 증명서는 이지원천 직원 정보로 바로 만들어지며, 홈택스 증명원과 따로 발급합니다.</p>
+      )}
+      {employeeChecked && clientId && (
+        <EmployeePicker clientId={clientId} selected={employeeIds} setSelected={setEmployeeIds} purpose={purpose} setPurpose={setPurpose} />
+      )}
+
       {tab === "HOMETAX" && (
         <label className="flex items-center gap-2 text-[12px] text-gray-600">
           <input type="checkbox" checked={rrnDisclosed} onChange={(e) => setRrnDisclosed(e.target.checked)} />
           주민등록번호 공개 (제출처가 요구할 때만)
         </label>
+      )}
+    </div>
+  );
+}
+
+function EmployeePicker({ clientId, selected, setSelected, purpose, setPurpose }: {
+  clientId: string;
+  selected: string[];
+  setSelected: (v: string[]) => void;
+  purpose: string;
+  setPurpose: (v: string) => void;
+}) {
+  const { data: employees = [], isLoading } = useClientEmployees(clientId);
+  const list = employees.filter((e) => e.status !== "PENDING");
+  const toggle = (id: string) => setSelected(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+
+  return (
+    <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] font-medium text-gray-700">직원 선택 {selected.length > 0 && <span className="text-blue-600">{selected.length}명</span>}</span>
+        <Input className="!w-56 !py-1 !text-[12px]" placeholder="용도 (예: 금융기관 제출용)" value={purpose} onChange={(e) => setPurpose(e.target.value)} maxLength={50} />
+      </div>
+      {isLoading ? (
+        <p className="text-[12px] text-gray-400">불러오는 중...</p>
+      ) : list.length === 0 ? (
+        <p className="text-[12px] text-gray-400">등록된 직원이 없습니다.</p>
+      ) : (
+        <div className="max-h-44 overflow-y-auto divide-y divide-gray-100">
+          {list.map((e) => (
+            <label key={e.id} className="flex items-center justify-between py-1.5 cursor-pointer">
+              <span className="flex items-center gap-2">
+                <input type="checkbox" checked={selected.includes(e.id)} onChange={() => toggle(e.id)} />
+                <span className="text-[12.5px] text-gray-800">{e.name}</span>
+              </span>
+              <span className="text-[11px] text-gray-400">
+                {e.hired_at ? `${e.hired_at} 입사` : "입사일 없음"}{e.resigned_at ? ` · ${e.resigned_at} 퇴사` : ""}
+              </span>
+            </label>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -279,9 +350,11 @@ function DoneStep({ issues }: { issues: CertificateIssue[] }) {
         {ok === issues.length ? "증명원 발급이 완료되었습니다." : `${issues.length}건 중 ${ok}건 발급되었습니다.`}
       </p>
       <p className="text-[12.5px] text-gray-600">
-        {ok > 0
-          ? "원본은 자동화 PC 의 지정 폴더에 저장했습니다. [확인]을 누르면 다음 작업을 선택합니다."
-          : "발급된 증명원이 없습니다. 실패 사유를 확인한 뒤 다시 요청하세요."}
+        {ok === 0
+          ? "발급된 증명원이 없습니다. 실패 사유를 확인한 뒤 다시 요청하세요."
+          : issues.some((i) => i.status === "ISSUED" && !i.local_path)
+            ? "이지원천에서 발급했습니다. 다음 단계의 [폴더 열어 확인]을 누르면 자동화 PC 지정 폴더에 저장하고 엽니다."
+            : "원본은 자동화 PC 의 지정 폴더에 저장했습니다. [확인]을 누르면 다음 작업을 선택합니다."}
       </p>
       <IssueList issues={issues} showPath />
     </div>

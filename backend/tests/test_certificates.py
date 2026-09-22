@@ -80,7 +80,7 @@ async def test_catalog_and_unavailable_rejected(http: AsyncClient, auth_headers:
 
     r = await http.post(
         f"{BASE}/issue-requests",
-        json={"client_id": await _client_id(http, auth_headers), "cert_types": ["EMPLOYMENT_CERT"]},
+        json={"client_id": await _client_id(http, auth_headers), "cert_types": ["WITHHOLDING_RECEIPT"]},
         headers=auth_headers,
     )
     assert r.status_code == 409
@@ -173,3 +173,96 @@ async def test_server_copy_deleted_after_30_days(http: AsyncClient, auth_headers
     assert detail["issues"][0]["has_file"] is False
     # 원본 경로 기록은 남는다
     assert detail["issues"][0]["local_path"]
+
+
+# ---------------------------------------------------------------------------
+# 직원용 증명서 — 서버 생성 (재직·경력)
+# ---------------------------------------------------------------------------
+
+
+async def _employees(http: AsyncClient, auth_headers: dict) -> tuple[str, list[dict]]:
+    for client in (await http.get("/api/v1/clients", headers=auth_headers)).json():
+        emps = (await http.get(f"/api/v1/clients/{client['id']}/employees", headers=auth_headers)).json()
+        if any(e["hired_at"] and not e["resigned_at"] for e in emps):
+            return client["id"], emps
+    pytest.skip("시드에 입사일 있는 재직 직원이 없다")
+
+
+@pytest.mark.asyncio
+async def test_employee_certificates_generated_immediately(http: AsyncClient, auth_headers: dict):
+    client_id, emps = await _employees(http, auth_headers)
+    active = next(e for e in emps if e["hired_at"] and not e["resigned_at"])
+
+    r = await http.post(
+        f"{BASE}/issue-requests",
+        json={"client_id": client_id, "cert_types": ["EMPLOYMENT_CERT", "CAREER_CERT"],
+              "employee_ids": [active["id"]], "purpose": "금융기관 제출용"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["job"]["status"] == "SUCCEEDED"
+    assert [i["status"] for i in body["issues"]] == ["ISSUED", "ISSUED"]
+    assert all(active["name"] in i["title"] and i["employee_id"] == active["id"] for i in body["issues"])
+
+    pdf = await http.get(f"{BASE}/issues/{body['issues'][0]['id']}/file", headers=auth_headers)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+
+    # [폴더 열어 확인] → 에이전트가 서버 사본을 내려받아 저장 경로를 보고
+    agent = await _agent(http, auth_headers)
+    await http.post(f"{BASE}/jobs/{body['job']['id']}/open-folder", headers=auth_headers)
+    pending = (await http.get(f"{BASE}/agent/folder-requests", headers=agent)).json()
+    assert {i["id"] for i in pending} == {i["id"] for i in body["issues"]}
+    issue_id = pending[0]["id"]
+    got = await http.get(f"{BASE}/agent/issues/{issue_id}/file", headers=agent)
+    assert got.content.startswith(b"%PDF")
+    r = await http.post(
+        f"{BASE}/agent/issues/{issue_id}/folder-opened",
+        json={"local_path": "D:/이지원천/증명원/x.pdf"}, headers=agent,
+    )
+    assert r.json()["local_path"] == "D:/이지원천/증명원/x.pdf"
+
+
+@pytest.mark.asyncio
+async def test_employee_certificate_rules(http: AsyncClient, auth_headers: dict):
+    from app.db import SessionLocal
+    from app.models import Employee
+
+    client_id, emps = await _employees(http, auth_headers)
+    target = next(e for e in emps if e["hired_at"] and not e["resigned_at"])
+
+    # 홈택스 증명원과 섞으면 거부, 직원 미선택도 거부
+    mixed = await http.post(
+        f"{BASE}/issue-requests",
+        json={"client_id": client_id, "cert_types": ["CAREER_CERT", "BUSINESS_REGISTRATION"], "employee_ids": [target["id"]]},
+        headers=auth_headers,
+    )
+    assert mixed.status_code == 422
+    none = await http.post(
+        f"{BASE}/issue-requests", json={"client_id": client_id, "cert_types": ["CAREER_CERT"]}, headers=auth_headers
+    )
+    assert none.status_code == 422
+
+    # 퇴사자는 재직증명서 실패(사유), 경력증명서는 발급
+    from datetime import date
+
+    async with SessionLocal() as db:
+        emp = await db.get(Employee, target["id"])
+        original = emp.resigned_at
+        emp.resigned_at = date(2026, 6, 30)
+        await db.commit()
+    try:
+        r = await http.post(
+            f"{BASE}/issue-requests",
+            json={"client_id": client_id, "cert_types": ["EMPLOYMENT_CERT", "CAREER_CERT"], "employee_ids": [target["id"]]},
+            headers=auth_headers,
+        )
+        issues = {i["cert_type"]: i for i in r.json()["issues"]}
+        assert issues["EMPLOYMENT_CERT"]["status"] == "FAILED" and "경력증명서" in issues["EMPLOYMENT_CERT"]["failure_reason"]
+        assert issues["CAREER_CERT"]["status"] == "ISSUED"
+        assert r.json()["job"]["status"] == "FAILED"
+    finally:
+        async with SessionLocal() as db:
+            emp = await db.get(Employee, target["id"])
+            emp.resigned_at = original
+            await db.commit()

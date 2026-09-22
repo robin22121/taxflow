@@ -59,8 +59,14 @@ class EasyoneClient:
         r.raise_for_status()
         return r.json()
 
-    def folder_opened(self, issue_id: str) -> Any:
-        return self._post(f"/issues/{issue_id}/folder-opened")
+    def folder_opened(self, issue_id: str, local_path: Path | None = None) -> Any:
+        body = {"local_path": str(local_path)} if local_path else None
+        return self._post(f"/issues/{issue_id}/folder-opened", json=body)
+
+    def download(self, issue_id: str) -> bytes:
+        r = self.client.get(f"{PREFIX}/issues/{issue_id}/file")
+        r.raise_for_status()
+        return r.content
 
     def close(self) -> None:
         self.client.close()
@@ -100,18 +106,28 @@ def short_reason(exc: Exception) -> str:
     return msg[:300]
 
 
-def _handle_folder_requests(client: EasyoneClient) -> None:
+def _handle_folder_requests(client: EasyoneClient, save_dir: Path) -> None:
     opened: set[str] = set()
     for issue in client.folder_requests():
-        path = Path(issue.get("local_path") or "")
-        if not path.exists():
-            # 다른 PC 에서 발급된 건 — 이 PC 에는 원본이 없다. 요청은 그대로 둔다.
+        saved: Path | None = None
+        if issue.get("local_path"):
+            path = Path(issue["local_path"])
+            if not path.exists():
+                # 다른 PC 에서 발급된 건 — 이 PC 에는 원본이 없다. 요청은 그대로 둔다.
+                continue
+        elif issue.get("has_file"):
+            # 서버가 만든 증명서(직원용) — 서버 사본을 지정 폴더로 내려받아 원본으로 둔다
+            path = save_path(save_dir, issue["business_name"], issue["title"], issue.get("file_name") or ".pdf")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(client.download(issue["id"]))
+            saved = path
+        else:
             continue
         if str(path.parent) not in opened:  # 같은 요청의 여러 증명원은 창 하나로
             open_in_file_manager(path)
             opened.add(str(path.parent))
-        client.folder_opened(issue["id"])
-        print(f"[+] 폴더 열기: {path.parent}")
+            print(f"[+] 폴더 열기: {path.parent}")
+        client.folder_opened(issue["id"], saved)
 
 
 def _run_job(client: EasyoneClient, claimed: dict[str, Any], cdp_url: str, save_dir: Path) -> None:
@@ -152,7 +168,7 @@ def run_easyone_loop(server_url: str, token: str, cdp_url: str, save_dir: Path) 
     try:
         while True:
             try:
-                _handle_folder_requests(client)
+                _handle_folder_requests(client, save_dir)
                 claimed = client.claim()
             except Exception as exc:  # noqa: BLE001
                 print(f"[!] 서버 통신 실패: {exc}")

@@ -35,6 +35,8 @@ class CertificateIssue(Base, IdMixin, TimestampMixin):
     client_id: Mapped[str] = mapped_column(ForeignKey("clients.id"))
     requested_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     rpa_job_id: Mapped[str] = mapped_column(ForeignKey("rpa_jobs.id"))
+    # 직원용 증명서(재직·경력)만 — 서버가 직접 생성한다 (services/employee_certificates)
+    employee_id: Mapped[str | None] = mapped_column(ForeignKey("employees.id"))
 
     cert_type: Mapped[str] = mapped_column(String(40))  # 카탈로그 코드 (services/certificates.CATALOG)
     title: Mapped[str] = mapped_column(String(100))  # 요청 시점 이름 스냅샷

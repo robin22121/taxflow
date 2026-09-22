@@ -11,7 +11,8 @@
         POST /agent/issues/{id}/fail         개별 증명원 실패
         POST /agent/jobs/{job_id}/finish     요청 전체 종료
         GET  /agent/folder-requests          폴더 열기 요청 가져가기
-        POST /agent/issues/{id}/folder-opened
+        GET  /agent/issues/{id}/file         서버에서 만든 증명서(직원용) 내려받기 → 지정 폴더 저장
+        POST /agent/issues/{id}/folder-opened  (내려받았으면 저장 경로 함께)
 공개     GET  /api/v1/public/certificates/{token}   고객 다운로드 (30일)
 """
 
@@ -36,6 +37,7 @@ from app.models import (
     CertificateIssue,
     CertificateStatus,
     Client,
+    Employee,
     RpaAgent,
     RpaJob,
     RpaJobKind,
@@ -45,6 +47,8 @@ from app.models import (
 )
 from app.schemas.rpa import RpaJobOut
 from app.services.certificates import CATALOG, CATALOG_BY_CODE, RETENTION, delivery_body
+from app.services.crypto import decrypt_rrn, mask_rrn
+from app.services.employee_certificates import CertificateDataError, CertificateInput, render_pdf
 from app.services.storage import get_storage
 
 router = APIRouter()
@@ -70,12 +74,15 @@ class IssueRequestIn(BaseModel):
     cert_types: list[str] = Field(min_length=1, max_length=20)
     rrn_disclosed: bool = False
     period_years: Literal[1, 3, 5] = 1  # 기간 있는 증명원에만 적용 (PERIOD_YEARS)
+    employee_ids: list[str] = Field(default_factory=list, max_length=100)  # 직원용 증명서 대상
+    purpose: str | None = Field(default=None, max_length=50)  # 직원용 증명서 '용도' 칸
 
 
 class CertificateIssueOut(BaseModel):
     id: str
     client_id: str
     rpa_job_id: str
+    employee_id: str | None
     cert_type: str
     title: str
     options: dict | None
@@ -118,6 +125,10 @@ class FailIn(BaseModel):
 class FinishIn(BaseModel):
     status: Literal["SUCCEEDED", "FAILED"]
     message: str | None = Field(default=None, max_length=2000)
+
+
+class FolderOpenedIn(BaseModel):
+    local_path: str | None = Field(default=None, max_length=500)  # 서버 생성분을 내려받아 저장한 경로
 
 
 class DeliverIn(BaseModel):
@@ -198,6 +209,13 @@ async def create_issue_request(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"알 수 없는 증명원: {code}")
         if not item["available"]:
             raise HTTPException(status.HTTP_409_CONFLICT, f"{item['title']}은(는) 아직 준비중입니다")
+    employee_codes = [c for c in codes if CATALOG_BY_CODE[c]["category"] == "EMPLOYEE"]
+    if employee_codes:
+        if len(employee_codes) != len(codes):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "직원용 증명서는 홈택스 증명원과 따로 요청하세요"
+            )
+        return await _issue_employee_certificates(db, user, client, codes, payload)
 
     job = RpaJob(
         tax_office_id=office_id,
@@ -227,6 +245,103 @@ async def create_issue_request(
                 business_name=client.business_name,
             )
         )
+    await db.commit()
+    return await _job_out(db, job)
+
+
+async def _issue_employee_certificates(
+    db: AsyncSession, user: User, client: Client, codes: list[str], payload: IssueRequestIn
+) -> CertificateJobOut:
+    """직원용 증명서는 서버가 바로 만든다 — 에이전트 대기 없이 요청 즉시 완료.
+
+    원본 폴더 저장은 [폴더 열어 확인] 때 에이전트가 서버 사본을 내려받아 한다.
+    """
+    employee_ids = list(dict.fromkeys(payload.employee_ids))
+    if not employee_ids:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "증명서를 발급할 직원을 선택하세요")
+    employees = (
+        await db.execute(select(Employee).where(Employee.id.in_(employee_ids), Employee.client_id == client.id))
+    ).scalars().all()
+    if len(employees) != len(employee_ids):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "선택한 직원을 찾을 수 없습니다")
+    by_id = {e.id: e for e in employees}
+
+    now = _utcnow()
+    job = RpaJob(
+        tax_office_id=client.tax_office_id,
+        kind=RpaJobKind.CERTIFICATE_ISSUE,
+        client_id=client.id,
+        business_number=(client.business_number or "").strip(),
+        business_name=client.business_name,
+        requested_by_user_id=user.id,
+        status=RpaJobStatus.RUNNING,
+        claimed_at=now,
+    )
+    db.add(job)
+    await db.flush()
+
+    storage = get_storage()
+    progress: dict[str, str] = {}
+    failures: list[str] = []
+    for employee_id in employee_ids:
+        emp = by_id[employee_id]
+        rrn = decrypt_rrn(emp.rrn_encrypted) if emp.rrn_encrypted else ""
+        for code in codes:
+            title = f"{CATALOG_BY_CODE[code]['title']} · {emp.name}"
+            issue = CertificateIssue(
+                tax_office_id=client.tax_office_id,
+                client_id=client.id,
+                requested_by_user_id=user.id,
+                rpa_job_id=job.id,
+                employee_id=emp.id,
+                cert_type=code,
+                title=title,
+                options={"purpose": payload.purpose} if payload.purpose else None,
+                business_number=job.business_number or None,
+                business_name=client.business_name,
+            )
+            db.add(issue)
+            key = f"{code}:{emp.id}"
+            try:
+                pdf = render_pdf(
+                    CertificateInput(
+                        kind=code,
+                        employee_name=emp.name,
+                        rrn_masked=mask_rrn(rrn[:6] + "-" + rrn[6:] if rrn and "-" not in rrn else rrn),
+                        department=emp.department,
+                        position=emp.position,
+                        job_type=emp.job_type,
+                        hired_at=emp.hired_at,
+                        resigned_at=emp.resigned_at,
+                        company_name=client.business_name,
+                        business_number=client.business_number,
+                        representative=client.representative,
+                        purpose=payload.purpose,
+                        issued_on=now.astimezone().date(),
+                    )
+                )
+            except CertificateDataError as exc:
+                issue.status = CertificateStatus.FAILED
+                issue.failure_reason = str(exc)
+                progress[key] = "failed"
+                failures.append(f"{title}: {exc}")
+                continue
+            file_key = storage.make_key("certificates", ".pdf")
+            storage.put_object(file_key, pdf, "application/pdf")
+            issue.status = CertificateStatus.ISSUED
+            issue.issued_at = now
+            issue.file_key = file_key
+            issue.file_name = f"{CATALOG_BY_CODE[code]['title']}_{emp.name}.pdf"
+            issue.expires_at = now + RETENTION
+            progress[key] = "done"
+
+    job.step_progress = progress
+    _finish(
+        job,
+        RpaJobStatus.FAILED if failures else RpaJobStatus.SUCCEEDED,
+        "; ".join(failures) if failures else f"{len(progress)}건 발급 완료",
+        now,
+    )
     await db.commit()
     return await _job_out(db, job)
 
@@ -500,15 +615,30 @@ async def agent_folder_requests(
     return [CertificateIssueOut.of(i) for i in rows.scalars().all()]
 
 
+@router.get("/agent/issues/{issue_id}/file")
+async def agent_download_file(
+    issue_id: str,
+    db: AsyncSession = Depends(get_db),
+    agent: RpaAgent = Depends(get_current_agent),
+) -> Response:
+    issue = await db.get(CertificateIssue, issue_id)
+    if issue is None or issue.tax_office_id != agent.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "증명원을 찾을 수 없습니다")
+    return await _file_response(db, issue)
+
+
 @router.post("/agent/issues/{issue_id}/folder-opened", response_model=CertificateIssueOut)
 async def agent_folder_opened(
     issue_id: str,
+    payload: FolderOpenedIn | None = None,
     db: AsyncSession = Depends(get_db),
     agent: RpaAgent = Depends(get_current_agent),
 ) -> CertificateIssueOut:
     issue = await db.get(CertificateIssue, issue_id)
     if issue is None or issue.tax_office_id != agent.tax_office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "증명원을 찾을 수 없습니다")
+    if payload and payload.local_path and not issue.local_path:
+        issue.local_path = payload.local_path
     issue.folder_opened_at = _utcnow()
     await db.commit()
     await db.refresh(issue)
