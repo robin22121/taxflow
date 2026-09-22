@@ -157,6 +157,36 @@ async def test_issue_open_folder_then_deliver(http: AsyncClient, auth_headers: d
 
 
 @pytest.mark.asyncio
+async def test_deliver_email_attaches_pdf(http: AsyncClient, auth_headers: dict, monkeypatch):
+    from app.api import certificates as api
+    from app.channels.base import SendResult
+
+    sent: list[dict] = []
+
+    class Capture:
+        async def send(self, recipient, *, body, template_code=None, attachments=None, **_):
+            sent.append({"to": recipient.email, "subject": template_code, "body": body, "attachments": attachments})
+            return SendResult(channel="email_test", accepted=True, provider_msg_id="x")
+
+    monkeypatch.setattr(api, "get_email_channel", lambda: Capture())
+    job_id, _, _ = await _issued_job(http, auth_headers)
+    await http.post(f"{BASE}/jobs/{job_id}/open-folder", headers=auth_headers)
+
+    bad = await http.post(f"{BASE}/jobs/{job_id}/deliver", json={"channel": "email", "email": "없음"}, headers=auth_headers)
+    assert bad.status_code == 422
+
+    r = await http.post(
+        f"{BASE}/jobs/{job_id}/deliver", json={"channel": "email", "email": "owner@example.com"}, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["to"] == "owner@example.com"
+    mail = sent[0]
+    assert mail["to"] == "owner@example.com" and "증명원 발급 안내" in mail["subject"]
+    assert "30일간 유효" in mail["body"]
+    assert [(name, data) for name, data in mail["attachments"]] == [("사업자등록증명.pdf", b"%PDF-1.4 test")]
+
+
+@pytest.mark.asyncio
 async def test_server_copy_deleted_after_30_days(http: AsyncClient, auth_headers: dict):
     from app.db import SessionLocal
     from app.models import CertificateIssue

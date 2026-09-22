@@ -29,10 +29,13 @@ class StubEmailChannel(MessageChannel):
     def __init__(self) -> None:
         self.sent: list[dict] = []
 
-    async def send(self, recipient, *, body, template_code=None, url=None, reply_to=None) -> SendResult:
+    async def send(
+        self, recipient, *, body, template_code=None, url=None, reply_to=None, attachments=None
+    ) -> SendResult:
         msg_id = uuid4().hex
         self.sent.append(
-            {"id": msg_id, "email": recipient.email, "body": body, "url": url, "reply_to": reply_to}
+            {"id": msg_id, "email": recipient.email, "body": body, "url": url, "reply_to": reply_to,
+             "subject": template_code, "attachments": [name for name, _ in attachments or []]}
         )
         logger.info("[email-stub] → %s | reply_to=%s | %s", recipient.email, reply_to, body[:60])
         return SendResult(channel=self.name, accepted=True, provider_msg_id=msg_id)
@@ -49,7 +52,8 @@ class ResendEmailChannel(MessageChannel):
         self.from_email = s.resend_from_email
 
     async def send(
-        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None
+        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None,
+        attachments: list[tuple[str, bytes]] | None = None,
     ) -> SendResult:
         if not (self.api_key and self.from_email and recipient.email):
             missing = [
@@ -89,6 +93,10 @@ class ResendEmailChannel(MessageChannel):
             payload["html"] = body
         else:
             payload["text"] = body
+        if attachments:  # [(파일명, 바이트)] — Resend 는 base64 content 로 받는다
+            payload["attachments"] = [
+                {"filename": name, "content": base64.b64encode(data).decode()} for name, data in attachments
+            ]
 
         logger.info("[email-resend] sending → %s (subject: %s)", recipient.email, subject)
         async with httpx.AsyncClient(timeout=10.0) as cli:
@@ -130,7 +138,8 @@ class SendGridEmailChannel(MessageChannel):
         self.from_email = s.sendgrid_from_email
 
     async def send(
-        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None
+        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None,
+        attachments: list[tuple[str, bytes]] | None = None,
     ) -> SendResult:
         if not (self.api_key and self.from_email and recipient.email):
             missing = [
@@ -159,6 +168,11 @@ class SendGridEmailChannel(MessageChannel):
         }
         if reply_to:
             mail_json["reply_to"] = {"email": reply_to}
+        if attachments:
+            mail_json["attachments"] = [
+                {"content": base64.b64encode(data).decode(), "filename": name, "disposition": "attachment"}
+                for name, data in attachments
+            ]
         async with httpx.AsyncClient(timeout=10.0) as cli:
             resp = await cli.post(
                 "https://api.sendgrid.com/v3/mail/send",
@@ -204,7 +218,8 @@ class NcpOutboundMailerChannel(MessageChannel):
         return base64.b64encode(sig).decode("utf-8")
 
     async def send(
-        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None
+        self, recipient: MessageRecipient, *, body, template_code=None, url=None, reply_to=None,
+        attachments: list[tuple[str, bytes]] | None = None,
     ) -> SendResult:
         if not (self.access_key and self.secret_key and self.sender_address and recipient.email):
             return SendResult(
@@ -213,6 +228,9 @@ class NcpOutboundMailerChannel(MessageChannel):
                 provider_msg_id=None,
                 error="NCP Outbound Mailer config or recipient email missing",
             )
+        if attachments:
+            # NCP 는 첨부를 별도 파일 업로드 API 로 먼저 올려야 한다 — 미구현, 본문 링크만 간다
+            logger.warning("[email-ncp] attachments ignored (%d)", len(attachments))
         ts = str(int(time.time() * 1000))
         headers = {
             "Content-Type": "application/json; charset=utf-8",

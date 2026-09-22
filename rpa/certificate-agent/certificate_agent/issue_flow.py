@@ -50,6 +50,7 @@ SEL_GOTO_RESULT = "#mf_txppWframe_btn_cvaTrtRsltInqr"  # 민원처리결과 조�
 SEL_RESULT_SEARCH = "#mf_txppWframe_btn_search"  # 조회
 SEL_FIRST_PRINT = "#mf_txppWframe_gen_cvaInf_0_btn_cvaDcumGranMthdNm"  # 첫 행 [출력]
 SEL_WARN_YES = "#mf_txppWframe_UTECAAP0A024_wframe_btn_yes"  # 위·변조 경고 → 예 (팝업)
+SEL_VIEWER_PRINT = "button[id^='re_print']"  # 증명서 뷰어(ClipReport) [인쇄] — 원본 PDF 요청
 
 # --- 납세증명서(기타용) 신청 화면 (2026-09-22 맥북 실측) ---
 # 납세자 구분은 로그인 주체로 고정(disabled)되고 사업자 선택 드롭다운이 없다.
@@ -435,7 +436,32 @@ def _capture_popup(context, page) -> tuple[bytes, str, str]:
     time.sleep(5.0)  # 리포트 뷰어 렌더 대기
     print(f"[+] 팝업: {popup.url}")
 
-    # 인쇄 대화상자를 띄우지 않고 CDP 로 바로 PDF 생성
+    # 1순위: 뷰어 [인쇄] 가 서버(ClipAndMarkAny.jsp)에서 받아오는 원본 PDF 를 그대로 쓴다.
+    # 화면을 PDF 로 찍으면 뷰어 툴바가 같이 찍히고 오른쪽이 잘린다 (2026-09-22 실측).
+    try:
+        with popup.expect_response(
+            lambda r: "ClipAndMarkAny" in r.url and "pdf" in r.headers.get("content-type", ""),
+            timeout=30000,
+        ) as resp_info:
+            popup.locator(SEL_VIEWER_PRINT).first.click(timeout=10000)
+        # 응답 본문은 Chrome PDF 뷰어 껍데기 HTML 로 돌아오므로, 같은 요청을 브라우저 세션
+        # 쿠키로 다시 보내 PDF 바이트를 직접 받는다.
+        req = resp_info.value.request
+        replay = context.request.fetch(
+            req.url,
+            method=req.method,
+            headers={k: v for k, v in req.headers.items() if not k.startswith(":")},
+            data=req.post_data_buffer,
+            timeout=30000,
+        )
+        body = replay.body()
+        if body.startswith(b"%PDF"):
+            return body, "cert.pdf", "application/pdf"
+        print(f"[!] 원본 PDF 재요청 결과가 PDF 가 아님 ({replay.status}, {body[:8]!r}) — 화면 저장으로 대체")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[!] 원본 PDF 받기 실패, 화면 저장으로 대체: {exc.__class__.__name__}: {exc}")
+
+    # 2순위: 인쇄 대화상자를 띄우지 않고 CDP 로 화면을 PDF 로 생성
     try:
         cdp = context.new_cdp_session(popup)
         res = cdp.send("Page.printToPDF", {"printBackground": True, "preferCSSPageSize": True})

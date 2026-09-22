@@ -5,7 +5,7 @@
         GET  /jobs/{job_id}                  요청 진행 상황 (팝업 폴링)
         GET  /issues/{id}/file               서버 사본 미리보기 (30일 이내)
         POST /jobs/{job_id}/open-folder      [폴더 열어 확인] — 에이전트 PC 에서 탐색기 열기
-        POST /jobs/{job_id}/deliver          문자·알림톡 발송 (폴더 확인이 먼저)
+        POST /jobs/{job_id}/deliver          문자·알림톡·이메일(PDF 첨부) 발송 (폴더 확인이 먼저)
 에이전트 POST /agent/claim                    증명원 작업 1건 가져가기 (위하고 claim 과 분리)
         POST /agent/issues/{id}/file         발급본 업로드 (원본 경로 함께)
         POST /agent/issues/{id}/fail         개별 증명원 실패
@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.rpa import RUNNING_TIMEOUT, _as_utc, _finish, _office_id, _utcnow, get_current_agent
 from app.channels.alimtalk import get_alimtalk_channel
+from app.channels.email import get_email_channel
 from app.channels.base import MessageRecipient
 from app.channels.sms import get_sms_channel
 from app.config import get_settings
@@ -46,7 +47,7 @@ from app.models import (
     User,
 )
 from app.schemas.rpa import RpaJobOut
-from app.services.certificates import CATALOG, CATALOG_BY_CODE, RETENTION, delivery_body
+from app.services.certificates import CATALOG, CATALOG_BY_CODE, RETENTION, delivery_body, delivery_subject
 from app.services.crypto import decrypt_rrn, mask_rrn
 from app.services.employee_certificates import CertificateDataError, CertificateInput, render_pdf
 from app.services.storage import get_storage
@@ -132,8 +133,9 @@ class FolderOpenedIn(BaseModel):
 
 
 class DeliverIn(BaseModel):
-    channel: Literal["sms", "alimtalk"]
+    channel: Literal["sms", "alimtalk", "email"]
     phone: str | None = Field(default=None, max_length=40)  # 비우면 거래처 담당자 연락처
+    email: str | None = Field(default=None, max_length=200)  # 비우면 거래처 담당자 이메일
 
 
 class DeliverOut(BaseModel):
@@ -422,29 +424,46 @@ async def deliver(
         raise HTTPException(status.HTTP_409_CONFLICT, "먼저 [폴더 열어 확인]으로 발급본을 확인하세요")
 
     client = await db.get(Client, job.client_id)
-    phone = (payload.phone or (client.contact_phone if client else None) or "").strip()
-    if not phone:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "받는 사람 휴대폰 번호가 없습니다")
+    if payload.channel == "email":
+        to = (payload.email or (client.contact_email if client else None) or "").strip()
+        if "@" not in to:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "받는 사람 이메일 주소가 없습니다")
+    else:
+        to = (payload.phone or (client.contact_phone if client else None) or "").strip()
+        if not to:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "받는 사람 휴대폰 번호가 없습니다")
     office = await db.get(TaxOffice, job.tax_office_id)
+    office_name = office.name if office else "세무사무소"
 
     base = get_settings().app_base_url.rstrip("/")
     for issue in issues:
         issue.download_token = issue.download_token or secrets.token_urlsafe(24)
     body = delivery_body(
-        office.name if office else "세무사무소",
+        office_name,
         job.business_name,
         [(i.title, f"{base}/api/v1/public/certificates/{i.download_token}") for i in issues],
         min(_as_utc(i.expires_at) for i in issues if i.expires_at),
     )
-    recipient = MessageRecipient(name=job.business_name, phone=phone)
-    if payload.channel == "sms":
-        result = await get_sms_channel().send(recipient, body=body)
+    if payload.channel == "email":
+        # 이메일은 PDF 원본을 첨부한다 — 링크가 만료돼도 고객이 파일을 보관할 수 있게
+        storage = get_storage()
+        attachments = [(i.file_name or f"{i.title}.pdf", storage.get_object(i.file_key)) for i in issues]
+        result = await get_email_channel().send(
+            MessageRecipient(name=job.business_name, email=to),
+            body=body,
+            template_code=delivery_subject(office_name, job.business_name),  # 이메일 채널은 제목으로 쓴다
+            attachments=attachments,
+        )
+    elif payload.channel == "sms":
+        result = await get_sms_channel().send(MessageRecipient(name=job.business_name, phone=to), body=body)
     else:
-        result = await get_alimtalk_channel().send(recipient, body=body, template_code=ALIMTALK_TEMPLATE)
+        result = await get_alimtalk_channel().send(
+            MessageRecipient(name=job.business_name, phone=to), body=body, template_code=ALIMTALK_TEMPLATE
+        )
 
     record = {
         "channel": payload.channel,
-        "to": phone,
+        "to": to,
         "at": _utcnow().isoformat(),
         "accepted": result.accepted,
         "by": user.id,
@@ -455,7 +474,7 @@ async def deliver(
         job.step_progress = {**(job.step_progress or {}), "delivered": "done"}
         job.acknowledged_at = None
     await db.commit()
-    return DeliverOut(accepted=result.accepted, channel=payload.channel, to=phone, body=body, error=result.error)
+    return DeliverOut(accepted=result.accepted, channel=payload.channel, to=to, body=body, error=result.error)
 
 
 # --- 에이전트 (X-Agent-Token) ---------------------------------------------

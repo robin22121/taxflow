@@ -42,6 +42,10 @@ CATALOG: list[dict] = [
 CATALOG_BY_CODE = {c["code"]: c for c in CATALOG}
 
 
+def delivery_subject(office_name: str, business_name: str) -> str:
+    return f"[{office_name}] {business_name} 증명원 발급 안내"
+
+
 def delivery_body(office_name: str, business_name: str, items: list[tuple[str, str]], expires_at: datetime) -> str:
     """고객 안내문. items = [(증명원 이름, 다운로드 링크)]. "30일간 유효" 문구 필수 (§4-9)."""
     lines = [f"[{office_name}] {business_name} 증명원 발급 안내", ""]

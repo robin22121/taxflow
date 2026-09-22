@@ -15,6 +15,7 @@ import type { Client } from "@/lib/types";
 import {
   type CertCategory,
   type CertificateIssue,
+  type DeliverChannel,
   PERIOD_YEARS,
   type PeriodYears,
   createIssueRequest,
@@ -136,7 +137,12 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
       {shownStep === "progress" && <ProgressStep issues={jobData?.issues ?? []} />}
       {shownStep === "done" && jobData && <DoneStep issues={jobData.issues} />}
       {shownStep === "next" && jobData && (
-        <NextStep jobId={jobData.job.id} issues={jobData.issues} defaultPhone={client?.contact_phone ?? ""} />
+        <NextStep
+          jobId={jobData.job.id}
+          issues={jobData.issues}
+          defaultPhone={client?.contact_phone ?? ""}
+          defaultEmail={client?.contact_email ?? ""}
+        />
       )}
     </Modal>
   );
@@ -361,11 +367,16 @@ function DoneStep({ issues }: { issues: CertificateIssue[] }) {
   );
 }
 
-function NextStep({ jobId, issues, defaultPhone }: { jobId: string; issues: CertificateIssue[]; defaultPhone: string }) {
+const CHANNEL_LABEL: Record<DeliverChannel, string> = { sms: "문자", alimtalk: "카톡(알림톡)", email: "이메일" };
+
+function NextStep({ jobId, issues, defaultPhone, defaultEmail }: {
+  jobId: string; issues: CertificateIssue[]; defaultPhone: string; defaultEmail: string;
+}) {
   const qc = useQueryClient();
   const issued = issues.filter((i) => i.status === "ISSUED");
   const [folderChecked, setFolderChecked] = useState(issued.some((i) => i.folder_open_requested_at));
   const [phone, setPhone] = useState(defaultPhone);
+  const [email, setEmail] = useState(defaultEmail);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opened = issued.length > 0 && issued.every((i) => i.folder_opened_at);
@@ -381,10 +392,10 @@ function NextStep({ jobId, issues, defaultPhone }: { jobId: string; issues: Cert
   });
 
   const send = useMutation({
-    mutationFn: (channel: "sms" | "alimtalk") => deliverCertificates(jobId, channel, phone),
+    mutationFn: (channel: DeliverChannel) => deliverCertificates(jobId, channel, channel === "email" ? email : phone),
     onSuccess: (r) => {
       setError(null);
-      setMessage(r.accepted ? `${r.channel === "sms" ? "문자" : "카톡(알림톡)"} 발송 완료 → ${r.to}` : `발송 실패: ${r.error ?? "알 수 없는 오류"}`);
+      setMessage(r.accepted ? `${CHANNEL_LABEL[r.channel as DeliverChannel]} 발송 완료 → ${r.to}` : `발송 실패: ${r.error ?? "알 수 없는 오류"}`);
       qc.invalidateQueries({ queryKey: ["rpa", "jobs"] });
     },
     onError: (e) => setError((e as Error).message),
@@ -420,13 +431,17 @@ function NextStep({ jobId, issues, defaultPhone }: { jobId: string; issues: Cert
 
       <section className={"space-y-2 " + (folderChecked ? "" : "opacity-50")}>
         <h3 className="text-[12.5px] font-semibold text-gray-900">2. 고객에게 보내기</h3>
-        <p className="text-[11.5px] text-gray-500">다운로드 링크를 보냅니다. 링크는 발급일로부터 30일간 유효합니다.</p>
-        <Input placeholder="받는 사람 휴대폰 번호" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={!folderChecked} />
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" disabled={!folderChecked || !phone || send.isPending} onClick={() => send.mutate("sms")}>문자 발송</Button>
-          <Button variant="secondary" disabled={!folderChecked || !phone || send.isPending} onClick={() => send.mutate("alimtalk")}>카톡(알림톡) 발송</Button>
-          <Button variant="secondary" disabled title="팩스 게이트웨이 도입 후 제공">팩스 발송 (준비중)</Button>
+        <p className="text-[11.5px] text-gray-500">다운로드 링크를 보냅니다(발급일로부터 30일간 유효). 이메일은 PDF 원본도 첨부합니다.</p>
+        <div className="flex gap-2">
+          <Input placeholder="받는 사람 휴대폰 번호" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={!folderChecked} />
+          <Button variant="secondary" className="shrink-0" disabled={!folderChecked || !phone || send.isPending} onClick={() => send.mutate("sms")}>문자</Button>
+          <Button variant="secondary" className="shrink-0" disabled={!folderChecked || !phone || send.isPending} onClick={() => send.mutate("alimtalk")}>카톡(알림톡)</Button>
         </div>
+        <div className="flex gap-2">
+          <Input type="email" placeholder="받는 사람 이메일" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!folderChecked} />
+          <Button variant="secondary" className="shrink-0" disabled={!folderChecked || !email.includes("@") || send.isPending} onClick={() => send.mutate("email")}>이메일</Button>
+        </div>
+        <Button variant="secondary" disabled title="팩스 게이트웨이 도입 후 제공">팩스 발송 (준비중)</Button>
         {!folderChecked && <p className="text-[11.5px] text-gray-400">먼저 [폴더 열어 확인]으로 발급본을 확인하세요.</p>}
       </section>
 

@@ -81,10 +81,13 @@ export function requestOpenFolder(jobId: string): Promise<CertificateJob> {
   return api<CertificateJob>(`/api/v1/certificates/jobs/${jobId}/open-folder`, { method: "POST" });
 }
 
-export function deliverCertificates(jobId: string, channel: "sms" | "alimtalk", phone: string): Promise<DeliverResult> {
+export type DeliverChannel = "sms" | "alimtalk" | "email";
+
+/** to = 휴대폰 번호(문자·알림톡) 또는 이메일 주소(이메일 — PDF 첨부). */
+export function deliverCertificates(jobId: string, channel: DeliverChannel, to: string): Promise<DeliverResult> {
   return api<DeliverResult>(`/api/v1/certificates/jobs/${jobId}/deliver`, {
     method: "POST",
-    json: { channel, phone },
+    json: channel === "email" ? { channel, email: to } : { channel, phone: to },
   });
 }
 
