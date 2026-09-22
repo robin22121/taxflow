@@ -6,7 +6,7 @@
 - rpa_jobs.monthly_filing_id·period nullable — 증명원 발급 작업은 신고월과 무관
 
 Revision ID: d0e1f2a3b4c5
-Revises: c9d0e1f2a3b4
+Revises: d1e2f3a4b5c6
 Create Date: 2026-09-22 00:00:00.000000
 """
 
@@ -17,7 +17,7 @@ from alembic import op
 
 
 revision: str = "d0e1f2a3b4c5"
-down_revision: str | None = "c9d0e1f2a3b4"
+down_revision: str | None = "d1e2f3a4b5c6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
