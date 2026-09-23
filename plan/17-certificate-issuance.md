@@ -244,7 +244,7 @@ Phase 1의 로컬 스크립트가 사업자등록증명 발급을 성공한 뒤 
 - **통신은 Windows → 맥북 한 방향**. 맥북은 Windows 에 접속하지 않는다. Phase 2 프로덕션(사무실 방화벽 인바운드 개방 불필요) 과 동일한 방향.
 - 초기에는 **HTTP + 사무실 Wi-Fi 로컬 IP** (자체 서명 인증서 세팅 번거로움 회피). Phase 2 전에 HTTPS 로 교체.
 - 로그인 계정은 여전히 **사용자 개인 사업자** (세무사 대리 로그인은 Phase 2).
-- **Windows PC = Phase 2 프로덕션의 노트북 시뮬** — BitLocker·Windows 자격증명 관리자·nProtect 같은 실제 환경 요소를 미리 밟는다.
+- **Windows PC = Phase 2 프로덕션의 노트북 시뮬** — VeraCrypt 시스템 암호화·Windows 자격증명 관리자·nProtect 같은 실제 환경 요소를 미리 밟는다.
 
 ### 3-9-2. 파일 구조
 
@@ -557,7 +557,7 @@ uv run python -m certificate_agent snap --tag catalog          # 지금 화면 H
 | 축 | Phase 1.5 | Phase 2 |
 |-----|-----------|---------|
 | 서버 스택 | 맥북 FastAPI + SQLite + 로컬 파일 | 이지원천 백엔드 + PostgreSQL + NHN Object Storage |
-| 에이전트 실행 기기 | Windows PC (개발자 사양) | 사무소 자동화 전용 노트북 (Windows + BitLocker 강제) |
+| 에이전트 실행 기기 | Windows PC (개발자 사양) | 사무소 자동화 전용 노트북 (Windows + VeraCrypt 시스템 암호화 강제) |
 | 자격증명 저장 | Windows 자격 증명 관리자 (DPAPI) | 동일 (그대로) |
 | 로그인 계정 | 사용자 개인사업자 | 세무사 대리 + 세무대리 관리번호 |
 | 대상 사업자 | 사용자 본인 사업자 하나 | 수임처 다중 선택 |
@@ -583,7 +583,7 @@ Phase 1이 확인해준 셀렉터·타이밍·인증서 처리 방식을 그대�
 | PDF 저장 | 로컬 `./out/` | **원본 = 에이전트 PC 지정 폴더** + 서버 사본 30일 (발송 링크용, 만료 시 자동 삭제) — §4-9 |
 | 트리거 | 개발자 콘솔 실행 | 이지원천 UI [발급요청] 버튼 → 서버 잡 큐 → 노트북 에이전트 폴링 |
 | 결과 통지 | 콘솔·로컬 파일 | 이지원천 알림 → 담당자 검토 → 발송 액션 |
-| 자격 증명 저장 | 실행마다 콘솔 입력 | Windows 자격 증명 관리자 (DPAPI) + BitLocker (`plan/16-wehago-rpa.md` §8-2) |
+| 자격 증명 저장 | 실행마다 콘솔 입력 | Windows 자격 증명 관리자 (DPAPI) + VeraCrypt 시스템 암호화 (`plan/16-wehago-rpa.md` §8-2) |
 | 자동화 함수 (로그인 후) | `menu_navigate`, `certificates/*`, `pdf_verify` | **재사용** (Phase 1과 동일) |
 
 ### 4-2. 통합 사용자 흐름 (Phase 2)
