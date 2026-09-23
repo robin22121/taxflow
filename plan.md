@@ -25,6 +25,10 @@
 | [`plan/15-filing-relay.md`](plan/15-filing-relay.md) | 세무사 신고 릴레이 — 위하고 뒤에 붙는 홈택스 일괄 전송 + 접수증·납부서 거래처 자동 배송 (Phase 4+ 확장 후보) |
 | [`plan/16-wehago-rpa.md`](plan/16-wehago-rpa.md) | 위하고 T·홈택스·위택스 원천세 자동화 RPA — 직원 전송 → 자동화 전용 노트북(세무사 전용 아이디)이 급여 입력·원천세·지방세 작업 → 세무사 신고 승인 → 홈택스·위택스 신고 → 접수증·납부서 포털 반영 (약관 검토·안전장치·실측 과제) |
 | [`plan/17-certificate-issuance.md`](plan/17-certificate-issuance.md) | 홈택스 증명발급 자동화 — 사이드바 "증명발급" 메뉴 신설, 12종 즉시발급 대상, 담당자 검토 후 이메일·문자·팩스·다운로드 발송 (Phase 1 개발자 PC 스탠드얼론 → Phase 2 자동화 노트북·세무사 대리 로그인) |
+| [`plan/19-worker-portal.md`](plan/19-worker-portal.md) | **근로자 포털 — 개요·인증·다국어 공유 기반** (사업주 포털 자매). 외국인 노동자 대상 급여·계약·근태 화면 묶음 |
+| [`plan/20-worker-payslip.md`](plan/20-worker-payslip.md) | 근로자 급여명세서 교환·확인·이의제기 (근로기준법 §48 이행 채널) |
+| [`plan/21-worker-contract.md`](plan/21-worker-contract.md) | 근로계약서 발급·다국어 요약·근로자 열람 (외국인고용법 모국어 요건) |
+| [`plan/22-worker-attendance.md`](plan/22-worker-attendance.md) | 출근·연장근로 기록·근로자 이의제기 (사업주 입력 vs 근로자 대조) |
 
 ---
 

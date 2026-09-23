@@ -24,6 +24,10 @@
 | 액션 아이템, TODO, 백로그, 구현 상태 | `plan/08-action-items.md` |
 | 디자인, 와이어프레임, UI 컴포넌트, 사이드바 | `plan/09-design.md` |
 | 주민번호, RRN, 보안, 개인정보, 암호화 | `plan/10-privacy-security.md` |
+| 근로자 포털, 외국인 노동자, 다국어 화면, PIN·상설 링크(근로자) | `plan/19-worker-portal.md` (개요) |
+| 근로자 급여명세서 확인, 이의제기, WageAcknowledgment | `plan/20-worker-payslip.md` |
+| 근로계약서, EmploymentContract, E-9, 모국어 요약 | `plan/21-worker-contract.md` |
+| 출근·근태, 연장근로, AttendanceRecord, OvertimeRequest, 시간외수당 | `plan/22-worker-attendance.md` |
 
 요청이 모호하면 `plan.md` 인덱스에서 해당 영역을 찾아 1~2개 파일만 선택적으로 읽는다. 매칭이 어렵거나 여러 영역에 걸치는 경우, **읽기 전에 사용자에게 어떤 분할 문서를 봐야 할지 확인**한다 (토큰 절약).
 
