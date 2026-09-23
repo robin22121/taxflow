@@ -33,6 +33,11 @@ class Client(Base, IdMixin, TimestampMixin):
     withholding_semiannual: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     fiscal_year_end_month: Mapped[int | None] = mapped_column(Integer)  # 법인 결산월 (None = 12월)
     sincere_filing: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # 성실신고 대상
+    # 사업장 기본사항 — 위하고 수임처정보에서 가져온다 (plan/16 §12)
+    business_type: Mapped[str | None] = mapped_column(String(100))   # 업태
+    business_item: Mapped[str | None] = mapped_column(String(200))   # 종목(업종)
+    business_address: Mapped[str | None] = mapped_column(String(300))  # 사업장 주소
+    wehago_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 마지막 위하고 임포트
     # 사업주 포털 PIN (plan/12-owner-portal.md §4.3.3) — None이면 게이트 뒤 구역을 노출하지 않는다
     portal_pin_hash: Mapped[str | None] = mapped_column(String(128))
     portal_pin_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

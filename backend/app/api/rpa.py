@@ -32,7 +32,7 @@ from app.models import (
     RpaNotificationKind,
     User,
 )
-from app.models.rpa import WEHAGO_JOB_KINDS
+from app.models.rpa import WEHAGO_IMPORT_KINDS, WEHAGO_JOB_KINDS
 from app.schemas.rpa import (
     AgentFilingResultIn,
     FilingResultOut,
@@ -498,6 +498,10 @@ def _notify_gate_transition(db: AsyncSession, job: RpaJob) -> None:
         notification_kind = RpaNotificationKind.GATE3_PUBLISH
         title = f"[{job.business_name}] 홈택스·위택스 신고 완료 — 접수증 검토·발송 확정 필요"
         guide = "접수증·납부서를 확인한 뒤 '발송 확정' 버튼을 눌러 사장님 포털·문자를 발송하세요."
+    elif job.status == RpaJobStatus.SUCCEEDED and job.kind in WEHAGO_IMPORT_KINDS:
+        notification_kind = RpaNotificationKind.IMPORT_DONE
+        title = f"[{job.business_name}] 위하고 가져오기 완료"
+        guide = "위하고 수임처·사원 기본사항을 가져왔습니다. 값이 달라 덮어쓰지 않은 항목은 가져오기 결과에서 확인하세요."
     elif job.status == RpaJobStatus.FAILED:
         notification_kind = RpaNotificationKind.FAILURE
         title = f"[{job.business_name}] {job.kind.value} 실패"

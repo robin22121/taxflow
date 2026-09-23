@@ -22,6 +22,7 @@ import {
   useUpsertFilingResult,
 } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
+import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
 import {
   digitsOnly,
   formatBizNumber,
@@ -69,6 +70,7 @@ export default function ClientDetailPage({
   const [payResult, setPayResult] = useState<ImportPayrollResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [wehagoOpen, setWehagoOpen] = useState(false);
 
   if (isLoading || !client) return <p className="p-6 text-gray-900">로딩 중...</p>;
 
@@ -86,6 +88,10 @@ export default function ClientDetailPage({
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-2">
           <h1 className="text-2xl font-semibold text-gray-900">{client.business_name}</h1>
           <div className="flex gap-2 shrink-0">
+            <Button variant="secondary" onClick={() => setWehagoOpen(true)} disabled={!client.business_number}
+              title={client.business_number ? undefined : "사업자번호가 있어야 위하고에서 찾을 수 있습니다"}>
+              위하고에서 가져오기
+            </Button>
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               편집
             </Button>
@@ -150,6 +156,12 @@ export default function ClientDetailPage({
             setEditOpen(false);
           }}
           pending={updateClient.isPending}
+        />
+      )}
+      {wehagoOpen && (
+        <WehagoImportModal
+          initialBusinessNumber={client.business_number ?? ""}
+          onClose={() => setWehagoOpen(false)}
         />
       )}
 

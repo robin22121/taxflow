@@ -12,7 +12,12 @@
 
 import { api } from "./api";
 
-export type RpaJobKind = "WEHAGO_PAYROLL_INPUT" | "MONTHLY_PRODUCTION" | "CERTIFICATE_ISSUE";
+export type RpaJobKind =
+  | "WEHAGO_PAYROLL_INPUT"
+  | "MONTHLY_PRODUCTION"
+  | "CERTIFICATE_ISSUE"
+  | "WEHAGO_MASTER_IMPORT_ALL"  // 위하고 전체 수임처 가져오기 (관리자)
+  | "WEHAGO_CLIENT_IMPORT";  // 사업자번호 1건 가져오기
 
 export type RpaJobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 
@@ -21,9 +26,9 @@ export type RpaJob = {
   kind: RpaJobKind;
   status: RpaJobStatus;
   monthly_filing_id: string | null;  // 증명원 발급 작업은 null
-  client_id: string;
+  client_id: string | null;  // 위하고 가져오기는 비어 있을 수 있음
   period: string | null;
-  business_number: string;
+  business_number: string | null;  // 전체 가져오기만 null
   business_name: string;
   agent_id: string | null;
   claimed_at: string | null;
@@ -63,7 +68,7 @@ export type FilingResult = {
   created_at: string;
 };
 
-export type RpaNotificationKind = "GATE2_REVIEW" | "GATE3_PUBLISH" | "FAILURE";
+export type RpaNotificationKind = "GATE2_REVIEW" | "GATE3_PUBLISH" | "FAILURE" | "IMPORT_DONE";
 
 export type RpaNotification = {
   id: string;
@@ -148,6 +153,44 @@ export function revokeAgent(id: string): Promise<void> {
   return api<void>(`/api/v1/rpa/agents/${id}`, { method: "DELETE" });
 }
 
+// --- 위하고 → 이지원천 가져오기 (plan/16 §12) ---------------------------
+
+/** 수임처 1건 결과 — step_progress.clients[] (backend/app/api/rpa_import.py). */
+export type ImportClientEntry = {
+  business_number: string;
+  business_name: string;
+  status: "SUCCEEDED" | "FAILED";
+  message?: string;
+  client_id?: string;
+  client_created?: boolean;
+  employees?: number;
+  employees_created?: number;
+  employees_updated?: number;
+  conflicts?: { target: string; field: string; current: string; wehago: string }[];
+};
+
+export function importProgress(job: RpaJob): { total: number | null; clients: ImportClientEntry[] } {
+  const p = (job.step_progress ?? {}) as { total?: number; clients?: ImportClientEntry[] };
+  return { total: p.total ?? null, clients: p.clients ?? [] };
+}
+
+/** 위하고 전체 수임처 가져오기 — 관리자만, 오래 걸림. */
+export function createMasterImport(): Promise<RpaJob> {
+  return api<RpaJob>("/api/v1/rpa/imports/master-all", { method: "POST" });
+}
+
+/** 사업자번호 1건 가져오기 — 없으면 새 거래처로 등록, 있으면 빈 칸만 채운다. */
+export function createClientImport(businessNumber: string): Promise<RpaJob> {
+  return api<RpaJob>("/api/v1/rpa/imports/clients", {
+    method: "POST",
+    json: { business_number: businessNumber },
+  });
+}
+
+export function listImports(): Promise<RpaJob[]> {
+  return api<RpaJob[]>("/api/v1/rpa/imports");
+}
+
 // --- 유틸: 작업을 client_id로 인덱싱 --------------------------------
 
 export function indexJobsByClient(jobs: RpaJob[]): Record<string, { input?: RpaJob; production?: RpaJob }> {
@@ -155,6 +198,7 @@ export function indexJobsByClient(jobs: RpaJob[]): Record<string, { input?: RpaJ
   // 최신 것이 이기도록 created_at 오름차순으로 훑는다.
   const sorted = [...jobs].sort((a, b) => a.created_at.localeCompare(b.created_at));
   for (const job of sorted) {
+    if (!job.client_id) continue;
     const bucket = (out[job.client_id] ??= {});
     if (job.kind === "WEHAGO_PAYROLL_INPUT") bucket.input = job;
     else if (job.kind === "MONTHLY_PRODUCTION") bucket.production = job;

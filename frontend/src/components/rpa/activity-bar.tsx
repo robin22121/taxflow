@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 import { Button, Modal } from "@/components/ui";
-import { type RpaJob, acknowledgeJob, listJobs, listUnacknowledgedJobs } from "@/lib/rpa-api";
+import { type RpaJob, acknowledgeJob, importProgress, listJobs, listUnacknowledgedJobs } from "@/lib/rpa-api";
 
 type Tone = "wait" | "run" | "done" | "fail";
 
@@ -27,6 +27,8 @@ const KIND_LABEL: Record<string, string> = {
   WEHAGO_PAYROLL_INPUT: "위하고 급여자료 입력",
   MONTHLY_PRODUCTION: "원천세 신고",
   CERTIFICATE_ISSUE: "증명서 발급",
+  WEHAGO_MASTER_IMPORT_ALL: "위하고 전체 가져오기",
+  WEHAGO_CLIENT_IMPORT: "위하고 가져오기",
 };
 
 function isFinished(job: RpaJob) {
@@ -48,6 +50,10 @@ export function jobStage(job: RpaJob): { text: string; tone: Tone } {
     return { text: "원천세 신고 취소", tone: "wait" };
   }
   if (job.kind === "CERTIFICATE_ISSUE" && steps.delivered === "done") return { text: "고객발송 완료", tone: "done" };
+  if (job.kind === "WEHAGO_MASTER_IMPORT_ALL" && job.status === "RUNNING") {
+    const { total, clients } = importProgress(job);
+    return { text: `위하고 전체 가져오기 ${clients.length}${total ? `/${total}` : ""}곳`, tone: "run" };
+  }
   const kind = KIND_LABEL[job.kind] ?? job.kind;
   switch (job.status) {
     case "PENDING": return { text: `${kind} 대기`, tone: "wait" };
@@ -167,7 +173,7 @@ function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
           {stage.text}
         </div>
         <dl className="grid grid-cols-[84px_1fr] gap-y-1.5 text-gray-700">
-          <dt className="text-gray-400">사업자번호</dt><dd>{job.business_number}</dd>
+          <dt className="text-gray-400">사업자번호</dt><dd>{job.business_number ?? "—"}</dd>
           {job.period && <><dt className="text-gray-400">귀속월</dt><dd>{job.period}</dd></>}
           <dt className="text-gray-400">요청</dt><dd>{fmt(job.created_at)}</dd>
           <dt className="text-gray-400">시작</dt><dd>{fmt(job.claimed_at)}</dd>

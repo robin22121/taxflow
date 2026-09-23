@@ -46,9 +46,9 @@ class RpaJobOut(BaseModel):
     kind: str
     status: str
     monthly_filing_id: str | None
-    client_id: str
+    client_id: str | None  # 위하고 임포트는 비어 있을 수 있음
     period: str | None
-    business_number: str
+    business_number: str | None  # 전체 임포트만 None
     business_name: str
     agent_id: str | None
     claimed_at: datetime | None
@@ -143,3 +143,49 @@ class RpaNotificationOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# --- 위하고 → 이지원천 임포트 (plan/16 §12) -----------------------------
+
+
+class WehagoClientImportCreate(BaseModel):
+    """사업자번호 1건 임포트 — 이지원천에 없으면 새로 등록, 있으면 빈 칸을 채운다."""
+
+    business_number: str = Field(min_length=10, max_length=20)
+
+
+class WehagoImportEmployeeIn(BaseModel):
+    """에이전트가 위하고 사원자료 엑셀에서 뽑은 항목 — 계좌·연락처·보험료는 보내지 않는다."""
+
+    employee_code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=100)
+    rrn: str | None = Field(default=None, max_length=20)
+    hired_at: date | None = None
+    resigned_at: date | None = None
+    department: str | None = Field(default=None, max_length=50)
+    position: str | None = Field(default=None, max_length=50)
+    job_type: str | None = Field(default=None, max_length=50)
+
+
+class WehagoImportClientIn(BaseModel):
+    """수임처 1건 결과. ``error``가 있으면 수집 실패 — 반영 없이 진행 기록만 남긴다."""
+
+    business_number: str = Field(min_length=10, max_length=20)
+    business_name: str = Field(min_length=1, max_length=200)
+    representative: str | None = Field(default=None, max_length=100)
+    is_corporation: bool | None = None
+    business_type: str | None = Field(default=None, max_length=100)
+    business_item: str | None = Field(default=None, max_length=200)
+    business_address: str | None = Field(default=None, max_length=300)
+    contact_phone: str | None = Field(default=None, max_length=40)
+    employees: list[WehagoImportEmployeeIn] = Field(default_factory=list, max_length=2000)
+    total: int | None = Field(default=None, ge=1)  # 전체 임포트의 대상 수임처 수 (진행률)
+    error: str | None = Field(default=None, max_length=500)
+
+
+class WehagoImportClientOut(BaseModel):
+    client_id: str | None
+    client_created: bool
+    employees_created: int
+    employees_updated: int
+    conflicts: list[dict[str, str]]

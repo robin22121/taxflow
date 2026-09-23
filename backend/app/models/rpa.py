@@ -12,9 +12,18 @@ class RpaJobKind(str, enum.Enum):
     WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"  # 게이트 1 후 — 위하고T 급여자료 자동입력만
     MONTHLY_PRODUCTION = "MONTHLY_PRODUCTION"  # 게이트 2 후 — 위하고 원천세·지방세 마감·제작 + 홈택스·위택스 신고 일괄
     CERTIFICATE_ISSUE = "CERTIFICATE_ISSUE"  # 증명원 발급 요청 1건 (plan/17 §4-9) — 신고와 무관
+    # 위하고 → 이지원천 임포트 (plan/16 §12) — 수임처 기본사항 + 사원 기본사항
+    WEHAGO_MASTER_IMPORT_ALL = "WEHAGO_MASTER_IMPORT_ALL"  # 위하고 전체 수임처 (관리자, 오래 걸림)
+    WEHAGO_CLIENT_IMPORT = "WEHAGO_CLIENT_IMPORT"  # 사업자번호 1건
 
 # 위하고 에이전트가 가져가는 작업. 증명원은 증명발급 에이전트 전용 claim 으로만 나간다.
-WEHAGO_JOB_KINDS = (RpaJobKind.WEHAGO_PAYROLL_INPUT, RpaJobKind.MONTHLY_PRODUCTION)
+WEHAGO_JOB_KINDS = (
+    RpaJobKind.WEHAGO_PAYROLL_INPUT,
+    RpaJobKind.MONTHLY_PRODUCTION,
+    RpaJobKind.WEHAGO_MASTER_IMPORT_ALL,
+    RpaJobKind.WEHAGO_CLIENT_IMPORT,
+)
+WEHAGO_IMPORT_KINDS = (RpaJobKind.WEHAGO_MASTER_IMPORT_ALL, RpaJobKind.WEHAGO_CLIENT_IMPORT)
 
 
 class RpaJobStatus(str, enum.Enum):
@@ -66,9 +75,10 @@ class RpaJob(Base, IdMixin, TimestampMixin):
     )
     # 신고 작업만 채운다 — 증명원 발급(CERTIFICATE_ISSUE)은 신고월과 무관해 None
     monthly_filing_id: Mapped[str | None] = mapped_column(ForeignKey("monthly_filings.id"))
-    client_id: Mapped[str] = mapped_column(ForeignKey("clients.id"))
+    # 임포트는 비어 있을 수 있다 — 전체 임포트는 수임처 없음, 개별 임포트는 아직 없는 수임처일 수 있음
+    client_id: Mapped[str | None] = mapped_column(ForeignKey("clients.id"))
     period: Mapped[str | None] = mapped_column(String(7))  # "YYYY-MM"
-    business_number: Mapped[str] = mapped_column(String(20))
+    business_number: Mapped[str | None] = mapped_column(String(20))  # 전체 임포트만 None
     business_name: Mapped[str] = mapped_column(String(200))
     requested_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
 
@@ -79,6 +89,7 @@ class RpaJob(Base, IdMixin, TimestampMixin):
 
     # MONTHLY_PRODUCTION 작업의 하위 단계 진행 상태.
     # 예: {"wehago_income_tax":"done","wehago_local_tax":"done","hometax":"running","wetax":"pending"}
+    # 임포트 작업은 {"total": N, "clients": [{business_number, business_name, status, ...}]}
     step_progress: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # 위하고 계산 vs 이지원천 승인값 대조 결과 — 불일치 항목만 남긴다 (위하고 원본 X, §1-2 ④).
@@ -94,6 +105,7 @@ class RpaNotificationKind(str, enum.Enum):
     GATE2_REVIEW = "GATE2_REVIEW"  # 위하고 자동입력 완료 → 사용자 검토·제작 클릭 필요
     GATE3_PUBLISH = "GATE3_PUBLISH"  # 홈택스·위택스 접수증 회수 완료 → 발송 확정 필요
     FAILURE = "FAILURE"  # 어느 단계든 실패·불일치 (§4-3)
+    IMPORT_DONE = "IMPORT_DONE"  # 위하고 임포트 완료 — 결과(새 수임처·사원, 차이 항목) 확인
 
 
 class RpaNotification(Base, IdMixin, TimestampMixin):

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useBulkUploadClients, useClients, useCreateClient } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
+import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
 import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
 
 export default function ClientsPage() {
@@ -12,6 +13,7 @@ export default function ClientsPage() {
   const { data, isLoading } = useClients();
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [wehagoOpen, setWehagoOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   const clients = (data ?? []).filter((c) =>
@@ -27,6 +29,9 @@ export default function ClientsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-[20px] font-bold tracking-tight text-gray-900">거래처 관리</h1>
         <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setWehagoOpen(true)}>
+            위하고에서 가져오기
+          </Button>
           <Button variant="secondary" onClick={() => setBulkOpen(true)}>
             거래처 일괄 업로드
           </Button>
@@ -94,6 +99,7 @@ export default function ClientsPage() {
 
       {open && <CreateClientModal onClose={() => setOpen(false)} />}
       {bulkOpen && <BulkUploadModal onClose={() => setBulkOpen(false)} />}
+      {wehagoOpen && <WehagoImportModal onClose={() => setWehagoOpen(false)} />}
     </div>
   );
 }
