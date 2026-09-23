@@ -66,7 +66,7 @@ async def parse_payroll_message(
 - `"저번달과 똑같아요"` → 전월 PayrollEntry 그대로 복사
 - `"김연호만 10만원 인상, 나머지 동일"` → 부분 적용
 
-LLM 송신 전 RRN/주민번호 스크러빙은 별도 게이트(G3)로 처리 — `10-privacy-security.md` 참고. AI 프로바이더는 Gemini Flash 2.5 메인, Claude Sonnet 폴백 (research.md §4.4).
+LLM 송신 전 RRN/주민번호 스크러빙은 게이트 G3, 파일에 함께 실려온 RRN을 서버가 결정론적으로 뽑아 암호화 저장하는 것은 게이트 G4로 처리 — 두 층이 동시에 성립하는 원칙은 `10-privacy-security.md` §2.0 참고. AI 파서의 입력·출력 스키마엔 RRN 필드를 두지 않고, 반입 지점에서 만든 `{이름 → rrn_last4, rrn_encrypted}` 맵을 파싱 결과에 서버 사이드채널로 병합해 UI에 프리필한다. AI 프로바이더는 Gemini Flash 2.5 메인, Claude Sonnet 폴백 (research.md §4.4).
 
 ---
 

@@ -66,6 +66,10 @@ class PayrollEntryCandidate:
     anomaly_notes: dict[str, Any] = field(default_factory=dict)
     needs_followup: bool = False
     followup_reason: str | None = None
+    # 반입 파일에서 결정론적으로 뽑아 붙인 RRN 사이드채널 (plan/10 §G4).
+    # 신규 입사자 프리필용. 매칭된 기존 직원은 Employee.rrn_last4 를 UI 가 별도 조회한다.
+    rrn_last4: str | None = None
+    rrn_encrypted_b64: str | None = None
 
 
 @dataclass(slots=True)
@@ -159,9 +163,19 @@ def reconcile(
                 anomaly_notes=nh_anomaly,
                 needs_followup=True,
                 followup_reason="new_hire_rrn",
+                rrn_last4=n.rrn_last4,
+                rrn_encrypted_b64=n.rrn_encrypted_b64,
             )
         )
-        new_hire_followups.append({"name": n.name, "amount": n.amount})
+        # 파일 반입 사이드채널로 RRN 이 함께 온 경우 프리필용으로 전달 (plan/10 §G4).
+        # 원본 평문은 서버 밖으로 나가지 않으며, ``rrn_encrypted_b64`` 는 커밋 시
+        # 그대로 되돌려 서버가 복호화 없이 저장.
+        followup: dict[str, Any] = {"name": n.name, "amount": n.amount}
+        if n.rrn_last4:
+            followup["rrn_last4"] = n.rrn_last4
+        if n.rrn_encrypted_b64:
+            followup["rrn_encrypted_b64"] = n.rrn_encrypted_b64
+        new_hire_followups.append(followup)
 
     # 3. resignation_suspected — combine AI suggestions and "unmentioned in master"
     resignation_followups: list[dict[str, Any]] = []

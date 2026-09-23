@@ -36,8 +36,8 @@ from app.schemas.filings import (
     NewEmployeeIn,
     ParsedEntryPreview,
 )
-from app.services.ai_parser import parse_payroll_message
-from app.services.crypto import encrypt_rrn, normalize_rrn, rrn_last4
+from app.services.ai_parser import merge_rrn_sidechannel, parse_payroll_message
+from app.services.crypto import decrypt_rrn, encrypt_rrn, normalize_rrn, rrn_last4
 from app.services.file_intake import intake_file
 from app.services.matching import (
     _LARGE_CHANGE_FLOOR_KRW,
@@ -182,6 +182,8 @@ def _preview_row(
         mode="update" if existing is not None else "create",
         entry_id=existing.id if existing is not None else None,
         existing_amount=existing.total_amount if existing is not None else None,
+        rrn_last4=cand.rrn_last4,
+        rrn_encrypted_b64=cand.rrn_encrypted_b64,
     )
 
 
@@ -258,7 +260,9 @@ async def preview_upload(
         matching = _match_wehago(intake.structured_payroll, employees, prev_entries)
     else:
         matching = await _parse_and_match(
-            intake.text, client, filing, employees, prev_entries, images=intake.images or None
+            intake.text, client, filing, employees, prev_entries,
+            images=intake.images or None,
+            rrn_map=intake.rrn_map or None,
         )
     attachments = (
         [{
@@ -394,7 +398,13 @@ async def _create_employee_from_review(
 
     주민번호는 형식 확인 후 바로 암호화해 담고, 평문은 남기지 않는다.
     주민번호 없이 등록하면 PENDING(주민번호 미수집) 상태가 된다.
+
+    반입 파일에서 자동 추출된 RRN(rrn_encrypted_b64) 을 프리필로 되돌려받은 경우엔
+    복호화 후 무결성만 확인해 바로 저장한다 — 평문이 프론트→서버 구간에 나타나지 않음.
+    사용자가 폼에 별도로 입력한 값(payload.rrn) 이 있으면 그것이 우선한다.
     """
+    import base64 as _b64
+
     rrn_encrypted = None
     last4 = None
     if payload.rrn:
@@ -405,6 +415,18 @@ async def _create_employee_from_review(
                 status.HTTP_400_BAD_REQUEST, f"{name}: {exc}"
             ) from exc
         rrn_encrypted = encrypt_rrn(digits)
+        last4 = rrn_last4(digits)
+    elif payload.rrn_encrypted_b64:
+        try:
+            blob = _b64.b64decode(payload.rrn_encrypted_b64, validate=True)
+            digits = decrypt_rrn(blob)
+            normalize_rrn(digits)  # 형식 재검증 (자릿수·생년월일·성별코드)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{name}: 반입 파일 주민번호 검증 실패 — 다시 입력해 주세요",
+            ) from exc
+        rrn_encrypted = blob
         last4 = rrn_last4(digits)
 
     emp = Employee(
@@ -606,8 +628,13 @@ async def _parse_and_match(
     employees: list[Employee],
     prev_entries: list[PayrollEntry],
     images: list[tuple[bytes, str]] | None = None,
+    rrn_map: dict[str, dict[str, str]] | None = None,
 ) -> MatchingResult:
-    """Run AI parsing + matching engine. Pure logic, no DB writes."""
+    """Run AI parsing + matching engine. Pure logic, no DB writes.
+
+    ``rrn_map`` 은 파일 반입 지점에서 결정론적으로 뽑은 ``{이름 → rrn_last4, rrn_encrypted_b64}``.
+    LLM 호출과 무관하게 서버 사이드채널로 파싱 결과에 병합된다 (plan/10 §2.0·G4).
+    """
     # Build prev_amounts lookup (O(1) per employee instead of O(n))
     prev_by_emp = {p.employee_id: p.total_amount for p in prev_entries if p.employee_id}
 
@@ -633,6 +660,7 @@ async def _parse_and_match(
         period=filing.period,
         images=images,
     )
+    merge_rrn_sidechannel(parsed, rrn_map)
 
     masters = [
         EmployeeMaster(
@@ -1001,11 +1029,13 @@ async def _ingest_message(
     sender_name: str | None = None,
     received_date: "date | None" = None,
     structured_payroll: list[WehagoPayrollRow] | None = None,
+    rrn_map: dict[str, dict[str, str]] | None = None,
 ) -> CollectMessageOut:
     """
     attachments: 원본 파일 메타 [{"filename":..., "storage_key":..., "kind":..., "mime":...}]
                  세무사 대시보드에서 AI 결과와 대조하기 위해 저장.
     structured_payroll: 위하고T 결정론적 파서 결과. 있으면 LLM 우회.
+    rrn_map: 반입 지점에서 결정론적으로 뽑은 이름→RRN 사이드채널 (plan/10 §G4).
     """
     # Safety net: 텍스트가 placeholder만 있고 이미지도 없으면 AI 환각 방지를 위해 스킵
     if not images and not structured_payroll and _is_only_placeholder(text):
@@ -1016,7 +1046,10 @@ async def _ingest_message(
     if structured_payroll:
         matching = _match_wehago(structured_payroll, employees, prev_entries)
     else:
-        matching = await _parse_and_match(text, client, filing, employees, prev_entries, images=images)
+        matching = await _parse_and_match(
+            text, client, filing, employees, prev_entries,
+            images=images, rrn_map=rrn_map,
+        )
     return await _persist_results(
         db, session, client, filing, matching, employees, text, channel, attachments,
         sender_name=sender_name, received_date=received_date,

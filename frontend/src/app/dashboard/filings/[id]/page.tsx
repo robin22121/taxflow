@@ -871,6 +871,8 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
   const commit = useCommitEntries(filingId);
   const [rows, setRows] = useState(() => preview.entries.map((entry) => ({ entry, include: true })));
   const [showSource, setShowSource] = useState(false);
+  // 사이드채널 프리필된 RRN 을 무시하고 직접 입력하겠다고 사용자가 선택한 행
+  const [manualRrn, setManualRrn] = useState<Record<number, true>>({});
 
   const included = rows.filter((r) => r.include).map((r) => r.entry);
   const total = included.reduce((s, e) => s + e.total_amount, 0);
@@ -885,6 +887,24 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
   }
 
   function save() {
+    // 사이드채널 RRN 이 있고 사용자가 직접 입력하지 않은 신규 의심 행에는 커밋 전에
+    // rrn_encrypted_b64 를 new_employee 로 이관해 서버가 저장하도록 한다.
+    const prepared = included.map((e) => {
+      if (
+        e.match_status === "NEW_HIRE_SUSPECTED"
+        && e.rrn_encrypted_b64
+        && !e.new_employee?.rrn
+      ) {
+        return {
+          ...e,
+          new_employee: {
+            ...(e.new_employee ?? {}),
+            rrn_encrypted_b64: e.rrn_encrypted_b64,
+          },
+        };
+      }
+      return e;
+    });
     commit.mutate(
       {
         sessionId,
@@ -893,7 +913,7 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
         sender_name: meta.sender_name,
         received_date: meta.received_date,
         attachments: meta.attachments,
-        entries: included,
+        entries: prepared,
       },
       { onSuccess: onClose, onError: (e) => alert((e as Error).message) },
     );
@@ -995,19 +1015,38 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
                       <td />
                       <td colSpan={5} className="px-2 pb-2">
                         <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2">
-                          <div className="mb-1.5 text-[11px] text-amber-800">
-                            신규 입사자로 등록합니다 — 주민번호를 입력하면 직원 마스터에 함께 저장됩니다. 비워두면 주민번호 미수집 상태로 등록됩니다.
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            <input
-                              value={entry.new_employee?.rrn ?? ""}
-                              onChange={(e) => patch(i, { new_employee: { ...entry.new_employee, rrn: e.target.value } })}
-                              placeholder="주민번호 000000-0000000"
-                              maxLength={14}
-                              inputMode="numeric"
-                              autoComplete="off"
-                              className="w-44 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px] tabular-nums"
-                            />
+                          {entry.rrn_last4 && !manualRrn[i] ? (
+                            <div className="mb-1.5 text-[11px] text-emerald-800">
+                              반입 자료에서 주민번호가 자동 인식되었습니다 — 반영 시 직원 마스터에 함께 저장됩니다.
+                            </div>
+                          ) : (
+                            <div className="mb-1.5 text-[11px] text-amber-800">
+                              신규 입사자로 등록합니다 — 주민번호를 입력하면 직원 마스터에 함께 저장됩니다. 비워두면 주민번호 미수집 상태로 등록됩니다.
+                            </div>
+                          )}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {entry.rrn_last4 && !manualRrn[i] ? (
+                              <span className="inline-flex items-center gap-1.5 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11.5px] text-emerald-800 tabular-nums">
+                                자동 인식: ******-*{entry.rrn_last4}
+                                <button
+                                  type="button"
+                                  className="text-[10.5px] text-emerald-700 underline"
+                                  onClick={() => setManualRrn((m) => ({ ...m, [i]: true }))}
+                                >
+                                  다른 번호로 입력
+                                </button>
+                              </span>
+                            ) : (
+                              <input
+                                value={entry.new_employee?.rrn ?? ""}
+                                onChange={(e) => patch(i, { new_employee: { ...entry.new_employee, rrn: e.target.value } })}
+                                placeholder="주민번호 000000-0000000"
+                                maxLength={14}
+                                inputMode="numeric"
+                                autoComplete="off"
+                                className="w-44 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px] tabular-nums"
+                              />
+                            )}
                             <input
                               type="date"
                               value={entry.new_employee?.hired_at ?? ""}

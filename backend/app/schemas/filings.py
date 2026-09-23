@@ -142,10 +142,16 @@ class ResignResult(BaseModel):
 class NewEmployeeIn(BaseModel):
     """검토 화면에서 신규 입사자를 그 자리에서 등록할 때 함께 보내는 인적사항.
 
-    주민번호는 평문으로 올라오지만 커밋 핸들러가 받자마자 암호화해 저장한다.
+    주민번호 반입 경로 두 가지 (plan/10 §2.0·G4):
+    1. ``rrn`` — 사용자가 직접 입력한 평문. 커밋 핸들러가 받자마자 암호화해 저장.
+    2. ``rrn_encrypted_b64`` — 반입 파일에서 서버가 뽑아 프리뷰 단계에서 프론트로
+       내려준 암호문(base64). 사용자가 값을 손대지 않았으면 프론트가 그대로 되돌려
+       보내고, 서버는 복호화 없이(무결성만 확인) Employee.rrn_encrypted 로 직행.
+       평문 RRN 이 프론트→서버 왕복 구간을 절대 통과하지 않도록 한다.
     """
 
     rrn: str | None = None
+    rrn_encrypted_b64: str | None = None
     hired_at: date | None = None
     employee_code: str | None = None
     department: str | None = None
@@ -187,6 +193,10 @@ class ParsedEntryPreview(BaseModel):
     existing_amount: int | None = None
     # 신규 입사자를 이 항목과 함께 직원 마스터에 등록할 때만 채워 보낸다.
     new_employee: NewEmployeeIn | None = None
+    # 반입 파일에서 결정론적으로 뽑은 RRN 사이드채널 (plan/10 §G4). NEW_HIRE_SUSPECTED
+    # 행에서 UI 프리필 + 커밋 왕복용. 원본 평문은 프론트로 나가지 않는다.
+    rrn_last4: str | None = None
+    rrn_encrypted_b64: str | None = None
 
 
 class CollectPreviewOut(BaseModel):

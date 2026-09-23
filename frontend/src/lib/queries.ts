@@ -468,11 +468,19 @@ export type ParsedEntryPreview = {
   existing_amount: number | null;
   /** 신규 입사자를 이 항목과 함께 직원 마스터에 등록할 때만 채운다. */
   new_employee?: NewEmployeeInput | null;
+  /**
+   * 반입 파일에서 서버가 결정론적으로 뽑아 프리뷰에 실어 보내는 RRN 사이드채널
+   * (plan/10 §G4). 신규 입사자 프리필용. 원본 평문은 프론트에 오지 않는다.
+   */
+  rrn_last4?: string | null;
+  rrn_encrypted_b64?: string | null;
 };
 
 /** 검토 화면에서 신규 입사자를 그 자리에 등록할 때 보내는 인적사항. */
 export type NewEmployeeInput = {
   rrn?: string | null;
+  /** 반입 파일에서 자동 인식된 암호문. 사용자가 rrn 을 직접 안 채우면 이걸 되돌려 서버가 저장. */
+  rrn_encrypted_b64?: string | null;
   hired_at?: string | null;
   employee_code?: string | null;
   department?: string | null;

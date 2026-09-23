@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 # 비과세·4대보험 금액은 ``None`` = 원시자료에 항목 자체가 없음(거래처 기본값·자체 계산으로 채움),
 # ``0`` = 원시자료가 0원이라고 명시함(그대로 0). 둘을 섞으면 급여대장에 없던 수당이 생긴다.
+#
+# ``rrn_last4`` / ``rrn_encrypted_b64`` 는 LLM 출력이 아니라 서버 사이드채널로 병합된다
+# (plan/10 §2.0·G4). LLM 스키마엔 없고, ``merge_rrn_sidechannel()`` 이 파일 반입 지점의
+# ``IntakeResult.rrn_map`` 을 이름으로 매칭해 채운다. 원본 평문은 프론트로 나가지 않는다.
 @dataclass(slots=True)
 class MatchedEmployee:
     name: str
@@ -45,6 +49,8 @@ class MatchedEmployee:
     income_type: str = "WAGE"
     change_from_prev: int | None = None
     change_reason: str | None = None
+    rrn_last4: str | None = None
+    rrn_encrypted_b64: str | None = None
 
 
 @dataclass(slots=True)
@@ -61,6 +67,8 @@ class NewHireSuspected:
     longterm_care: int | None = None
     income_type: str = "WAGE"
     needs_confirmation: bool = True
+    rrn_last4: str | None = None
+    rrn_encrypted_b64: str | None = None
 
 
 @dataclass(slots=True)
@@ -457,6 +465,29 @@ def _build_result(data: dict[str, Any]) -> PayrollParsingResult:
     )
 
 
+def merge_rrn_sidechannel(
+    result: PayrollParsingResult,
+    rrn_map: dict[str, dict[str, str]] | None,
+) -> None:
+    """파일 반입 지점에서 추출한 ``{이름 → rrn}`` 맵을 파싱 결과에 in-place 병합한다.
+
+    LLM 은 원본 RRN 을 절대 볼 수 없다(마스킹). 대신 서버가 결정론 파서로 뽑아
+    ``IntakeResult.rrn_map`` 에 담아둔 값을, 이름 일치 시 여기서 붙인다.
+    """
+    if not rrn_map:
+        return
+    for m in result.matched_employees:
+        entry = rrn_map.get(m.name)
+        if entry:
+            m.rrn_last4 = entry.get("rrn_last4")
+            m.rrn_encrypted_b64 = entry.get("rrn_encrypted_b64")
+    for n in result.new_hire_suspected:
+        entry = rrn_map.get(n.name)
+        if entry:
+            n.rrn_last4 = entry.get("rrn_last4")
+            n.rrn_encrypted_b64 = entry.get("rrn_encrypted_b64")
+
+
 __all__ = [
     "AmbiguousItem",
     "MatchedEmployee",
@@ -464,5 +495,6 @@ __all__ = [
     "PayrollParsingResult",
     "RelativeReference",
     "ResignationSuspected",
+    "merge_rrn_sidechannel",
     "parse_payroll_message",
 ]
