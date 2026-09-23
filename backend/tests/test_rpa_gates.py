@@ -39,6 +39,23 @@ async def _clean_rpa_state():
     await _wipe()
 
 
+async def _assign_wehago_codes(client_ids: list[str]) -> None:
+    """사무소가 위하고 사원코드를 입력해 둔 상태 — 코드 없는 사원은 게이트 1에서 막힌다."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Employee
+
+    async with SessionLocal() as db:
+        employees = (
+            await db.execute(select(Employee).where(Employee.client_id.in_(client_ids)))
+        ).scalars().all()
+        for n, emp in enumerate(employees, start=1):
+            if not emp.employee_code:
+                emp.employee_code = f"W{n:03d}"
+        await db.commit()
+
+
 async def _ready_clients(
     http: AsyncClient, auth_headers: dict, count: int
 ) -> tuple[str, list[str]]:
@@ -64,6 +81,7 @@ async def _ready_clients(
                         headers=auth_headers,
                     )
                     assert r.status_code == 200
+        await _assign_wehago_codes(client_ids)
         return filing["id"], client_ids
     pytest.skip("시드에 사업자번호·급여항목이 있는 거래처가 부족하다")
 

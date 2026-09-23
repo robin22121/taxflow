@@ -10,6 +10,23 @@ from httpx import AsyncClient
 CLAIM = "/api/v1/rpa/agent/claim"
 
 
+async def _assign_wehago_codes(client_ids: list[str]) -> None:
+    """사무소가 위하고 사원코드를 입력해 둔 상태 — 코드 없는 사원은 게이트 1에서 막힌다."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Employee
+
+    async with SessionLocal() as db:
+        employees = (
+            await db.execute(select(Employee).where(Employee.client_id.in_(client_ids)))
+        ).scalars().all()
+        for n, emp in enumerate(employees, start=1):
+            if not emp.employee_code:
+                emp.employee_code = f"W{n:03d}"
+        await db.commit()
+
+
 async def _ready_clients(
     http: AsyncClient, auth_headers: dict, count: int
 ) -> tuple[str, list[str]]:
@@ -36,6 +53,7 @@ async def _ready_clients(
                         headers=auth_headers,
                     )
                     assert r.status_code == 200, r.text
+        await _assign_wehago_codes(client_ids)
         return filing["id"], client_ids
     pytest.skip("시드에 사업자번호·급여항목이 있는 거래처가 부족하다")
 
@@ -177,3 +195,31 @@ async def test_missing_or_revoked_agent_token_is_rejected(http: AsyncClient, aut
     revoked = await http.delete(f"/api/v1/rpa/agents/{issued.json()['id']}", headers=auth_headers)
     assert revoked.status_code == 204, revoked.text
     assert (await http.post(CLAIM, headers=headers)).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_upload_is_blocked_when_employee_has_no_wehago_code(
+    http: AsyncClient, auth_headers: dict
+):
+    """위하고는 사원코드로 사원을 연결한다 — 코드가 없으면 다른 사원에게 급여가 들어갈 수 있다."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Employee
+
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+    async with SessionLocal() as db:
+        emp = (
+            await db.execute(select(Employee).where(Employee.client_id == client_id).limit(1))
+        ).scalar_one()
+        name, code = emp.name, emp.employee_code
+        emp.employee_code = None
+        await db.commit()
+    try:
+        r = await _enqueue(http, auth_headers, filing_id, [client_id])
+        assert r.status_code == 409, r.text
+        assert "사원코드" in r.json()["detail"] and name in r.json()["detail"]
+    finally:
+        async with SessionLocal() as db:
+            (await db.get(Employee, emp.id)).employee_code = code
+            await db.commit()

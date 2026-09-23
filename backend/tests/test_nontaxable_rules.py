@@ -42,7 +42,7 @@ def _entry(*, total, bonus=0, meal=0, car=0, childcare=0, non_tax=0):
 def test_gross_is_reported_total_not_total_plus_nontaxable():
     """사업주가 390,000원 지급 보고 → 지급액계도 390,000원 (990,000 아님)."""
     row = _data_row(_entry(total=390_000, meal=200_000, car=200_000,
-                           childcare=200_000, non_tax=600_000), 1)
+                           childcare=200_000, non_tax=600_000))
     assert row[_GROSS_COL] == 390_000
     assert row[_NET_COL] == 390_000
     # 비과세 합이 총지급액을 넘으면 기본급은 음수가 아닌 0
@@ -52,7 +52,7 @@ def test_gross_is_reported_total_not_total_plus_nontaxable():
 def test_gross_equals_total_for_normal_wage_entry():
     """상용근로 정상 케이스: 기본급 + 상여 + 비과세 = 총지급액."""
     row = _data_row(_entry(total=3_000_000, bonus=100_000, meal=200_000,
-                           non_tax=200_000), 1)
+                           non_tax=200_000))
     assert row[_BASE_COL] == 2_700_000
     assert row[_GROSS_COL] == 3_000_000
 
