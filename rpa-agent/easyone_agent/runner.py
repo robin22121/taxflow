@@ -7,8 +7,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from easyone_agent.api import EasyoneApi
+from easyone_agent.api import IMPORT_ALL, IMPORT_CLIENT, EasyoneApi, Job
 from easyone_agent.company import company_matches
+from easyone_agent.import_runner import process_import
 from easyone_agent.logmask import mask_text
 from easyone_agent.wehago import CompanyMismatch, LoginFailed, WehagoUploader
 
@@ -26,6 +27,8 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
         return False
 
     logger.info("작업 시작 %s %s %s", job.id, job.business_name, job.period)
+    if job.kind in (IMPORT_ALL, IMPORT_CLIENT):
+        return _process_import_job(api, uploader, job, workdir)
     xlsx_path = workdir / f"{job.id}.xlsx"
     try:
         xlsx_path.write_bytes(api.download_payroll_excel(job.id))
@@ -48,6 +51,20 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
     finally:
         # 급여파일은 개인정보라 PC에 남기지 않는다.
         xlsx_path.unlink(missing_ok=True)
+    return True
+
+
+def _process_import_job(api: EasyoneApi, uploader: WehagoUploader, job: Job, workdir: Path) -> bool:
+    try:
+        succeeded, message = process_import(api, uploader, job, workdir)
+    except LoginFailed as e:
+        _report(api, job.id, False, f"위하고 로그인 실패: {e}")
+        raise
+    except Exception as e:
+        logger.exception("가져오기 실패 %s", job.id)
+        _report(api, job.id, False, f"{type(e).__name__}: {e}")
+    else:
+        _report(api, job.id, succeeded, message)
     return True
 
 

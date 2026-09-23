@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
+
+# 위하고 → 이지원천 가져오기 (plan/16 §12)
+IMPORT_ALL = "WEHAGO_MASTER_IMPORT_ALL"
+IMPORT_CLIENT = "WEHAGO_CLIENT_IMPORT"
 
 
 @dataclass(frozen=True, slots=True)
 class Job:
     id: str
-    client_id: str
-    period: str  # "YYYY-MM"
-    business_number: str
+    client_id: str | None  # 가져오기는 비어 있을 수 있다
+    period: str | None  # "YYYY-MM" — 가져오기는 None
+    business_number: str | None  # 전체 가져오기만 None
     business_name: str
+    kind: str = "WEHAGO_PAYROLL_INPUT"
 
 
 class EasyoneApi:
@@ -42,6 +48,7 @@ class EasyoneApi:
             period=data["period"],
             business_number=data["business_number"],
             business_name=data["business_name"],
+            kind=data["kind"],
         )
 
     def download_payroll_excel(self, job_id: str) -> bytes:
@@ -57,3 +64,11 @@ class EasyoneApi:
             json={"status": "SUCCEEDED" if succeeded else "FAILED", "message": message},
         )
         r.raise_for_status()
+
+    def report_import_client(self, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """가져오기 — 수임처 1건 결과. 서버가 바로 반영하고, 전체 가져오기의 생존 신호도 된다."""
+        r = self._http.post(f"/api/v1/rpa/agent/imports/{job_id}/client-result", json=payload)
+        if r.status_code == 409:
+            raise RuntimeError(f"서버가 가져오기 결과를 거부했습니다: {r.json().get('detail')}")
+        r.raise_for_status()
+        return r.json()

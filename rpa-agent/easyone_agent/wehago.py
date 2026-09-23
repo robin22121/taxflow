@@ -135,3 +135,21 @@ class WehagoUploader:
             화면의 업로드 결과 메시지. 오류 메시지가 뜨면 WehagoError.
         """
         raise NotImplementedError("위하고 급여자료입력 엑셀 업로드 화면 실측 후 구현")
+
+    # --- 위하고 → 이지원천 가져오기 (plan/16 §12, import_runner.WehagoImportSource) ---
+    # 화면 실측 전이라 NotImplementedError 로 멈춘다 → 서버에 수임처별 실패로 회신되고 반영은 없다.
+
+    def list_companies(self) -> list[tuple[str, str]]:
+        """수임처관리(wehagot.com/tedge/#/taxagent) 왼쪽 목록 전체 → (상호, 사업자번호)."""
+        raise NotImplementedError("위하고 수임처 목록 화면 실측 후 구현")
+
+    def read_company(self, business_number: str) -> dict:
+        """수임처정보 [기본정보] 탭 — 상호·사업자번호·대표자·업태/업종·사업장 주소·전화번호.
+
+        대표자 주민번호도 화면에 보이지만 가져오지 않는다 (이지원천에 필요 없음).
+        """
+        raise NotImplementedError("위하고 수임처정보 화면 실측 후 구현")
+
+    def export_employees(self, business_number: str, workdir: Path) -> Path:
+        """SmartA 사원등록(SWPM0108) → 추가기능 → [사원자료 엑셀변환] 다운로드 파일."""
+        raise NotImplementedError("위하고 사원등록 엑셀변환 화면 실측 후 구현")

@@ -16,6 +16,7 @@ def test_claim_sends_token_and_parses_job():
                     "period": "2026-08",
                     "business_number": "1234567890",
                     "business_name": "하늘식품",
+                    "kind": "WEHAGO_PAYROLL_INPUT",
                     "status": "RUNNING",
                 }
             },
