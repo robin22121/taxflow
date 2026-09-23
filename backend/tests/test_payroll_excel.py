@@ -1,6 +1,7 @@
 """급여대장 엑셀(위하고T 업로드 양식) 생성기 테스트 (in-memory, no DB).
 
-기준 양식: (임시)주식회사 동문-202511.xlsx — 22컬럼, 2행 병합 헤더, 하단 합계행.
+기준 양식: (임시)주식회사 동문-202511.xlsx — 22컬럼, 2행 병합 헤더.
+원본의 하단 합계행은 위하고 불러오기가 사원코드로 오인하므로 넣지 않는다.
 """
 
 from datetime import date
@@ -89,16 +90,25 @@ def test_negative_income_tax_is_preserved():
     assert row[21] == 416_660 - row[20]                      # V: 차인지급액
 
 
-def test_summary_row_is_computed_values():
+def test_no_summary_row():
+    """위하고T 엑셀 불러오기가 A열 "합계"를 사원코드로 읽으므로 합계행을 넣지 않는다."""
     ws = _sheet([_entry("백재봉"), _entry("김영희", code="3", ei=18_900)])
 
-    sum_row = 5  # 헤더 2행 + 데이터 2행
-    assert ws.cell(sum_row, 1).value == "합계"
-    assert f"A{sum_row}:E{sum_row}" in {str(r) for r in ws.merged_cells.ranges}
-    # 수식이 아닌 계산된 정수 (위하고T 파서가 수식 캐시를 읽지 못하는 경우 대비)
-    assert ws.cell(sum_row, 6).value == 2_100_000 * 2
-    assert ws.cell(sum_row, 11).value == 5_000_000
-    assert ws.cell(sum_row, 14).value == 18_900
+    assert ws.max_row == 4  # 헤더 2행 + 데이터 2행
+    assert [ws.cell(r, 1).value for r in (3, 4)] == ["1", "3"]
+
+
+@pytest.mark.parametrize("employee", [
+    SimpleNamespace(name="김영희", employee_code=None, department="", position="", job_type=""),
+    SimpleNamespace(name="김영희", employee_code="  ", department="", position="", job_type=""),
+    None,  # 사원 매칭 전 (raw_name만 있음)
+])
+def test_missing_employee_code_raises(employee):
+    """사원코드는 위하고 사원 연결 키 — 순번 등으로 채우면 다른 사원에게 급여가 들어간다."""
+    missing = _entry("김영희")
+    missing.employee = employee
+    with pytest.raises(PayrollExcelError, match="김영희"):
+        generate_payroll_excel([_entry("백재봉"), missing], "2025-11")
 
 
 def test_empty_and_bad_period_raise():

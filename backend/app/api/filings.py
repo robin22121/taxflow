@@ -53,7 +53,7 @@ from app.services.simple_statement_excel import (
     generate_business_statement,
     generate_wage_statement,
 )
-from app.services.payroll_excel import generate_payroll_excel
+from app.services.payroll_excel import PayrollExcelError, generate_payroll_excel
 from app.services.smarta_business_xls import generate_smarta_business_xls
 from app.services.wehago_excel import generate_wehago_excel
 
@@ -879,7 +879,10 @@ async def download_payroll_excel(
     client = await db.get(Client, entries[0].client_id)
     client_name = client.business_name if client else ""
 
-    blob = generate_payroll_excel(list(entries), period=filing.period, client_name=client_name)
+    try:
+        blob = generate_payroll_excel(list(entries), period=filing.period, client_name=client_name)
+    except PayrollExcelError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     from urllib.parse import quote
     korean_name = f"{client_name or '급여대장'}-{filing.period}.xlsx"
     ascii_fallback = f"payroll_{filing.period}.xlsx"
@@ -1265,13 +1268,16 @@ async def download_unified(
             if not payroll_entries:
                 continue
 
-            folder = _unique_folder(client.business_name, used_folders)
-            zf.writestr(
-                f"{folder}/급여대장_{period}.xlsx",
-                generate_payroll_excel(
+            try:
+                blob = generate_payroll_excel(
                     payroll_entries, period=period, client_name=client.business_name
-                ),
-            )
+                )
+            except PayrollExcelError as e:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, f"{client.business_name}: {e}"
+                ) from e
+            folder = _unique_folder(client.business_name, used_folders)
+            zf.writestr(f"{folder}/급여대장_{period}.xlsx", blob)
             # 당분간 급여대장만 내려준다 — 4대보험·사업소득은 복구 시 아래 주석 해제.
             # zf.writestr(
             #     f"{folder}/4대보험_통합_{period}.xlsx",

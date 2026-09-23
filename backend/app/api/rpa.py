@@ -12,7 +12,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +20,7 @@ from app.core.deps import get_current_user, get_db
 from app.models import (
     Client,
     ClientFilingResult,
+    Employee,
     FilingResultSource,
     MonthlyFiling,
     PayrollEntry,
@@ -46,7 +47,7 @@ from app.schemas.rpa import (
     RpaNotificationOut,
     WehagoUploadCreate,
 )
-from app.services.payroll_excel import generate_payroll_excel
+from app.services.payroll_excel import PayrollExcelError, generate_payroll_excel
 
 router = APIRouter()
 
@@ -212,6 +213,26 @@ async def create_wehago_uploads(
     if empty:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"자료가 없는 거래처는 전송할 수 없습니다: {names(empty)}."
+        )
+
+    # 위하고는 사원코드로 사원을 연결한다 — 코드가 없으면 다른 사원에게 급여가 들어갈 수 있다.
+    no_code = (
+        await db.execute(
+            select(PayrollEntry.raw_name, Employee.name)
+            .outerjoin(Employee, PayrollEntry.employee_id == Employee.id)
+            .where(
+                PayrollEntry.monthly_filing_id == filing.id,
+                PayrollEntry.client_id.in_(client_ids),
+                func.coalesce(func.trim(Employee.employee_code), "") == "",
+            )
+        )
+    ).all()
+    if no_code:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "위하고 사원코드가 없는 사원이 있어 전송할 수 없습니다: "
+            f"{', '.join(emp_name or raw for raw, emp_name in no_code)}. "
+            "사원 정보에 위하고 사원코드를 입력하세요.",
         )
 
     active = set(
@@ -425,7 +446,10 @@ async def agent_download_payroll_excel(
     if any(not e.approved for e in entries):
         raise HTTPException(status.HTTP_409_CONFLICT, "미승인 자료가 있어 업로드할 수 없습니다.")
 
-    blob = generate_payroll_excel(entries, period=job.period, client_name=job.business_name)
+    try:
+        blob = generate_payroll_excel(entries, period=job.period, client_name=job.business_name)
+    except PayrollExcelError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     agent.last_seen_at = _utcnow()
     await db.commit()
     return Response(

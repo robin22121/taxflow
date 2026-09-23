@@ -7,7 +7,11 @@
                                               | 소득세 | 지방소득세 | 학자금상환액
                                               | 정산보험료 | 월세지원금 | 공제액계
   Row 3~: data rows
-  Last row: 합계 (A~E 병합, 금액은 계산된 값)
+
+합계행은 넣지 않는다 — 위하고T [엑셀 불러오기]가 A열 "합계"를 사원코드로 읽어
+사원코드연결 팝업에 미연결 사원으로 띄운다 (2026-09-23 서도 실측).
+사원코드는 위하고 사원코드여야 한다 — 위하고가 이 코드로 사원을 연결하므로,
+코드가 없는 사원을 순번 등으로 채우면 다른 사원에게 급여가 들어갈 수 있다.
 
 """
 
@@ -31,10 +35,8 @@ class PayrollExcelError(ValueError):
 # ── styles (원본 실측: 맑은 고딕 9pt, 행높이 21, 열너비 14) ──
 _HEADER_FONT = Font(name="맑은 고딕", size=9, bold=True)
 _DATA_FONT = Font(name="맑은 고딕", size=9)
-_SUM_FONT = Font(name="맑은 고딕", size=9, bold=True)
 _GROUP_FILL = PatternFill("solid", fgColor="FFFF99")   # 1행 그룹 헤더
 _SUB_FILL = PatternFill("solid", fgColor="99CCFF")     # 2행 항목 헤더
-_SUM_FILL = PatternFill("solid", fgColor="ABCCF8")     # 합계행
 _CENTER = Alignment(horizontal="center", vertical="center")
 _LEFT = Alignment(horizontal="left", vertical="center")
 _RIGHT = Alignment(horizontal="right", vertical="center")
@@ -43,12 +45,6 @@ _THIN_BORDER = Border(
     right=Side(style="thin", color="B3B3B3"),
     top=Side(style="thin", color="B3B3B3"),
     bottom=Side(style="thin", color="B3B3B3"),
-)
-_SUM_BORDER = Border(
-    left=Side(style="thin", color="96BBED"),
-    right=Side(style="thin", color="96BBED"),
-    top=Side(style="thin", color="96BBED"),
-    bottom=Side(style="thin", color="96BBED"),
 )
 _NUM_FMT = "#,##0"
 _TEXT_FMT = "@"
@@ -167,20 +163,17 @@ def _build_headers(ws) -> None:
             cell.border = _THIN_BORDER
 
 
-def _data_row(entry: PayrollEntry, idx: int) -> list:
-    """Build a data row from PayrollEntry."""
+def _data_row(entry: PayrollEntry) -> list:
+    """Build a data row from PayrollEntry. 사원코드는 호출 전에 검사됨."""
     emp = entry.employee
     b = payroll_breakdown(entry)
 
-    emp_code = (emp.employee_code if emp else None) or str(idx)
-    emp_name = (emp.name if emp else None) or entry.raw_name
-
     return [
-        emp_code,                    # A: 사원코드
-        emp_name,                    # B: 사원명
-        (emp.department if emp else None) or "",   # C: 부서
-        (emp.position if emp else None) or "",      # D: 직급
-        (emp.job_type if emp else None) or "",      # E: 직종
+        emp.employee_code,           # A: 사원코드 (위하고 사원코드)
+        emp.name or entry.raw_name,  # B: 사원명
+        emp.department or "",        # C: 부서
+        emp.position or "",          # D: 직급
+        emp.job_type or "",          # E: 직종
         *(b[h] for h in ITEM_HEADERS),   # F~U: 수당·공제 항목
         b["차인지급액"],              # V: 차인지급액
     ]
@@ -195,19 +188,28 @@ def generate_payroll_excel(
     if not _is_valid_period(period):
         raise PayrollExcelError(f"period 형식이 올바르지 않음: {period!r} (YYYY-MM 필요)")
 
+    entries = list(entries)
+    if not entries:
+        raise PayrollExcelError("엔트리가 없어 엑셀을 생성할 수 없습니다")
+    no_code = [
+        (e.employee.name if e.employee else None) or e.raw_name
+        for e in entries
+        if not (e.employee and (e.employee.employee_code or "").strip())
+    ]
+    if no_code:
+        raise PayrollExcelError(
+            f"위하고 사원코드가 없는 사원이 있어 급여대장을 만들 수 없습니다: {', '.join(no_code)}. "
+            "사원 정보에 위하고 사원코드를 입력하세요."
+        )
+
     wb = Workbook()
     ws = wb.active
     ws.title = f"{client_name}-{period}" if client_name else f"급여대장-{period}"
 
     _build_headers(ws)
 
-    data_start = 3
-    totals = [0] * (COL_COUNT - _INFO_COL_COUNT)  # F~V 합계
-    row_count = 0
-    for idx, entry in enumerate(entries, start=1):
-        row_data = _data_row(entry, idx)
-        ws.append(row_data)
-        r = data_start + row_count
+    for r, entry in enumerate(entries, start=3):
+        ws.append(_data_row(entry))
         ws.row_dimensions[r].height = 21
         for c in range(1, COL_COUNT + 1):
             cell = ws.cell(r, c)
@@ -216,33 +218,9 @@ def generate_payroll_excel(
             if c > _INFO_COL_COUNT:
                 cell.number_format = _NUM_FMT
                 cell.alignment = _RIGHT
-                totals[c - _INFO_COL_COUNT - 1] += row_data[c - 1]
             else:
                 cell.number_format = _TEXT_FMT
                 cell.alignment = _LEFT
-        row_count += 1
-
-    if row_count == 0:
-        raise PayrollExcelError("엔트리가 없어 엑셀을 생성할 수 없습니다")
-
-    # 합계 row — 위하고T가 수식을 읽지 못하는 경우를 대비해 계산된 값을 쓴다.
-    sum_row = data_start + row_count
-    ws.row_dimensions[sum_row].height = 17.25
-    ws.cell(sum_row, 1, "합계")
-    ws.merge_cells(start_row=sum_row, start_column=1,
-                   end_row=sum_row, end_column=_INFO_COL_COUNT)
-    ws.cell(sum_row, 1).alignment = _CENTER
-
-    for c in range(_INFO_COL_COUNT + 1, COL_COUNT + 1):
-        cell = ws.cell(sum_row, c)
-        cell.value = totals[c - _INFO_COL_COUNT - 1]
-        cell.number_format = _NUM_FMT
-        cell.alignment = _RIGHT
-
-    for c in range(1, COL_COUNT + 1):
-        ws.cell(sum_row, c).font = _SUM_FONT
-        ws.cell(sum_row, c).fill = _SUM_FILL
-        ws.cell(sum_row, c).border = _SUM_BORDER
 
     # Column widths — 원본은 전 컬럼 14
     for c in range(1, COL_COUNT + 1):
