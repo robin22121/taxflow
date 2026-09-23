@@ -3,13 +3,14 @@
 셀렉터 실측용 (`plan/16-wehago-rpa.md` §8-1 스플래시 정리 · §9 PoC). 화면을 조작하지 않는다 — 읽기만 한다.
 
 실행 (먼저 scripts/start-chrome.ps1 로 크롬을 띄우고 위하고에 로그인해 둔다):
-    uv run python scripts/explore.py                 # 열린 탭 전부 캡처
-    uv run python scripts/explore.py --goto URL      # 첫 탭을 URL로 이동 후 캡처
-    uv run python scripts/explore.py --watch 60      # 60초 동안 2초마다 새 팝업이 뜨면 캡처
+    uv run python scripts/explore.py                          # 열린 탭 전부 캡처
+    uv run python scripts/explore.py --goto URL               # 첫 탭을 URL로 이동 후 캡처
+    uv run python scripts/explore.py --watch 60               # 60초 동안 2초마다 새 팝업이 뜨면 캡처
+    uv run python scripts/explore.py --name company-list      # tab<N> 대신 라벨로 저장 (여러 화면을 순서대로 실측할 때)
 
-결과: %USERPROFILE%\\.easyone-agent\\explore\\<시각>\\
-    tab<N>.png        전체 화면 (비밀번호 입력칸 가림)
-    tab<N>.json       URL·제목·감지된 팝업(제목 문구·버튼·class·HTML 일부)·iframe 목록
+결과: %USERPROFILE%\\.easyone-agent\\explore\\<시각>\\ (macOS: ~/.easyone-agent/explore/<시각>/)
+    <name>.png        전체 화면 (비밀번호 입력칸 가림, --name 없으면 tab<N>.png)
+    <name>.json       URL·제목·감지된 팝업(제목 문구·버튼·class·HTML 일부)·iframe 목록
 사업자번호·이름 등이 찍힐 수 있으므로 저장소에 올리지 않는다 (PC에만 보관).
 """
 
@@ -123,10 +124,18 @@ def main() -> int:
     ap.add_argument("--cdp", default="http://127.0.0.1:9222")
     ap.add_argument("--goto", help="첫 탭을 이 URL로 이동한 뒤 캡처")
     ap.add_argument("--watch", type=int, default=0, help="N초 동안 새 팝업이 뜰 때마다 캡처")
+    ap.add_argument("--name", help="파일 이름 라벨 (tab<N> 대신). 여러 탭이면 <name>-tab<N>")
+    ap.add_argument("--out-root", help="저장 루트 (기본 ~/.easyone-agent/explore)")
     args = ap.parse_args()
 
-    out_dir = OUT_ROOT / datetime.now().strftime("%Y%m%dT%H%M%S")
+    root = Path(args.out_root).expanduser() if args.out_root else OUT_ROOT
+    out_dir = root / datetime.now().strftime("%Y%m%dT%H%M%S")
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _label(i: int, total: int) -> str:
+        if not args.name:
+            return f"tab{i}"
+        return args.name if total == 1 else f"{args.name}-tab{i}"
 
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp(args.cdp)
@@ -136,8 +145,9 @@ def main() -> int:
             pages[0].goto(args.goto)
             pages[0].wait_for_timeout(3000)  # SPA 렌더·안내 팝업이 뜰 시간
 
-        for i, page in enumerate(context.pages):
-            summarize(f"tab{i}", capture_page(page, out_dir, f"tab{i}"))
+        page_list = list(context.pages)
+        for i, page in enumerate(page_list):
+            summarize(_label(i, len(page_list)), capture_page(page, out_dir, _label(i, len(page_list))))
 
         if args.watch:
             seen = set()
