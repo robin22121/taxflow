@@ -2,8 +2,8 @@
 
 // 화면 하단 자동화 작업바 — plan/17-certificate-issuance.md §4-9.
 //
-// 진행중·미확인 작업 칩 + 맨 오른쪽 [전체작업 | 내작업]. 칩 클릭 → 상세 팝업,
-// 끝난 작업은 [확인]을 누르면 바에서 사라지고 작업 내역에만 남는다.
+// 대기·진행 중 + 오늘 끝난 작업 칩, 맨 오른쪽 [전체작업↔내작업] 토글(누를 때마다 전환) + [내역보기]
+// (기본 최근 3일, 1주일·한 달). 칩 클릭 → 상세 팝업, 끝난 작업은 [확인]을 누르면 바에서 사라진다.
 // 다른 직원 작업은 직원 이름·업무명만 보인다 (거래처 정보는 서버가 비워 보낸다).
 
 import { useState } from "react";
@@ -95,12 +95,14 @@ function fmt(ts: string | null) {
 export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } = {}) {
   const qc = useQueryClient();
   const [detail, setDetail] = useState<RpaActivityJob | null>(null);
-  const [historyScope, setHistoryScope] = useState<ActivityScope | null>(null);
+  const [scope, setScope] = useState<ActivityScope>("all");
+  const [showHistory, setShowHistory] = useState(false);
   const [certJobId, setCertJobId] = useState<string | null>(null);
 
+  // 작업바 칩 = 대기·진행 중 + 오늘 끝났고 아직 [확인] 안 한 작업
   const { data: jobs = [] } = useQuery({
-    queryKey: ["rpa", "jobs", "activity", "all", "unacknowledged"],
-    queryFn: () => listActivity("all", true),
+    queryKey: ["rpa", "jobs", "activity", scope, "today"],
+    queryFn: () => listActivity(scope, { today: true, unacknowledged: true }),
     refetchInterval: 5000,
   });
 
@@ -116,7 +118,7 @@ export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } =
     <>
       <div className={`fixed bottom-0 inset-x-0 ${insetLeftMd ? "md:left-[240px]" : ""} z-30 h-11 border-t border-gray-200 bg-white/95 backdrop-blur flex items-center gap-2 px-3 md:px-5`}>
         <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto">
-          {jobs.length === 0 && <span className="text-[11.5px] text-gray-400">진행 중인 자동화 작업이 없습니다</span>}
+          {jobs.length === 0 && <span className="text-[11.5px] text-gray-400">대기 중이거나 오늘 끝난 자동화 작업이 없습니다</span>}
           {jobs.map((job) => {
             const stage = jobStage(job);
             return (
@@ -132,7 +134,19 @@ export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } =
             );
           })}
         </div>
-        <ScopeToggle onPick={setHistoryScope} />
+        <button
+          onClick={() => setScope(scope === "all" ? "mine" : "all")}
+          title="누를 때마다 전체작업 ↔ 내작업"
+          className="shrink-0 px-2.5 py-1 rounded-full border border-gray-800 bg-gray-800 text-white text-[12px] font-medium hover:bg-gray-700"
+        >
+          {SCOPE_LABEL[scope]}
+        </button>
+        <button
+          onClick={() => setShowHistory(true)}
+          className="shrink-0 px-2.5 py-1 rounded-full border border-gray-300 text-[12px] font-medium text-gray-700 hover:bg-gray-50"
+        >
+          내역보기
+        </button>
       </div>
 
       {detail && (
@@ -145,32 +159,14 @@ export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } =
         />
       )}
       {certJobId && <CertificateIssueModal jobId={certJobId} onClose={() => setCertJobId(null)} />}
-      {historyScope && (
+      {showHistory && (
         <JobsModal
-          scope={historyScope}
-          onScope={setHistoryScope}
-          onClose={() => setHistoryScope(null)}
-          onPick={(job) => { setHistoryScope(null); setDetail(job); }}
+          scope={scope}
+          onClose={() => setShowHistory(false)}
+          onPick={(job) => { setShowHistory(false); setDetail(job); }}
         />
       )}
     </>
-  );
-}
-
-/** [전체작업 | 내작업] — 작업바 맨 오른쪽과 작업 내역 팝업 상단에 같이 쓴다. */
-function ScopeToggle({ active, onPick }: { active?: ActivityScope; onPick: (s: ActivityScope) => void }) {
-  return (
-    <div className="shrink-0 inline-flex rounded-full border border-gray-300 overflow-hidden text-[12px] font-medium">
-      {(["all", "mine"] as const).map((s) => (
-        <button
-          key={s}
-          onClick={() => onPick(s)}
-          className={"px-2.5 py-1 first:border-r first:border-gray-300 " + (s === active ? "bg-gray-800 text-white" : "text-gray-700 hover:bg-gray-50")}
-        >
-          {SCOPE_LABEL[s]}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -237,24 +233,40 @@ const STEP_STATE: Record<string, string> = {
   failed: "실패",
 };
 
-function JobsModal({ scope, onScope, onClose, onPick }: {
-  scope: ActivityScope; onScope: (s: ActivityScope) => void; onClose: () => void; onPick: (job: RpaActivityJob) => void;
+const PERIODS = [
+  { days: 3, label: "최근 3일" },
+  { days: 7, label: "1주일" },
+  { days: 30, label: "한 달" },
+];
+
+/** [내역보기] — 작업바에서 고른 전체작업/내작업 범위의 작업 내역, 기본 최근 3일. */
+function JobsModal({ scope, onClose, onPick }: {
+  scope: ActivityScope; onClose: () => void; onPick: (job: RpaActivityJob) => void;
 }) {
+  const [days, setDays] = useState(3);
   const { data: jobs, isLoading } = useQuery({
-    queryKey: ["rpa", "jobs", "activity", scope],
-    queryFn: () => listActivity(scope),
+    queryKey: ["rpa", "jobs", "activity", scope, "history", days],
+    queryFn: () => listActivity(scope, { days }),
   });
 
   return (
-    <Modal open onClose={onClose} size="lg" title={SCOPE_LABEL[scope]}
+    <Modal open onClose={onClose} size="lg" title={`작업내역 · ${SCOPE_LABEL[scope]}`}
       footer={<Button variant="ghost" onClick={onClose}>닫기</Button>}>
-      <div className="mb-3">
-        <ScopeToggle active={scope} onPick={onScope} />
+      <div className="mb-3 inline-flex rounded-full border border-gray-300 overflow-hidden text-[12px] font-medium">
+        {PERIODS.map((p) => (
+          <button
+            key={p.days}
+            onClick={() => setDays(p.days)}
+            className={"px-3 py-1 border-r border-gray-300 last:border-r-0 " + (p.days === days ? "bg-gray-800 text-white" : "text-gray-700 hover:bg-gray-50")}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
       {isLoading ? (
         <p className="text-[12.5px] text-gray-400">불러오는 중...</p>
       ) : !jobs?.length ? (
-        <p className="text-[12.5px] text-gray-400">아직 자동화 작업이 없습니다.</p>
+        <p className="text-[12.5px] text-gray-400">이 기간에 자동화 작업이 없습니다.</p>
       ) : (
         <div className="max-h-[60vh] overflow-y-auto -mx-1">
           <table className="w-full text-[12px]">

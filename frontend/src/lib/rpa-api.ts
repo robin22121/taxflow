@@ -137,9 +137,17 @@ export type RpaActivityJob = Omit<RpaJob, "business_name"> & {
 
 export type ActivityScope = "all" | "mine";
 
-/** 하단 작업바 — 전체작업(사무소 직원 전체)·내작업. unacknowledged 면 진행중 + 아직 [확인] 안 한 작업만. */
-export function listActivity(scope: ActivityScope, unacknowledged = false): Promise<RpaActivityJob[]> {
-  const qs = `scope=${scope}${unacknowledged ? "&unacknowledged=true" : ""}`;
+/** 하단 작업바 — 전체작업(사무소 직원 전체)·내작업.
+ *  today: 대기·진행 중 + 오늘 끝난 작업(작업바 칩), days: 최근 N일 요청 작업([내역보기]),
+ *  unacknowledged: 아직 [확인] 안 한 작업만. */
+export function listActivity(
+  scope: ActivityScope,
+  opts: { today?: boolean; days?: number; unacknowledged?: boolean } = {},
+): Promise<RpaActivityJob[]> {
+  const qs = new URLSearchParams({ scope });
+  if (opts.today) qs.set("today", "true");
+  if (opts.days) qs.set("days", String(opts.days));
+  if (opts.unacknowledged) qs.set("unacknowledged", "true");
   return api<RpaActivityJob[]>(`/api/v1/rpa/jobs/activity?${qs}`);
 }
 

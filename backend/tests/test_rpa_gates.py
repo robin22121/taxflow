@@ -468,3 +468,51 @@ async def test_claim_rotates_between_staff(http: AsyncClient, auth_headers: dict
             )
             await db.commit()
     assert order == ["A1", "B1", "A2", "A3"]
+
+
+@pytest.mark.asyncio
+async def test_activity_today_and_history_period(http: AsyncClient, auth_headers: dict):
+    """작업바 = 대기·진행 중 + 오늘 끝난 작업, [내역보기] = 최근 N일(3·7·30) 요청 작업."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import RpaJob, RpaJobKind, RpaJobStatus, User
+
+    now = datetime.now(UTC)
+    async with SessionLocal() as db:
+        me = (await db.execute(select(User).where(User.email == "admin@example.com"))).scalar_one()
+
+        def job(name: str, status: RpaJobStatus, ago_days: int, finished: bool) -> RpaJob:
+            at = now - timedelta(days=ago_days)
+            return RpaJob(
+                tax_office_id=me.tax_office_id,
+                kind=RpaJobKind.CERTIFICATE_ISSUE,
+                status=status,
+                business_name=name,
+                requested_by_user_id=me.id,
+                created_at=at,
+                finished_at=at if finished else None,
+            )
+
+        db.add_all([
+            job("대기_10일전", RpaJobStatus.PENDING, 10, False),
+            job("오늘완료", RpaJobStatus.SUCCEEDED, 0, True),
+            job("2일전완료", RpaJobStatus.SUCCEEDED, 2, True),
+            job("20일전완료", RpaJobStatus.FAILED, 20, True),
+        ])
+        await db.commit()
+
+    async def names(**params) -> set[str]:
+        rows = (
+            await http.get("/api/v1/rpa/jobs/activity", params={"scope": "mine", **params}, headers=auth_headers)
+        ).json()
+        return {j["business_name"] for j in rows}
+
+    assert await names(today="true") == {"대기_10일전", "오늘완료"}
+    assert await names(days=3) == {"오늘완료", "2일전완료"}
+    assert await names(days=7) == {"오늘완료", "2일전완료"}
+    assert await names(days=30) == {"오늘완료", "2일전완료", "20일전완료", "대기_10일전"}
+    r = await http.get("/api/v1/rpa/jobs/activity", params={"days": 90}, headers=auth_headers)
+    assert r.status_code == 422

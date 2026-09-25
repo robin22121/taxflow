@@ -12,8 +12,10 @@ import secrets
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from sqlalchemy import ColumnElement, func, select, update
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -60,6 +62,7 @@ AGENT_TOKEN_PREFIX = "rpa_"
 # 에이전트가 이 시간 안에 결과를 회신하지 않으면 멈춘 것으로 본다.
 RUNNING_TIMEOUT = timedelta(minutes=15)
 ACTIVE_STATUSES = (RpaJobStatus.PENDING, RpaJobStatus.RUNNING)
+KST = ZoneInfo("Asia/Seoul")  # 작업바 '오늘' 기준
 
 
 def _utcnow() -> datetime:
@@ -403,17 +406,28 @@ async def list_jobs(
 async def list_activity(
     scope: Literal["all", "mine"] = "mine",
     unacknowledged: bool = False,
+    today: bool = False,
+    days: int | None = Query(default=None, ge=1, le=31),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[RpaActivityJobOut]:
-    """하단 작업바 — 전체작업(사무소 직원 전체)·내작업. 다른 직원 작업은 직원 이름·업무 종류만."""
+    """하단 작업바 — 전체작업(사무소 직원 전체)·내작업. 다른 직원 작업은 직원 이름·업무 종류만.
+
+    today: 대기·진행 중 + 오늘(한국 시간) 끝난 작업만 — 작업바 칩.
+    days: 최근 N일 안에 요청된 작업 — [내역보기] (3·7·30일).
+    """
     office_id = _office_id(user)
     query = select(RpaJob).where(RpaJob.tax_office_id == office_id)
     if scope == "mine":
         query = query.where(RpaJob.requested_by_user_id == user.id)
     if unacknowledged:
         query = query.where(RpaJob.acknowledged_at.is_(None))
-    jobs = (await db.execute(query.order_by(RpaJob.created_at.desc()).limit(200))).scalars().all()
+    if today:
+        midnight = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        query = query.where(or_(RpaJob.status.in_(ACTIVE_STATUSES), RpaJob.finished_at >= midnight))
+    if days:
+        query = query.where(RpaJob.created_at >= _utcnow() - timedelta(days=days))
+    jobs = (await db.execute(query.order_by(RpaJob.created_at.desc()).limit(500))).scalars().all()
     names = dict(
         (
             await db.execute(
