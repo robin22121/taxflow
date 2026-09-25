@@ -43,7 +43,7 @@ def _safe_sheet_title(name: str, used: set[str]) -> str:
 
 
 #: 위하고T 급여대장과 동일한 항목·순서 (payroll_excel.ITEM_HEADERS 기준)
-_PAY_ITEMS = ["기본급", "상여", "식대", "자가운전", "보육수당"]
+_PAY_ITEMS = ["기본급", "상여", "식대", "자가운전", "육아수당"]
 _DEDUCTION_ITEMS = [
     "국민연금", "건강보험", "고용보험", "장기요양보험료",
     "소득세", "지방소득세", "학자금상환액", "정산보험료", "월세지원금",

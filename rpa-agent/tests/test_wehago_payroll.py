@@ -45,7 +45,7 @@ def _payroll_xlsx(path, childcare: int) -> None:
     for col in "ABCDE":
         ws.merge_cells(f"{col}1:{col}2")
     ws.merge_cells("F1:K1")
-    ws["F2"], ws["G2"], ws["H2"], ws["I2"], ws["J2"], ws["K2"] = "기본급", "상여", "식대", "자가운전", "보육수당", "지급액계"
+    ws["F2"], ws["G2"], ws["H2"], ws["I2"], ws["J2"], ws["K2"] = "기본급", "상여", "식대", "자가운전", "육아수당", "지급액계"
     ws.append(["1", "한지민", "", "", "", 3_000_000, 0, 200_000, 0, childcare, 3_200_000 + childcare])
     wb.save(path)
 
@@ -56,12 +56,12 @@ def _headers(path) -> list:
     return [c.value for c in load_workbook(path).active[1][7:10]]  # 제목 한 줄 양식의 H~J
 
 
-# 서도(더미) 위하고 실측 수당 목록 — 보육수당이 "육아수당"으로 등록돼 있음
+# 위하고 수당 목록 예 — 비과세 Q02 수당을 사무소가 "보육수당"이라는 이름으로 등록한 경우
 SEODO_ALLOWANCES = [
     {"nm_allow": "기본급", "cd_freeref": None},
     {"nm_allow": "식대", "cd_freeref": "P01"},
     {"nm_allow": "자가운전", "cd_freeref": "H03"},
-    {"nm_allow": "육아수당", "cd_freeref": "Q02"},
+    {"nm_allow": "보육수당", "cd_freeref": "Q02"},
 ]
 
 
@@ -69,23 +69,23 @@ def test_nontaxable_headers_renamed_to_wehago_names(tmp_path):
     src, dst = tmp_path / "in.xlsx", tmp_path / "out.xlsx"
     _payroll_xlsx(src, childcare=200_000)
     assert _prepare_upload_xlsx(src, dst, SEODO_ALLOWANCES) == []
-    assert _headers(dst) == ["식대", "자가운전", "육아수당"]
+    assert _headers(dst) == ["식대", "자가운전", "보육수당"]
 
 
 def test_missing_nontaxable_allowance_without_amount_is_ok(tmp_path):
-    # 자가운전·보육수당이 위하고에 없어도 금액이 0이면 올려도 빠지는 돈이 없다
+    # 자가운전·육아수당이 위하고에 없어도 금액이 0이면 올려도 빠지는 돈이 없다
     src, dst = tmp_path / "in.xlsx", tmp_path / "out.xlsx"
     _payroll_xlsx(src, childcare=0)
     only_meal = [{"nm_allow": "식대비", "cd_freeref": "P01"}]
     assert _prepare_upload_xlsx(src, dst, only_meal) == []
-    assert _headers(dst) == ["식대비", "자가운전", "보육수당"]
+    assert _headers(dst) == ["식대비", "자가운전", "육아수당"]
 
 
 def test_missing_nontaxable_allowance_with_amount_is_reported(tmp_path):
     src, dst = tmp_path / "in.xlsx", tmp_path / "out.xlsx"
     _payroll_xlsx(src, childcare=200_000)
     no_childcare = [a for a in SEODO_ALLOWANCES if a["cd_freeref"] != "Q02"]
-    assert _prepare_upload_xlsx(src, dst, no_childcare) == ["보육수당(Q02)"]
+    assert _prepare_upload_xlsx(src, dst, no_childcare) == ["육아수당(Q02)"]
     assert not dst.exists()
 
 
@@ -120,7 +120,7 @@ def test_grid_total_splits_nontaxable():
 
 
 def test_excel_totals_caps_nontaxable_at_wehago_limit(tmp_path):
-    # 위하고는 한도(20만) 초과분을 과세로 나눈다 — 보육수당 250,000 → 비과세 200,000
+    # 위하고는 한도(20만) 초과분을 과세로 나눈다 — 육아수당 250,000 → 비과세 200,000
     src = tmp_path / "in.xlsx"
     _payroll_xlsx(src, childcare=250_000)
     limits = _nontaxable_limits([

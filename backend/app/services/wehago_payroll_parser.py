@@ -29,12 +29,12 @@ _ROW1_F = "수당"
 _ROW1_L = "공제"
 _ROW1_V = "차인지급액"
 _ROW2_HEADERS = (
-    "기본급", "상여", "식대", "자가운전", "보육수당", "지급액계",
+    "기본급", "상여", "식대", "자가운전", "육아수당", "지급액계",
     "국민연금", "건강보험", "고용보험", "장기요양보험료",
     "소득세", "지방소득세", "학자금상환액", "정산보험료", "월세지원금", "공제액계",
 )
-# 이전 양식 제목 — 2026-09-25 이전에 만든 급여대장은 J열이 "육아"다
-_ROW2_LEGACY = {"보육수당": ("육아", "육아수당")}
+# J열 다른 제목 — 2026-09-25 이전 양식은 "육아", 위하고 비과세 코드명은 "보육수당"
+_ROW2_LEGACY = {"육아수당": ("육아", "보육수당")}
 
 
 @dataclass(slots=True)
@@ -49,7 +49,7 @@ class WehagoPayrollRow:
     bonus: int                   # G 상여
     meal_amount: int             # H 식대
     car_amount: int              # I 자가운전
-    childcare_amount: int        # J 보육수당 (이전 양식 "육아")
+    childcare_amount: int        # J 육아수당 (이전 양식 "육아")
     total_amount: int            # K 지급액계
     national_pension: int        # L 국민연금
     health_insurance: int        # M 건강보험

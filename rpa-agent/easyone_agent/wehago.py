@@ -35,8 +35,8 @@ _TOTAL_COLUMNS = {"지급액계", "공제액계", "차인지급액"}
 _TOTALS_GRID = "Right_top_grid"  # 오른쪽 위 전체 사원 급여항목 합계 (nm_allow·fg_tax·am_tax)
 _ALLOWANCE_GRID = "Mid_left_grid"  # 가운데 [급여항목] 그리드 (수당명 nm_allow·비과세코드 cd_freeref·비과세 한도 am_tflimit)
 # 이지원천 업로드 양식의 비과세 수당 열 → (위하고 비과세 코드, 이지원천 제목)
-# 식대 P01 식사대, 자가운전 H03 자가운전보조금, 보육수당 Q02 출산·6세 이하 보육 (2026-09-25 실측)
-_NONTAXABLE_COLUMNS = {"H": ("P01", "식대"), "I": ("H03", "자가운전"), "J": ("Q02", "보육수당")}
+# 식대 P01 식사대, 자가운전 H03 자가운전보조금, 육아수당 Q02 출산·6세 이하 보육 (2026-09-25 실측)
+_NONTAXABLE_COLUMNS = {"H": ("P01", "식대"), "I": ("H03", "자가운전"), "J": ("Q02", "육아수당")}
 _EXCEL_HEADER_ROWS = 2  # 이지원천 양식은 2단 병합 헤더 — 3행부터 사원 데이터
 _REQUIRED_COLUMNS = {"사원코드", "사원명"}  # 위하고 필수 연결 (사원번호·성명)
 _SELECTED_BG = "rgb(233, 245, 255)"  # 엑셀업로드 ① 제목행으로 선택된 칸 배경
@@ -429,7 +429,7 @@ class WehagoUploader:
 
         캔버스(RealGrid)라 DOM으로는 못 읽고, 화면에 이미 받아 둔 그리드 값을 읽는다
         (위하고 서버에 추가 요청 없음). cd_freeref 는 비과세 코드 (식대 P01 등, 과세 수당은 None),
-        am_tflimit 는 월 비과세 한도 (식대·보육수당 200,000).
+        am_tflimit 는 월 비과세 한도 (식대·육아수당 200,000).
         """
         grid = page.locator(f"#{_ALLOWANCE_GRID}")
         grid.wait_for(state="attached", timeout=UPLOAD_WAIT_MS)
@@ -796,7 +796,7 @@ def _fake_text(item) -> str:
 class _ExcelTotals:
     headcount: int
     gross: int  # 지급액계 합
-    nontaxable: int  # 식대·자가운전·보육수당 합
+    nontaxable: int  # 식대·자가운전·육아수당 합
 
 
 def _nontaxable_limits(allowances: list[dict[str, Any]]) -> dict[str, int]:
@@ -844,11 +844,11 @@ def _prepare_upload_xlsx(src: Path, dst: Path, allowances: list[dict[str, Any]])
     1) 제목 한 줄: 2단 병합 헤더를 풀어 사원코드·사원명 등을 2행으로 내리고 1행(수당/공제 묶음)을
        지운다. 위하고는 고른 제목 줄 수를 사원 한 명의 줄 수로 읽기 때문이다 (_payroll_map_headers).
     2) 비과세 수당 제목: 위하고 엑셀업로드는 제목과 같은 이름의 수당만 자동 연결하는데, 수당명은
-       사무소가 자유롭게 붙인다 (보육수당 → "육아수당" 등). 비과세 코드는 신고서에 들어가는 값이라
+       사무소가 자유롭게 붙인다 (육아수당 → "보육수당" 등). 비과세 코드는 신고서에 들어가는 값이라
        이름보다 믿을 수 있으므로, 같은 비과세 코드로 등록된 위하고 수당명으로 바꾼다.
 
     Returns:
-        금액이 있는데 위하고에 그 비과세 코드 수당이 없는 항목 — 예: ["보육수당(Q02)"].
+        금액이 있는데 위하고에 그 비과세 코드 수당이 없는 항목 — 예: ["육아수당(Q02)"].
         이 경우 dst는 저장하지 않는다 (올리면 그 금액이 빠진다).
     """
     from openpyxl import load_workbook

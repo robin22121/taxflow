@@ -59,7 +59,7 @@ def test_sheet_per_employee_and_net_pay():
     # 항목명·순서는 위하고T 급여대장과 동일
     labels = [r[0] for r in flat if r and r[0]]
     assert labels[labels.index("수당"):labels.index("공제")] == [
-        "수당", "기본급", "상여", "식대", "자가운전", "보육수당", "지급액계",
+        "수당", "기본급", "상여", "식대", "자가운전", "육아수당", "지급액계",
     ]
     assert labels[labels.index("공제"):labels.index("차인지급액")] == [
         "공제", "국민연금", "건강보험", "고용보험", "장기요양보험료",
