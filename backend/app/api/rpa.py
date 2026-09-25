@@ -49,6 +49,7 @@ from app.schemas.rpa import (
     RpaJobResultIn,
     RpaNotificationOut,
     WehagoUploadCreate,
+    WehagoUploadPreviewRow,
 )
 from app.services.payroll_defaults import resolve_pay_date
 from app.services.payroll_excel import PayrollExcelError, generate_payroll_excel
@@ -193,6 +194,63 @@ async def _pay_date(
 # ---------------------------------------------------------------------------
 # 전송 작업 등록·조회·취소 (세무사 화면)
 # ---------------------------------------------------------------------------
+
+
+@router.get("/wehago-uploads/preview", response_model=list[WehagoUploadPreviewRow])
+async def preview_wehago_uploads(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[WehagoUploadPreviewRow]:
+    """위하고 전송 전에 거래처별 지급일·차단 사유를 보여 준다. 실제 전송 때 서버가 다시 검사한다."""
+    office_id = _office_id(user)
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    client_ids = set(
+        (
+            await db.execute(
+                select(PayrollEntry.client_id).where(PayrollEntry.monthly_filing_id == filing.id)
+            )
+        ).scalars().all()
+    )
+    clients = (
+        await db.execute(select(Client).where(Client.id.in_(client_ids)))
+    ).scalars().all()
+    no_code = set(
+        (
+            await db.execute(
+                select(PayrollEntry.client_id)
+                .outerjoin(Employee, PayrollEntry.employee_id == Employee.id)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing.id,
+                    func.coalesce(func.trim(Employee.employee_code), "") == "",
+                )
+            )
+        ).scalars().all()
+    )
+    active = set(
+        (
+            await db.execute(
+                select(RpaJob.client_id).where(
+                    RpaJob.monthly_filing_id == filing.id,
+                    RpaJob.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT,
+                    RpaJob.status.in_(ACTIVE_STATUSES),
+                )
+            )
+        ).scalars().all()
+    )
+    rows = []
+    for c in clients:
+        pay_date, reason = await _pay_date(db, filing.id, c.id, filing.period)
+        if not (c.business_number or "").strip():
+            reason = "사업자번호 없음"
+        elif c.id in no_code:
+            reason = "위하고 사원코드 없는 사원 있음"
+        elif c.id in active:
+            reason = "이미 전송 대기·진행 중"
+        rows.append(WehagoUploadPreviewRow(client_id=c.id, pay_date=pay_date, blocked_reason=reason))
+    return rows
 
 
 @router.post(

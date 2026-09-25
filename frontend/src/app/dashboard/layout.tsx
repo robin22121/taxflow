@@ -88,6 +88,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             >
               증명원 발급
             </button>
+            <button
+              onClick={() => alert("타세목 신고·납부 화면은 준비 중입니다.")}
+              className="px-2.5 sm:px-3 py-1.5 rounded-full text-[12px] sm:text-[13px] font-medium transition-colors text-gray-600 hover:bg-gray-100"
+            >
+              타세목 신고·납부
+            </button>
           </nav>
         </div>
 

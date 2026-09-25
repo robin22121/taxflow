@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -29,7 +29,8 @@ import type { CollectPreview, ParsedEntryPreview } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Input, Modal } from "@/components/ui";
 import { useHeaderSlots } from "@/components/header-slot";
-import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
+import { WehagoSendModal } from "@/components/rpa/wehago-send-modal";
+import { gateStage, indexJobsByClient, listJobs, type GateStage } from "@/lib/rpa-api";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -52,7 +53,8 @@ export default function FilingDetailPage({
   const [bulkPassword, setBulkPassword] = useState("");
   const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [showCertificate, setShowCertificate] = useState(false);
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [showUnifiedPicker, setShowUnifiedPicker] = useState(false);
   const [unifiedClientIds, setUnifiedClientIds] = useState<string[]>([]);
   const [showSingleDownload, setShowSingleDownload] = useState(false);
@@ -72,6 +74,16 @@ export default function FilingDetailPage({
       setActiveSession((preferred ?? sessions[0]).id);
     }
   }, [activeSession, sessions, preferredClientId]);
+
+  // 보고 있는 거래처를 주소(?client_id)에 남긴다 — 상단 전역 [증명원 발급]이 이 거래처를 미리 고른다
+  const activeClientId = sessions.find((s) => s.id === activeSession)?.client_id ?? null;
+  useEffect(() => {
+    if (!activeClientId) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("client_id") === activeClientId) return;
+    url.searchParams.set("client_id", activeClientId);
+    window.history.replaceState(null, "", url);
+  }, [activeClientId]);
 
   if (isLoading || !data) {
     return (
@@ -242,17 +254,18 @@ export default function FilingDetailPage({
               확인필요만 보기 ✕
             </button>
           )}
+          {/* 업무 순서: 자료요청 → ① 위하고 전송 → ② 제작 → ③ 고객 발송 → 다운로드 */}
           <div className="relative shrink-0">
             <Button variant="secondary"
               onClick={() => setShowSmsMenu((v) => !v)}
               disabled={sendInvite.isPending || requestCollection.isPending}
               className="!text-[12px] !px-2.5 !py-1 inline-flex items-center gap-1">
-              {sendInvite.isPending || requestCollection.isPending ? "발송중..." : <>문자발송<svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg></>}
+              {sendInvite.isPending || requestCollection.isPending ? "발송중..." : <>자료요청<svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg></>}
             </Button>
             {showSmsMenu && (<>
               <div className="fixed inset-0 z-40" onClick={() => setShowSmsMenu(false)} />
               <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-100">원천세 자료요청</div>
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-100">원천세 자료요청 (이메일·문자)</div>
                 <button onClick={() => { setShowSmsMenu(false); setShowBulkConfirm(true); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">
                   전체 업체
                 </button>
@@ -266,11 +279,42 @@ export default function FilingDetailPage({
               </div>
             </>)}
           </div>
-          <Button variant="primary" onClick={openUnifiedPicker} className="!text-[12px] !px-2.5 !py-1">통합 다운로드 (급여대장)</Button>
-          <Button variant="ghost" onClick={downloadPayslips} className="!text-[12px] !px-2.5 !py-1">급여명세서</Button>
-          <Button variant="ghost" onClick={() => setShowSingleDownload(true)} className="!text-[12px] !px-2.5 !py-1">개별 서류</Button>
-          <Button variant="ghost" onClick={() => setShowCertificate(true)} className="!text-[12px] !px-2.5 !py-1">증명원 발급</Button>
-          <Button variant="ghost" onClick={() => alert("타세목 신고·납부 화면은 준비 중입니다.")} className="!text-[12px] !px-2.5 !py-1">타세목 신고·납부</Button>
+          <div className="inline-flex items-center rounded-full border border-gray-200 bg-white p-0.5 shrink-0">
+            <button onClick={() => setShowSendModal(true)}
+              className="px-2.5 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700">
+              ① 위하고 전송
+            </button>
+            <span className="text-gray-300 text-[11px] px-0.5">›</span>
+            <button disabled title="준비 중 — 자동화 PC의 원천세·지방세 제작·신고 기능 개발 후 열립니다"
+              className="px-2.5 py-1 rounded-full text-[12px] font-medium text-gray-400 cursor-not-allowed">
+              ② 제작
+            </button>
+            <span className="text-gray-300 text-[11px] px-0.5">›</span>
+            <button disabled title="준비 중 — 접수증·납부서 회수 후 사장님 포털 공개·납부안내 발송"
+              className="px-2.5 py-1 rounded-full text-[12px] font-medium text-gray-400 cursor-not-allowed">
+              ③ 고객 발송
+            </button>
+          </div>
+          <div className="relative shrink-0">
+            <Button variant="ghost" onClick={() => setShowDownloadMenu((v) => !v)}
+              className="!text-[12px] !px-2.5 !py-1 inline-flex items-center gap-1">
+              다운로드<svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </Button>
+            {showDownloadMenu && (<>
+              <div className="fixed inset-0 z-40" onClick={() => setShowDownloadMenu(false)} />
+              <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
+                <button onClick={() => { setShowDownloadMenu(false); openUnifiedPicker(); }} className="w-full text-left px-3 py-2 text-[12px] font-semibold text-gray-900 hover:bg-gray-50">
+                  통합 다운로드 (급여대장)
+                </button>
+                <button onClick={() => { setShowDownloadMenu(false); downloadPayslips(); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">
+                  급여명세서
+                </button>
+                <button onClick={() => { setShowDownloadMenu(false); setShowSingleDownload(true); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">
+                  개별 서류
+                </button>
+              </div>
+            </>)}
+          </div>
         </>,
         headerSlots.actions,
       )}
@@ -295,11 +339,16 @@ export default function FilingDetailPage({
         />
       )}
 
-      {showCertificate && (
-        <CertificateIssueModal
-          initialClientId={selectedSession?.client_id ?? null}
-          initialTab="EMPLOYEE"
-          onClose={() => setShowCertificate(false)}
+      {showSendModal && (
+        <WehagoSendModal
+          filingId={id}
+          targets={sessions.map((s) => ({
+            clientId: s.client_id,
+            clientName: s.client_name,
+            blockedReason: s.entry_count === 0 ? "자료 없음" : unapprovedCounts.has(s.client_id) ? `미승인 ${unapprovedCounts.get(s.client_id)}건` : null,
+          }))}
+          currentClientId={selectedSession?.client_id ?? null}
+          onClose={() => setShowSendModal(false)}
         />
       )}
 
@@ -523,6 +572,18 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
     return true;
   });
 
+  // 위하고 자동화 단계 — 왼쪽 거래처 목록 배지
+  const { data: rpaJobs = [] } = useQuery({
+    queryKey: ["rpa", "jobs", filingId],
+    queryFn: () => listJobs(filingId),
+    refetchInterval: 10_000,
+  });
+  const jobsByClient = indexJobsByClient(rpaJobs);
+  const stageOf = (clientId: string) => {
+    const b = jobsByClient[clientId] ?? {};
+    return gateStage(b.input, b.production, undefined);
+  };
+
   const reviewCount = sessions.filter(isReview).length;
   const waitingCount = sessions.filter(isWaiting).length;
 
@@ -563,7 +624,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
           {filtered.map((s) => (
             <div key={s.id}>
-              <SessionItem session={s} entries={entries} active={s.id === activeSession} onClick={() => { setActiveSession(s.id); setShowSidebar(false); }} />
+              <SessionItem session={s} entries={entries} active={s.id === activeSession} rpaStage={stageOf(s.client_id)} onClick={() => { setActiveSession(s.id); setShowSidebar(false); }} />
               {s.id === activeSession && selectedSession && (
                 <ClientInfoPanel session={selectedSession} entries={selectedEntries} />
               )}
@@ -1113,12 +1174,23 @@ function MainTabButton({ active, onClick, children }: { active: boolean; onClick
 
 /* ═══ Session List Item ═══ */
 
-function SessionItem({ session, entries, active, onClick }: {
+const RPA_STAGE_BADGE: Partial<Record<GateStage, { label: string; tone: "info" | "success" | "danger" }>> = {
+  sending: { label: "위하고 전송 중", tone: "info" },
+  input_done: { label: "위하고 입력 완료", tone: "success" },
+  producing: { label: "제작 중", tone: "info" },
+  production_done: { label: "신고 완료", tone: "success" },
+  published: { label: "발송 완료", tone: "success" },
+  failed: { label: "자동화 실패", tone: "danger" },
+};
+
+function SessionItem({ session, entries, active, rpaStage, onClick }: {
   session: CollectionSession;
   entries: PayrollEntry[];
   active: boolean;
+  rpaStage: GateStage;
   onClick: () => void;
 }) {
+  const stageBadge = RPA_STAGE_BADGE[rpaStage];
   const se = entries.filter((e) => e.client_id === session.client_id);
   const newHire = se.filter((e) => e.match_status === "NEW_HIRE_SUSPECTED").length;
   const resigned = se.filter((e) => e.match_status === "RESIGNATION_SUSPECTED").length;
@@ -1156,6 +1228,7 @@ function SessionItem({ session, entries, active, onClick }: {
           {isDotted && review === 0 && <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-gray-300"}`} />}
           {!isDotted && review === 0 && <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-green-500"}`} />}
           <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
+          {stageBadge && <span className="ml-auto shrink-0"><Badge tone={stageBadge.tone}>{stageBadge.label}</Badge></span>}
       </div>
       <div className="flex gap-1.5 text-[11.5px] text-gray-500">
         {se.length > 0 && <span className="tabular-nums">{se.length}명</span>}

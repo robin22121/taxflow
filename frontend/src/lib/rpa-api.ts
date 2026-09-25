@@ -91,6 +91,19 @@ export function createWehagoUploads(filingId: string, clientIds: string[]): Prom
   });
 }
 
+/** 위하고 전송 모달용 — 거래처별 적용 지급일과 서버 쪽 차단 사유 (사업자번호·사원코드·지급일·진행 중). */
+export type WehagoUploadPreview = {
+  client_id: string;
+  pay_date: string | null;
+  blocked_reason: string | null;
+};
+
+export function previewWehagoUploads(filingId: string): Promise<WehagoUploadPreview[]> {
+  return api<WehagoUploadPreview[]>(
+    `/api/v1/rpa/wehago-uploads/preview?filing_id=${encodeURIComponent(filingId)}`,
+  );
+}
+
 // --- 게이트 2 : 제작 ---------------------------------------------------
 
 export function createProductions(filingId: string, clientIds: string[]): Promise<RpaJob[]> {

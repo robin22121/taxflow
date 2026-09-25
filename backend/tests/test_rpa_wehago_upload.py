@@ -253,6 +253,13 @@ async def test_upload_needs_pay_date_and_claim_carries_it(http: AsyncClient, aut
     await _clear_payment_dates(filing_id, client_id)
     await http.post(f"/api/v1/clients/{client_id}/payroll-default/reset", headers=auth_headers)
 
+    before = (
+        await http.get(
+            "/api/v1/rpa/wehago-uploads/preview", params={"filing_id": filing_id}, headers=auth_headers
+        )
+    ).json()
+    assert next(r for r in before if r["client_id"] == client_id)["blocked_reason"] == "급여지급일 미설정"
+
     blocked = await _enqueue(http, auth_headers, filing_id, [client_id])
     assert blocked.status_code == 409, blocked.text
     assert "급여지급일 미설정" in blocked.json()["detail"]
@@ -265,7 +272,28 @@ async def test_upload_needs_pay_date_and_claim_carries_it(http: AsyncClient, aut
     assert r.status_code == 200, r.text
     assert (r.json()["pay_month_offset"], r.json()["pay_day"]) == (1, 31)
 
+    preview = {
+        row["client_id"]: row
+        for row in (
+            await http.get(
+                "/api/v1/rpa/wehago-uploads/preview",
+                params={"filing_id": filing_id},
+                headers=auth_headers,
+            )
+        ).json()
+    }
+    from app.services.payroll_defaults import resolve_pay_date as _resolve
+
+    assert preview[client_id]["blocked_reason"] is None
+    assert preview[client_id]["pay_date"] == _resolve(period, 1, 31).isoformat()
+
     assert (await _enqueue(http, auth_headers, filing_id, [client_id])).status_code == 201
+    after = (
+        await http.get(
+            "/api/v1/rpa/wehago-uploads/preview", params={"filing_id": filing_id}, headers=auth_headers
+        )
+    ).json()
+    assert next(r for r in after if r["client_id"] == client_id)["blocked_reason"] == "이미 전송 대기·진행 중"
     agent = await _issue_agent(http, auth_headers, "지급일 확인 PC")
     claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
 

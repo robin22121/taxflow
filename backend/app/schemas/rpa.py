@@ -30,6 +30,14 @@ class WehagoUploadCreate(BaseModel):
     client_ids: list[str] = Field(min_length=1)
 
 
+class WehagoUploadPreviewRow(BaseModel):
+    """위하고 전송 모달용 — 거래처별 적용 지급일과 서버 쪽 차단 사유 (승인·자료 여부는 화면이 이미 안다)."""
+
+    client_id: str
+    pay_date: date | None
+    blocked_reason: str | None
+
+
 # --- 게이트 2 : 위하고 마감·제작 + 홈택스·위택스 일괄 작업 등록 -----------
 
 
