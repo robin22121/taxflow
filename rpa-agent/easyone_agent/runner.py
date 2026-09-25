@@ -11,6 +11,7 @@ from easyone_agent.api import IMPORT_ALL, IMPORT_CLIENT, EasyoneApi, Job
 from easyone_agent.company import company_matches
 from easyone_agent.import_runner import process_import
 from easyone_agent.logmask import mask_text
+from easyone_agent.pace import job_gap_sec
 from easyone_agent.wehago import CompanyMismatch, LoginFailed, WehagoError, WehagoUploader
 
 logger = logging.getLogger(__name__)
@@ -141,5 +142,5 @@ def run_forever(
             # 서버 연결 끊김 등 — 잠시 뒤 다시 묻는다.
             logger.exception("작업 요청 실패")
             processed = False
-        if not processed:
-            sleep(poll_interval_sec)
+        # 작업을 끝냈으면 사람 속도로 쉬었다가 다음 작업을 받는다 (위하고는 신중하게, §8-4).
+        sleep(job_gap_sec("wehago") if processed else poll_interval_sec)

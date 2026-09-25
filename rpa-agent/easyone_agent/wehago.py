@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from easyone_agent.company import normalize_business_number
+from easyone_agent.pace import key_delay_ms, think
 
 WEHAGO_URL = "https://www.wehagot.com"  # 위하고 T (세무회계사무소용)
 TAXAGENT_URL = f"{WEHAGO_URL}/tedge/#/taxagent"  # 세무대리인 수임처 관리
@@ -190,8 +191,10 @@ class WehagoUploader:
             raise LoginFailed("로그인 화면이 열리지 않음") from None
 
         # React 입력칸이라 fill()로는 값이 반영되지 않을 수 있어 한 글자씩 친다.
-        id_input.press_sequentially(self._user_id)
-        page.locator("#inputPw").press_sequentially(self._password)
+        id_input.press_sequentially(self._user_id, delay=key_delay_ms("wehago"))
+        think("wehago")
+        page.locator("#inputPw").press_sequentially(self._password, delay=key_delay_ms("wehago"))
+        think("wehago")
         page.locator(".login_form button.WSC_LUXButton").click()
         try:
             page.wait_for_url(lambda url: "#/login" not in url, timeout=LOGIN_WAIT_MS)
@@ -642,7 +645,8 @@ class WehagoUploader:
         search = page.locator("input[placeholder*='사업자번호']").first
         search.wait_for(state="visible", timeout=SIDEBAR_WAIT_MS)
         search.fill("")
-        search.press_sequentially(normalize_business_number(business_number))
+        search.press_sequentially(normalize_business_number(business_number), delay=key_delay_ms("wehago"))
+        think("wehago")
         search.press("Enter")
         self._wait_for_no_dimmed()
 

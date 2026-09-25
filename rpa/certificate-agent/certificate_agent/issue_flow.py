@@ -20,6 +20,8 @@ from pathlib import Path
 from certificate_agent.config import AgentConfig
 
 MODE = os.environ.get("CERT_AGENT_MODE", "dummy")
+# phase1 이 붙을 홈택스 크롬 (`python -m certificate_agent chrome` 으로 띄운 것)
+PHASE1_CDP_URL = os.environ.get("CERT_AGENT_CDP_URL", "http://127.0.0.1:9222")
 
 DUMMY_PNG_B64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
@@ -567,8 +569,14 @@ def execute_attached(job: dict, cdp_url: str) -> tuple[bytes, str, str, str]:
             raise RuntimeError(f"{exc.__class__.__name__}: {exc} | dump={path}") from exc
 
 
-def execute_phase1(job: dict, cfg: AgentConfig) -> tuple[bytes, str, str, str]:
-    """홈택스 로그인 → 사업자등록증명 신청 → 발급 → 출력 팝업 → 파일 회수."""
+def execute_phase1(
+    job: dict, cfg: AgentConfig, cdp_url: str = PHASE1_CDP_URL
+) -> tuple[bytes, str, str, str]:
+    """떠 있는 홈택스 크롬에 부착 → 로그인이 풀렸으면 자동 로그인 → 발급 → 파일 회수.
+
+    Playwright 가 새 브라우저를 띄우면(`launch`) 자동화 흔적이 남으므로 사람이 쓰는 것과
+    같은 설치 크롬(start-chrome, 전용 프로필)에 CDP 로 붙는다 (plan/16 §8-4).
+    """
     _sys_path_add_phase1()
     from playwright.sync_api import sync_playwright  # noqa: WPS433
 
@@ -582,26 +590,21 @@ def execute_phase1(job: dict, cfg: AgentConfig) -> tuple[bytes, str, str, str]:
     )
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, slow_mo=100)
-        context = browser.new_context(
-            accept_downloads=True,
-            locale="ko-KR",
-            timezone_id="Asia/Seoul",
-            viewport={"width": 1440, "height": 900},
-        )
+        browser = p.chromium.connect_over_cdp(cdp_url)
+        context = browser.contexts[0]
+        tabs = [pg for pg in context.pages if "hometax.go.kr" in pg.url and "sesw.hometax.go.kr" not in pg.url]
+        page = tabs[-1] if tabs else context.new_page()
         try:
-            page = context.new_page()
-            login(page, creds)
-            print("[+] login ok")
-            time.sleep(2.0)
-
+            if not tabs or page.get_by_text("로그아웃").count() == 0:
+                login(page, creds)
+                print("[+] login ok")
+                time.sleep(2.0)
+            _ensure_wide_window(page)
             return issue_certificate(context, page, job)
         except Exception as exc:  # noqa: BLE001
             path = _dump(page, "fail_flow")
             raise RuntimeError(f"{exc.__class__.__name__}: {exc} | dump={path}") from exc
-        finally:
-            context.close()
-            browser.close()
+        # 브라우저·로그인은 닫지 않는다 — 다음 작업이 이어 쓴다 (§8-3 로그인 유지).
 
 
 def execute(job: dict, cfg: AgentConfig) -> tuple[bytes, str, str, str]:

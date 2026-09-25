@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass
 from getpass import getpass
@@ -49,8 +50,12 @@ def login(page: Page, creds: HometaxCredentials) -> None:
 
     id_field = page.locator("input[name='iptUserId']:visible").first
     id_field.wait_for(state="visible", timeout=10000)
-    id_field.fill(creds.user_id)
-    page.locator("input[name='iptUserPw']:visible").first.fill(creds.user_pw)
+    # 값을 한 번에 넣지 않고 한 글자씩 친다 — 사람 입력과 같게, 키보드보안이 키 이벤트를 요구해도 동작
+    # (홈택스 속도: certificate_agent/pace.py KEY_DELAY_MS·THINK_SEC 와 같은 범위)
+    id_field.press_sequentially(creds.user_id, delay=random.randint(30, 80))
+    time.sleep(random.uniform(0.5, 1.0))
+    page.locator("input[name='iptUserPw']:visible").first.press_sequentially(creds.user_pw, delay=random.randint(30, 80))
+    time.sleep(random.uniform(0.5, 1.0))
 
     # 로그인 버튼 (간편인증과 클래스 공유해 title로 좁힘)
     page.locator("a.logingbtn[title='로그인']").click()

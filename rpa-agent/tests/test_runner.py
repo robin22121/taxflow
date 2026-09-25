@@ -132,6 +132,34 @@ def test_run_forever_stops_on_login_failure(tmp_path: Path):
     assert sleeps == []
 
 
+class _Stop(Exception):
+    pass
+
+
+def test_run_forever_rests_between_jobs(tmp_path: Path):
+    """작업을 끝내면 위하고 속도(5~15초)로 쉬고, 일이 없으면 폴링 간격으로 묻는다."""
+    api = FakeApi([JOB])
+    sleeps: list[float] = []
+
+    def sleep(sec: float) -> None:
+        sleeps.append(sec)
+        if len(sleeps) == 2:
+            raise _Stop
+
+    with pytest.raises(_Stop):
+        run_forever(api, FakeUploader(), tmp_path / "work", 5, sleep=sleep)
+    assert 5.0 <= sleeps[0] <= 15.0
+    assert sleeps[1] == 5
+
+
+def test_pace_hometax_is_faster_than_wehago():
+    from easyone_agent.pace import PACE
+
+    assert PACE["hometax"].think_sec == (0.5, 1.0) and PACE["wetax"].think_sec == (0.5, 1.0)
+    assert PACE["hometax"].gap_sec[1] <= 7.0 and PACE["wetax"].gap_sec[1] <= 7.0
+    assert PACE["wehago"].gap_sec[0] >= 5.0  # 위하고는 사설 업체 — 신중하게
+
+
 class NoDownloadApi(FakeApi):
     def download_payroll_excel(self, job_id: str) -> bytes:
         raise AssertionError("로그인 테스트는 급여파일을 받지 않는다")

@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 
 from certificate_agent.issue_flow import execute_attached
+from certificate_agent.pace import job_gap, think
 
 POLL_INTERVAL_SEC = 5.0
 PREFIX = "/api/v1/certificates/agent"
@@ -135,7 +136,9 @@ def _run_job(client: EasyoneClient, claimed: dict[str, Any], cdp_url: str, save_
     issues = claimed["issues"]
     print(f"[+] 발급 요청 {job['id']} — {job['business_name']} × {[i['title'] for i in issues]}")
     failures: list[str] = []
-    for issue in issues:
+    for n, issue in enumerate(issues):
+        if n:
+            think()
         try:
             data, filename, _mime, msg = execute_attached(
                 {
@@ -176,6 +179,7 @@ def run_easyone_loop(server_url: str, token: str, cdp_url: str, save_dir: Path) 
                 continue
             if claimed.get("job"):
                 _run_job(client, claimed, cdp_url, save_dir)
+                job_gap()  # 다음 작업 전 3~7초 (§8-4)
             else:
                 time.sleep(POLL_INTERVAL_SEC)
     finally:
