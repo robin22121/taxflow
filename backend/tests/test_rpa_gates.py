@@ -352,3 +352,67 @@ async def test_acknowledge_hides_finished_job_from_bar(http: AsyncClient, auth_h
     assert job_id in [
         j["id"] for j in (await http.get("/api/v1/rpa/jobs", headers=auth_headers)).json()
     ]
+
+
+@pytest.mark.asyncio
+async def test_activity_masks_other_staff_jobs(http: AsyncClient, auth_headers: dict):
+    """작업바 전체작업 — 다른 직원 작업은 직원 이름·업무 종류만, 거래처 정보는 비운다."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import RpaJob, RpaJobKind, RpaJobStatus, User
+
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+    r = await http.post(
+        "/api/v1/rpa/wehago-uploads",
+        json={"filing_id": filing_id, "client_ids": [client_id]},
+        headers=auth_headers,
+    )
+    my_job_id = r.json()[0]["id"]
+
+    async with SessionLocal() as db:
+        me = (await db.execute(select(User).where(User.email == "admin@example.com"))).scalar_one()
+        colleague = (
+            await db.execute(select(User).where(User.email == "colleague-activity@example.com"))
+        ).scalar_one_or_none()
+        if colleague is None:
+            colleague = User(
+                tax_office_id=me.tax_office_id,
+                email="colleague-activity@example.com",
+                password_hash="x",
+                name="김동료",
+            )
+            db.add(colleague)
+            await db.flush()
+        other = RpaJob(
+            tax_office_id=me.tax_office_id,
+            kind=RpaJobKind.CERTIFICATE_ISSUE,
+            status=RpaJobStatus.PENDING,
+            business_number="123-45-67890",
+            business_name="비밀상호",
+            period="2026-08",
+            result_message="비밀상호 발급",
+            requested_by_user_id=colleague.id,
+        )
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+
+    rows = (
+        await http.get("/api/v1/rpa/jobs/activity", params={"scope": "all"}, headers=auth_headers)
+    ).json()
+    by_id = {j["id"]: j for j in rows}
+    assert by_id[my_job_id]["is_mine"] is True
+    assert by_id[my_job_id]["business_name"]
+    masked = by_id[other_id]
+    assert masked["is_mine"] is False
+    assert masked["requested_by_name"] == "김동료"
+    assert masked["kind"] == "CERTIFICATE_ISSUE" and masked["status"] == "PENDING"
+    for key in ("business_name", "business_number", "period", "result_message", "client_id"):
+        assert masked[key] is None
+    assert "비밀상호" not in str(rows)
+
+    mine = (
+        await http.get("/api/v1/rpa/jobs/activity", params={"scope": "mine"}, headers=auth_headers)
+    ).json()
+    assert {j["id"] for j in mine} == {my_job_id}

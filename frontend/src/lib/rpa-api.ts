@@ -115,9 +115,19 @@ export function listJobs(filingId?: string): Promise<RpaJob[]> {
   return api<RpaJob[]>(`/api/v1/rpa/jobs${qs}`);
 }
 
-/** 하단 작업바 — 진행중 + 끝났지만 아직 [확인] 안 한 작업. */
-export function listUnacknowledgedJobs(): Promise<RpaJob[]> {
-  return api<RpaJob[]>("/api/v1/rpa/jobs?unacknowledged=true");
+/** 하단 작업바 작업 — 다른 직원 작업은 서버가 거래처 정보(상호·사업자번호·귀속월·메시지 등)를 비워 보낸다. */
+export type RpaActivityJob = Omit<RpaJob, "business_name"> & {
+  business_name: string | null;
+  requested_by_name: string | null;
+  is_mine: boolean;
+};
+
+export type ActivityScope = "all" | "mine";
+
+/** 하단 작업바 — 전체작업(사무소 직원 전체)·내작업. unacknowledged 면 진행중 + 아직 [확인] 안 한 작업만. */
+export function listActivity(scope: ActivityScope, unacknowledged = false): Promise<RpaActivityJob[]> {
+  const qs = `scope=${scope}${unacknowledged ? "&unacknowledged=true" : ""}`;
+  return api<RpaActivityJob[]>(`/api/v1/rpa/jobs/activity?${qs}`);
 }
 
 export function acknowledgeJob(jobId: string): Promise<RpaJob> {
@@ -169,7 +179,7 @@ export type ImportClientEntry = {
   conflicts?: { target: string; field: string; current: string; wehago: string }[];
 };
 
-export function importProgress(job: RpaJob): { total: number | null; clients: ImportClientEntry[] } {
+export function importProgress(job: Pick<RpaJob, "step_progress">): { total: number | null; clients: ImportClientEntry[] } {
   const p = (job.step_progress ?? {}) as { total?: number; clients?: ImportClientEntry[] };
   return { total: p.total ?? null, clients: p.clients ?? [] };
 }

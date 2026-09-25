@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy import func, select, update
@@ -41,6 +42,7 @@ from app.schemas.rpa import (
     PublishFilingResultOut,
     RpaAgentCreate,
     RpaAgentIssued,
+    RpaActivityJobOut,
     RpaAgentOut,
     RpaClaimOut,
     RpaJobOut,
@@ -337,6 +339,51 @@ async def list_jobs(
         query = query.where(RpaJob.acknowledged_at.is_(None))
     rows = await db.execute(query.order_by(RpaJob.created_at.desc()).limit(200))
     return list(rows.scalars().all())
+
+
+@router.get("/jobs/activity", response_model=list[RpaActivityJobOut])
+async def list_activity(
+    scope: Literal["all", "mine"] = "mine",
+    unacknowledged: bool = False,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[RpaActivityJobOut]:
+    """하단 작업바 — 전체작업(사무소 직원 전체)·내작업. 다른 직원 작업은 직원 이름·업무 종류만."""
+    office_id = _office_id(user)
+    query = select(RpaJob).where(RpaJob.tax_office_id == office_id)
+    if scope == "mine":
+        query = query.where(RpaJob.requested_by_user_id == user.id)
+    if unacknowledged:
+        query = query.where(RpaJob.acknowledged_at.is_(None))
+    jobs = (await db.execute(query.order_by(RpaJob.created_at.desc()).limit(200))).scalars().all()
+    names = dict(
+        (
+            await db.execute(
+                select(User.id, User.name).where(User.id.in_({j.requested_by_user_id for j in jobs}))
+            )
+        ).all()
+    )
+    out = []
+    for job in jobs:
+        mine = job.requested_by_user_id == user.id
+        row = RpaActivityJobOut.model_validate(
+            {
+                **RpaJobOut.model_validate(job).model_dump(),
+                "requested_by_name": names.get(job.requested_by_user_id),
+                "is_mine": mine,
+            }
+        )
+        if not mine:
+            row = row.model_copy(
+                update=dict.fromkeys(
+                    (
+                        "monthly_filing_id", "client_id", "period", "business_number", "business_name",
+                        "result_message", "step_progress", "compare_diff",
+                    )
+                )
+            )
+        out.append(row)
+    return out
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=RpaJobOut)

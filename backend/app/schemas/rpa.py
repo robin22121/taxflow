@@ -63,6 +63,14 @@ class RpaJobOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RpaActivityJobOut(RpaJobOut):
+    """하단 작업바 — 다른 직원 작업은 거래처 정보(상호·사업자번호·귀속월·결과 메시지 등)를 비운다."""
+
+    business_name: str | None  # type: ignore[assignment]
+    requested_by_name: str | None
+    is_mine: bool
+
+
 class RpaClaimOut(BaseModel):
     job: RpaJobOut | None
 
