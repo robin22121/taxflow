@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy import func, select, update
@@ -20,6 +20,7 @@ from app.core.deps import get_current_user, get_db
 from app.models import (
     Client,
     ClientFilingResult,
+    ClientPayrollDefault,
     Employee,
     FilingResultSource,
     MonthlyFiling,
@@ -47,6 +48,7 @@ from app.schemas.rpa import (
     RpaNotificationOut,
     WehagoUploadCreate,
 )
+from app.services.payroll_defaults import resolve_pay_date
 from app.services.payroll_excel import PayrollExcelError, generate_payroll_excel
 
 router = APIRouter()
@@ -153,6 +155,39 @@ async def revoke_agent(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+async def _pay_date(
+    db: AsyncSession, filing_id: str, client_id: str, period: str
+) -> tuple[date | None, str | None]:
+    """위하고 급여자료입력 지급일 — (지급일, 못 정한 이유).
+
+    급여 자료에 지급일이 있으면 그 값(모두 같아야 함), 없으면 거래처 급여지급일 설정으로 계산.
+    """
+    dates = set(
+        (
+            await db.execute(
+                select(PayrollEntry.payment_date).where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.client_id == client_id,
+                    PayrollEntry.payment_date.is_not(None),
+                )
+            )
+        ).scalars().all()
+    )
+    if len(dates) > 1:
+        return None, "급여 자료의 지급일이 여러 개"
+    if dates:
+        return dates.pop(), None
+    setting = (
+        await db.execute(
+            select(ClientPayrollDefault).where(ClientPayrollDefault.client_id == client_id)
+        )
+    ).scalar_one_or_none()
+    resolved = (
+        resolve_pay_date(period, setting.pay_month_offset, setting.pay_day) if setting else None
+    )
+    return resolved, None if resolved else "급여지급일 미설정"
+
+
 # ---------------------------------------------------------------------------
 # 전송 작업 등록·조회·취소 (세무사 화면)
 # ---------------------------------------------------------------------------
@@ -233,6 +268,19 @@ async def create_wehago_uploads(
             "위하고 사원코드가 없는 사원이 있어 전송할 수 없습니다: "
             f"{', '.join(emp_name or raw for raw, emp_name in no_code)}. "
             "사원 정보에 위하고 사원코드를 입력하세요.",
+        )
+
+    # 위하고 급여자료입력은 귀속연월·지급일로 조회한다 — 지급일을 못 정하면 올릴 수 없다.
+    no_pay_date = []
+    for c in ordered:
+        _, reason = await _pay_date(db, filing.id, c.id, filing.period)
+        if reason:
+            no_pay_date.append(f"{c.business_name}({reason})")
+    if no_pay_date:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"지급일을 정할 수 없어 위하고로 전송할 수 없습니다: {', '.join(no_pay_date)}. "
+            "거래처 급여 기본값에서 급여지급일을 설정하세요.",
         )
 
     active = set(
@@ -407,7 +455,10 @@ async def claim_job(
         return RpaClaimOut(job=None)
     job = await db.get(RpaJob, next_id)
     await db.refresh(job)
-    return RpaClaimOut(job=RpaJobOut.model_validate(job))
+    out = RpaJobOut.model_validate(job)
+    if job.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT and job.monthly_filing_id and job.client_id:
+        out.pay_date, _ = await _pay_date(db, job.monthly_filing_id, job.client_id, job.period)
+    return RpaClaimOut(job=out)
 
 
 async def _agent_running_job(db: AsyncSession, agent: RpaAgent, job_id: str) -> RpaJob:

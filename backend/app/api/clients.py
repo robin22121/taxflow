@@ -618,6 +618,8 @@ def _to_response(row: ClientPayrollDefault) -> PayrollDefaultOut:
         ltc_rate_percent=pct(row.ltc_rate_override, DEFAULT_LTC_RATE_OF_HI),
         ei_rate_percent=pct(row.ei_rate_override, DEFAULT_EI_RATE),
         note=row.note,
+        pay_month_offset=row.pay_month_offset,
+        pay_day=row.pay_day,
         system_nps_rate_percent=DEFAULT_NPS_RATE * _PERCENT_TO_RATE,
         system_hi_rate_percent=DEFAULT_HI_RATE * _PERCENT_TO_RATE,
         system_ltc_rate_percent=DEFAULT_LTC_RATE_OF_HI * _PERCENT_TO_RATE,

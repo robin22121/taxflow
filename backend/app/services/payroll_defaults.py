@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,6 +66,19 @@ class ResolvedPayrollDefaults:
             ltc_rate_of_hi=self.ltc_rate,
             ei_rate=self.ei_rate,
         )
+
+
+def resolve_pay_date(period: str, pay_month_offset: int | None, pay_day: int | None) -> date | None:
+    """귀속연월 + 거래처 급여지급일 설정 → 지급일. 설정이 없으면 None.
+
+    예: "2026-06", 익월(1), 25일 → 2026-07-25. 그달에 없는 날(31일 등)은 말일.
+    """
+    if pay_month_offset is None or pay_day is None:
+        return None
+    year, month = (int(x) for x in period.split("-"))
+    month += pay_month_offset
+    year, month = year + (month - 1) // 12, (month - 1) % 12 + 1
+    return date(year, month, min(pay_day, calendar.monthrange(year, month)[1]))
 
 
 async def load_payroll_defaults(db: AsyncSession, client_id: str) -> ResolvedPayrollDefaults:

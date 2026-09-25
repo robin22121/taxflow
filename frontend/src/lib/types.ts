@@ -157,6 +157,10 @@ export type PayrollDefault = {
 
   note: string | null;
 
+  // 급여지급일 — 위하고 급여자료입력 지급일 계산 (null = 미설정, 위하고 전송 불가)
+  pay_month_offset: 0 | 1 | null; // 0 당월 · 1 익월
+  pay_day: number | null; // 1~31, 31 = 말일
+
   system_nps_rate_percent: number;
   system_hi_rate_percent: number;
   system_ltc_rate_percent: number;

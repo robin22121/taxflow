@@ -223,3 +223,52 @@ async def test_upload_is_blocked_when_employee_has_no_wehago_code(
         async with SessionLocal() as db:
             (await db.get(Employee, emp.id)).employee_code = code
             await db.commit()
+
+
+async def _clear_payment_dates(filing_id: str, client_id: str) -> None:
+    """실제 수집 경로처럼 급여 자료에 지급일이 없는 상태 (시드는 25일로 채워 둔다)."""
+    from sqlalchemy import update
+
+    from app.db import SessionLocal
+    from app.models import PayrollEntry
+
+    async with SessionLocal() as db:
+        await db.execute(
+            update(PayrollEntry)
+            .where(PayrollEntry.monthly_filing_id == filing_id, PayrollEntry.client_id == client_id)
+            .values(payment_date=None)
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_upload_needs_pay_date_and_claim_carries_it(http: AsyncClient, auth_headers: dict):
+    """위하고 급여자료입력은 귀속연월·지급일로 조회한다 — 지급일을 못 정하면 전송을 막는다."""
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+    period = next(
+        f["period"]
+        for f in (await http.get("/api/v1/filings", headers=auth_headers)).json()
+        if f["id"] == filing_id
+    )
+    await _clear_payment_dates(filing_id, client_id)
+    await http.post(f"/api/v1/clients/{client_id}/payroll-default/reset", headers=auth_headers)
+
+    blocked = await _enqueue(http, auth_headers, filing_id, [client_id])
+    assert blocked.status_code == 409, blocked.text
+    assert "급여지급일 미설정" in blocked.json()["detail"]
+
+    r = await http.put(
+        f"/api/v1/clients/{client_id}/payroll-default",
+        json={"pay_month_offset": 1, "pay_day": 31},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert (r.json()["pay_month_offset"], r.json()["pay_day"]) == (1, 31)
+
+    assert (await _enqueue(http, auth_headers, filing_id, [client_id])).status_code == 201
+    agent = await _issue_agent(http, auth_headers, "지급일 확인 PC")
+    claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+
+    from app.services.payroll_defaults import resolve_pay_date
+
+    assert claimed["pay_date"] == resolve_pay_date(period, 1, 31).isoformat()

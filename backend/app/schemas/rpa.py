@@ -58,6 +58,7 @@ class RpaJobOut(BaseModel):
     compare_diff: dict[str, Any] | None = None
     acknowledged_at: datetime | None = None
     created_at: datetime
+    pay_date: date | None = None  # 위하고 급여자료입력 지급일 — claim 응답에만 채운다
 
     model_config = {"from_attributes": True}
 

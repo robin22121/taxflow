@@ -39,6 +39,10 @@ class ClientPayrollDefault(Base, IdMixin, TimestampMixin):
     ltc_rate_override: Mapped[float | None] = mapped_column(Numeric(6, 4))
     ei_rate_override: Mapped[float | None] = mapped_column(Numeric(6, 4))
 
+    # 급여지급일 — 위하고 급여자료입력 지급일 계산용 (null = 미설정, 위하고 전송 불가)
+    pay_month_offset: Mapped[int | None] = mapped_column(Integer)  # 0 당월 · 1 익월
+    pay_day: Mapped[int | None] = mapped_column(Integer)  # 1~31, 31 = 말일
+
     # 정부 지원·비고 (두루누리 등)
     note: Mapped[str | None] = mapped_column(String(500))
 

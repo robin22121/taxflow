@@ -976,6 +976,7 @@ function PayrollDefaultSection({ clientId }: { clientId: string }) {
     data.apply_employment_insurance, data.apply_longterm_care,
     data.nps_rate_percent, data.hi_rate_percent, data.ltc_rate_percent, data.ei_rate_percent,
     data.note ?? "",
+    data.pay_month_offset ?? "", data.pay_day ?? "",
   ].join("|");
 
   return (
@@ -1115,6 +1116,44 @@ function PayrollDefaultEditor({
             systemRate={data.system_ei_rate_percent}
           />
         </div>
+      </div>
+
+      {/* 급여지급일 */}
+      <div className="mt-5">
+        <h3 className="text-sm font-medium text-gray-900 mb-2">급여지급일</h3>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <select
+            className="rounded-lg border border-gray-300 bg-transparent px-3 py-2 text-sm text-gray-900"
+            value={form.pay_month_offset ?? ""}
+            onChange={(e) =>
+              patchField("pay_month_offset", e.target.value === "" ? null : (Number(e.target.value) as 0 | 1))
+            }
+          >
+            <option value="">미설정</option>
+            <option value="0">귀속 당월</option>
+            <option value="1">귀속 익월</option>
+          </select>
+          <select
+            className="rounded-lg border border-gray-300 bg-transparent px-3 py-2 text-sm text-gray-900"
+            value={form.pay_day ?? ""}
+            onChange={(e) => patchField("pay_day", e.target.value === "" ? null : Number(e.target.value))}
+          >
+            <option value="">미설정</option>
+            {Array.from({ length: 30 }, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>
+                {d}일
+              </option>
+            ))}
+            <option value={31}>말일</option>
+          </select>
+        </div>
+        <p className="text-xs text-gray-500 mt-1.5">
+          {form.pay_month_offset === null || form.pay_day === null
+            ? "둘 다 설정해야 위하고로 전송할 수 있습니다 (위하고 급여자료입력은 지급일로 조회)."
+            : `예: 6월 귀속 → ${form.pay_month_offset === 1 ? "7월" : "6월"} ${
+                form.pay_day === 31 ? "말일" : `${form.pay_day}일`
+              } 지급 (그달에 없는 날은 말일)`}
+        </p>
       </div>
 
       {/* 비고 */}

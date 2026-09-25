@@ -111,6 +111,10 @@ class PayrollDefaultOut(BaseModel):
 
     note: str | None = None
 
+    # 급여지급일 (null = 미설정) — 0 당월 · 1 익월, 1~31일 (31 = 말일)
+    pay_month_offset: int | None = None
+    pay_day: int | None = None
+
     # 시스템 기본 요율 — UI에서 "기본값 안내" 표시용
     system_nps_rate_percent: float
     system_hi_rate_percent: float
@@ -136,6 +140,9 @@ class PayrollDefaultUpdate(BaseModel):
     ei_rate_percent: float | None = None
 
     note: str | None = None
+
+    pay_month_offset: int | None = Field(default=None, ge=0, le=1)
+    pay_day: int | None = Field(default=None, ge=1, le=31)
 
 
 class PayrollHistoryRow(BaseModel):
