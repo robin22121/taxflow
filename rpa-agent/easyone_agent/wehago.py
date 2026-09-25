@@ -28,7 +28,9 @@ DIMMED_WAIT_MS = 10_000  # 로딩 오버레이(div.dimmed)가 사라질 때까�
 UPLOAD_WAIT_MS = 30_000
 
 # SmartA 급여자료입력 (2026-09-24 실측)
-_PAYROLL_SCREEN = "/smarta/humanresource/SWSA0101"
+_PAY_KIND = "2. 급여+상여"  # 급여자료입력 구분 — 새로 연 화면은 비어 있다가 귀속연월 입력 후 채워진다
+_PAYROLL_MENU_ID = "SWSA0101"  # 급여자료입력 화면 코드 = SmartA 메뉴 링크 id
+_PAYROLL_SCREEN = f"/smarta/humanresource/{_PAYROLL_MENU_ID}"
 _COND_BAR = "div.basic_condition"  # div.item 순서: 귀속연월·구분·지급일·지급일 코드도움·정렬
 # 합계 열은 위하고가 다시 계산하므로 연결하지 않아도 된다
 _TOTAL_COLUMNS = {"지급액계", "공제액계", "차인지급액"}
@@ -141,6 +143,7 @@ class WehagoUploader:
         self._browser = None
         self._context = None
         self._page = None
+        self._smarta_page = None  # open_payroll_screen 이 연 급여자료입력 탭
 
     def __enter__(self) -> WehagoUploader:
         from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -231,19 +234,58 @@ class WehagoUploader:
             close_buttons.last.click(force=True)
             page.wait_for_timeout(400)
 
-    def open_company(self, business_number: str) -> tuple[str, str]:
-        """수임처를 사업자번호로 검색해 연다. 검색 결과가 정확히 1건이 아니면 CompanyNotFound."""
-        self._goto_taxagent_and_search(business_number)
-        items = self._page.locator("li.is_linkbtn")
-        n = items.count()
-        if n != 1:
-            hint = self._page.locator("p.search_result_text").inner_text() if n else ""
+    def open_payroll_screen(self, business_number: str, period: str) -> tuple[str, str]:
+        """위하고 T 메인 담당 수임처 → [급여] → SmartA 메인 → 급여자료입력 (2026-09-25 실측).
+
+        수임처는 사업자번호(하이픈 없는 10자리)로 검색해 정확히 1건일 때만 연다.
+        [급여]는 SmartA 를 새 탭으로 열고, 메뉴의 급여자료입력은 그 탭 안에서 바뀐다.
+        오래된 SmartA 탭은 세션이 끊겨 있을 수 있어(`#/login/?type=expired`) 닫고 새로 연다.
+
+        Returns:
+            (위하고 상호, 사업자번호) — 호출자가 작업의 거래처와 대조한다.
+        """
+        page = self._page
+        for other in list(self._context.pages):
+            if other is not page and "smarta.wehagot.com" in other.url:
+                other.close()
+        self._smarta_page = None
+
+        page.goto(f"{WEHAGO_URL}/#/main")
+        self._dismiss_splash()
+        self._wait_for_no_dimmed()
+        search = page.locator("input[placeholder*='사업자등록번호']").first
+        search.wait_for(state="visible", timeout=SIDEBAR_WAIT_MS)
+        search.fill(normalize_business_number(business_number))
+        search.press("Enter")
+        page.wait_for_timeout(1_000)
+        rows = page.locator("li:has(p.company_num)")
+        if rows.count() != 1:
             raise CompanyNotFound(
-                f"수임처 검색 결과가 정확히 1건이 아닙니다 ({n}건). {hint}".strip()
+                f"위하고 T 담당 수임처 검색 결과가 정확히 1건이 아닙니다 ({rows.count()}건)"
             )
-        name = items.first.inner_text().strip().splitlines()[0].strip()
-        self._select_company(items.first, name)
-        return self._read_company_basic_pair()
+        row = rows.first
+        name = row.locator(".company_name a").first.inner_text().strip()
+        number = _clean_business_number(row.locator("p.company_num").inner_text())
+
+        with self._context.expect_page(timeout=UPLOAD_WAIT_MS) as new_tab:
+            row.locator("button.btn_quick", has_text=re.compile(r"^급여$")).click()
+        smarta = new_tab.value
+        smarta.wait_for_load_state()
+        menu = smarta.locator(f"a#{_PAYROLL_MENU_ID}.text_link")
+        menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        menu.click()
+        smarta.locator(_COND_BAR).wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+
+        # 탭 제목 "급여자료입력(2026) - 서도" — 회사·귀속 연도를 한 번 더 확인
+        title = smarta.title()
+        year = period.split("-")[0]
+        if not title.endswith(f"- {name}"):
+            raise CompanyMismatch(f"SmartA 화면 회사가 다릅니다: {title} (위하고 T 수임처 {name})")
+        if f"({year})" not in title:
+            # 귀속 연도 전환 화면은 미실측 — 12월 귀속을 다음 해에 올리는 경우 등
+            raise WehagoError(f"SmartA 귀속 연도가 다릅니다: {title} (작업 {period})")
+        self._smarta_page = smarta
+        return name, number
 
     def upload_payroll(
         self,
@@ -388,7 +430,10 @@ class WehagoUploader:
     # ---- 내부 헬퍼 ----
 
     def _payroll_page(self):
-        """열려 있는 SmartA 급여자료입력(SWSA0101) 탭."""
+        """SmartA 급여자료입력(SWSA0101) 탭 — open_payroll_screen 이 연 탭, 없으면 열려 있는 탭."""
+        if self._smarta_page is not None and not self._smarta_page.is_closed():
+            self._smarta_page.bring_to_front()
+            return self._smarta_page
         for page in self._context.pages:
             if _PAYROLL_SCREEN in page.url:
                 page.bring_to_front()
@@ -464,9 +509,9 @@ class WehagoUploader:
             page.keyboard.type(pay_date.strftime("%Y%m%d"))
             page.keyboard.press("Enter")
             self._payroll_handle_popup(page, pay_date)
-        shown = _fake_text(items.nth(0)), _fake_text(items.nth(2))
-        if shown != (want_period, want_date):
-            raise WehagoError(f"조회조건 입력 실패: 화면 귀속연월·지급일 {shown}")
+        shown = _fake_text(items.nth(0)), _fake_text(items.nth(1)), _fake_text(items.nth(2))
+        if shown != (want_period, _PAY_KIND, want_date):
+            raise WehagoError(f"조회조건 입력 실패: 화면 귀속연월·구분·지급일 {shown}")
 
     def _payroll_handle_popup(self, page, pay_date: date) -> None:
         pay_dates = page.locator("div._isDialog:visible", has_text="지급일자")
@@ -746,11 +791,6 @@ class WehagoUploader:
             "business_address": pairs.get("사업장 주소", "") or None,
             "phone": pairs.get("전화번호", "") or None,
         }
-
-    def _read_company_basic_pair(self) -> tuple[str, str]:
-        """(회사명, 사업자번호)만 뽑는다 (open_company용)."""
-        basics = self._read_company_basic()
-        return basics["business_name"], basics["business_number"]
 
     def _read_business_number(self) -> str:
         """우측 pane에서 사업자번호만 읽는다 (list_companies 중 반복 호출용)."""

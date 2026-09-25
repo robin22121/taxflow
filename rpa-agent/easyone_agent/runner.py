@@ -35,7 +35,7 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
             raise WehagoError("지급일이 없어 위하고 급여자료입력 조회를 할 수 없습니다")
         xlsx_path.write_bytes(api.download_payroll_excel(job.id))
         uploader.ensure_logged_in()
-        found_name, found_number = uploader.open_company(job.business_number)
+        found_name, found_number = uploader.open_payroll_screen(job.business_number, job.period)
         if not company_matches(job.business_name, job.business_number, found_name, found_number):
             raise CompanyMismatch(
                 f"위하고 수임처가 다릅니다: 요청 {job.business_name}({job.business_number}), "

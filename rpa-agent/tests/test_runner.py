@@ -54,7 +54,7 @@ class FakeUploader:
         if self.login_error:
             raise self.login_error
 
-    def open_company(self, business_number: str) -> tuple[str, str]:
+    def open_payroll_screen(self, business_number: str, period: str) -> tuple[str, str]:
         return self.company
 
     def upload_payroll(self, xlsx_path: Path, period: str, pay_date: date) -> str:
