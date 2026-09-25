@@ -844,11 +844,17 @@ def _calc_diffs(cand: PayrollEntryCandidate, fields: dict, tax, defaults) -> dic
         "income_tax": tax.income_tax,
         "local_tax": fields["income_tax"] // 100 * 10,
     }
-    return {
-        k: {"actual": fields[k], "computed": computed[k]}
-        for k in _CALC_DIFF_FIELDS
-        if fields[k] != computed[k]
-    }
+    diffs = {}
+    for k in _CALC_DIFF_FIELDS:
+        actual, computed_v = fields[k], computed[k]
+        if k == "longterm_care" and abs(actual - computed_v) < 10:
+            # 장기요양보험료는 10원 미만 절사로 계산돼(_round_down_10),
+            # 불러온 원본값과 최대 9원까지 절사 오차가 날 수 있다 — 계산 오류가 아니므로 무시.
+            continue
+        if actual == computed_v:
+            continue
+        diffs[k] = {"actual": actual, "computed": computed_v}
+    return diffs
 
 
 async def _persist_results(
