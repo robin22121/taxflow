@@ -224,6 +224,7 @@ async def send_filing_notice(
         rep = client.representative or ""
         values = {
             "사무소명": office_name,
+            "사무소연락처": (office.phone if office else "") or "",
             "거래처명": client.business_name,
             "대표자": f"{rep} " if rep else "",
             "세목": tax_label,
