@@ -17,13 +17,13 @@ from app.services.wehago_payroll_parser import (
 
 
 _ITEM_HEADERS = [
-    "기본급", "상여", "식대", "자가운전", "육아", "지급액계",
+    "기본급", "상여", "식대", "자가운전", "보육수당", "지급액계",
     "국민연금", "건강보험", "고용보험", "장기요양보험료",
     "소득세", "지방소득세", "학자금상환액", "정산보험료", "월세지원금", "공제액계",
 ]
 
 
-def _wehago_bytes(data_rows: list[list]) -> bytes:
+def _wehago_bytes(data_rows: list[list], item_headers: list[str] = _ITEM_HEADERS) -> bytes:
     """위하고T 22컬럼 실측 헤더를 그대로 재현한 xlsx 를 만든다."""
     wb = Workbook()
     ws = wb.active
@@ -40,7 +40,7 @@ def _wehago_bytes(data_rows: list[list]) -> bytes:
     ws.cell(1, 22, "차인지급액")
 
     # 2행: 세부 항목
-    for offset, header in enumerate(_ITEM_HEADERS):
+    for offset, header in enumerate(item_headers):
         ws.cell(2, 6 + offset, header)
 
     for r in data_rows:
@@ -235,3 +235,17 @@ def test_reconcile_wehago_zero_insurance_stays_zero():
     c = result.entries[0]
     assert c.national_pension == 0
     assert c.employment_insurance == 0
+
+
+def test_legacy_childcare_header_still_parses():
+    """2026-09-25 이전 양식은 J열 제목이 "육아" — 그대로 읽혀야 한다."""
+    legacy = ["육아" if h == "보육수당" else h for h in _ITEM_HEADERS]
+    blob = _wehago_bytes([
+        ["1", "백재봉", "", "대표이사", "",
+         2_100_000, 0, 200_000, 0, 100_000, 2_400_000,
+         91_440, 74_440, 0, 9_640, 22_740, 2_270,
+         0, 0, 0, 200_530, 2_199_470],
+    ], item_headers=legacy)
+    rows = parse_wehago_workbook(blob)
+    assert rows is not None
+    assert rows[0].childcare_amount == 100_000
