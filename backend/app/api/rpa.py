@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from sqlalchemy import func, select, update
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -434,6 +434,50 @@ async def acknowledge_job(
 # ---------------------------------------------------------------------------
 
 
+async def next_fair_job_id(db: AsyncSession, office_id: str, kind_filter: ColumnElement[bool]) -> str | None:
+    """다음에 돌릴 대기 작업 — 직원별로 한 건씩 돌아가며.
+
+    대기 작업이 있는 직원 중 이 대기열에서 마지막으로 작업이 시작된 지 가장 오래된 직원
+    (한 번도 없으면 맨 앞)을 고르고, 그 직원의 가장 먼저 요청한 작업을 준다.
+    한 직원의 요청 순서는 그대로 지켜진다.
+    """
+    scope = (RpaJob.tax_office_id == office_id, kind_filter)
+    pending = (
+        await db.execute(
+            select(RpaJob.requested_by_user_id, func.min(RpaJob.created_at))
+            .where(*scope, RpaJob.status == RpaJobStatus.PENDING)
+            .group_by(RpaJob.requested_by_user_id)
+        )
+    ).all()
+    if not pending:
+        return None
+    last_claimed = dict(
+        (
+            await db.execute(
+                select(RpaJob.requested_by_user_id, func.max(RpaJob.claimed_at))
+                .where(*scope, RpaJob.requested_by_user_id.in_([u for u, _ in pending]))
+                .group_by(RpaJob.requested_by_user_id)
+            )
+        ).all()
+    )
+    user_id, _ = min(
+        pending,
+        key=lambda row: (
+            last_claimed.get(row[0]) is not None,
+            _as_utc(last_claimed[row[0]]) if last_claimed.get(row[0]) else row[1],
+            row[1],
+        ),
+    )
+    return (
+        await db.execute(
+            select(RpaJob.id)
+            .where(*scope, RpaJob.status == RpaJobStatus.PENDING, RpaJob.requested_by_user_id == user_id)
+            .order_by(RpaJob.created_at)
+            .limit(1)
+        )
+    ).scalar_one()
+
+
 @router.post("/agent/claim", response_model=RpaClaimOut)
 async def claim_job(
     db: AsyncSession = Depends(get_db),
@@ -476,18 +520,8 @@ async def claim_job(
         await db.commit()
         return RpaClaimOut(job=None)
 
-    next_id = (
-        await db.execute(
-            select(RpaJob.id)
-            .where(
-                RpaJob.tax_office_id == agent.tax_office_id,
-                RpaJob.status == RpaJobStatus.PENDING,
-                RpaJob.kind.in_(WEHAGO_JOB_KINDS),  # 증명원은 /certificates/agent/claim
-            )
-            .order_by(RpaJob.created_at)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    # 증명원은 /certificates/agent/claim
+    next_id = await next_fair_job_id(db, agent.tax_office_id, RpaJob.kind.in_(WEHAGO_JOB_KINDS))
     if next_id is None:
         await db.commit()
         return RpaClaimOut(job=None)

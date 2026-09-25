@@ -416,3 +416,55 @@ async def test_activity_masks_other_staff_jobs(http: AsyncClient, auth_headers: 
         await http.get("/api/v1/rpa/jobs/activity", params={"scope": "mine"}, headers=auth_headers)
     ).json()
     assert {j["id"] for j in mine} == {my_job_id}
+
+
+@pytest.mark.asyncio
+async def test_claim_rotates_between_staff(http: AsyncClient, auth_headers: dict):
+    """여러 직원이 몰아 넣어도 직원별로 한 건씩 돌아가며, 한 직원 안에서는 요청 순서대로."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select, update
+
+    from app.db import SessionLocal
+    from app.models import RpaJob, RpaJobKind, RpaJobStatus, User
+
+    agent = await _issue_agent(http, auth_headers)
+    t0 = datetime.now(UTC)
+    async with SessionLocal() as db:
+        me = (await db.execute(select(User).where(User.email == "admin@example.com"))).scalar_one()
+        other = (
+            await db.execute(select(User).where(User.email == "colleague-rotate@example.com"))
+        ).scalar_one_or_none()
+        if other is None:
+            other = User(
+                tax_office_id=me.tax_office_id,
+                email="colleague-rotate@example.com",
+                password_hash="x",
+                name="박동료",
+            )
+            db.add(other)
+            await db.flush()
+
+        def job(user: User, name: str, minutes: int) -> RpaJob:
+            return RpaJob(
+                tax_office_id=me.tax_office_id,
+                kind=RpaJobKind.WEHAGO_PAYROLL_INPUT,
+                status=RpaJobStatus.PENDING,
+                business_name=name,
+                requested_by_user_id=user.id,
+                created_at=t0 + timedelta(minutes=minutes),
+            )
+
+        db.add_all([job(me, "A1", 0), job(me, "A2", 1), job(me, "A3", 2), job(other, "B1", 3)])
+        await db.commit()
+
+    order = []
+    for _ in range(4):
+        claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+        order.append(claimed["business_name"])
+        async with SessionLocal() as db:  # 에이전트가 끝낸 것으로 — 다음 claim 이 막히지 않게
+            await db.execute(
+                update(RpaJob).where(RpaJob.id == claimed["id"]).values(status=RpaJobStatus.SUCCEEDED)
+            )
+            await db.commit()
+    assert order == ["A1", "B1", "A2", "A3"]

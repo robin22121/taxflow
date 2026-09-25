@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.rpa import RUNNING_TIMEOUT, _as_utc, _finish, _office_id, _utcnow, get_current_agent
+from app.api.rpa import RUNNING_TIMEOUT, _as_utc, _finish, _office_id, _utcnow, get_current_agent, next_fair_job_id
 from app.channels.alimtalk import get_alimtalk_channel
 from app.channels.email import get_email_channel
 from app.channels.base import MessageRecipient
@@ -524,18 +524,8 @@ async def agent_claim(
                 issue.status = CertificateStatus.FAILED
                 issue.failure_reason = "에이전트 중단"
 
-    job = (
-        await db.execute(
-            select(RpaJob)
-            .where(
-                RpaJob.tax_office_id == agent.tax_office_id,
-                RpaJob.status == RpaJobStatus.PENDING,
-                RpaJob.kind == RpaJobKind.CERTIFICATE_ISSUE,
-            )
-            .order_by(RpaJob.created_at)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    next_id = await next_fair_job_id(db, agent.tax_office_id, RpaJob.kind == RpaJobKind.CERTIFICATE_ISSUE)
+    job = await db.get(RpaJob, next_id) if next_id else None
     if job is None:
         await db.commit()
         return AgentClaimOut(job=None)
