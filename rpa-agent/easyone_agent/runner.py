@@ -11,7 +11,7 @@ from easyone_agent.api import IMPORT_ALL, IMPORT_CLIENT, EasyoneApi, Job
 from easyone_agent.company import company_matches
 from easyone_agent.import_runner import process_import
 from easyone_agent.logmask import mask_text
-from easyone_agent.wehago import CompanyMismatch, LoginFailed, WehagoUploader
+from easyone_agent.wehago import CompanyMismatch, LoginFailed, WehagoError, WehagoUploader
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,8 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
         return _process_import_job(api, uploader, job, workdir)
     xlsx_path = workdir / f"{job.id}.xlsx"
     try:
+        if job.pay_date is None:
+            raise WehagoError("지급일이 없어 위하고 급여자료입력 조회를 할 수 없습니다")
         xlsx_path.write_bytes(api.download_payroll_excel(job.id))
         uploader.ensure_logged_in()
         found_name, found_number = uploader.open_company(job.business_number)
@@ -39,7 +41,7 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
                 f"위하고 수임처가 다릅니다: 요청 {job.business_name}({job.business_number}), "
                 f"화면 {found_name}({found_number})"
             )
-        message = uploader.upload_payroll(xlsx_path, job.period)
+        message = uploader.upload_payroll(xlsx_path, job.period, job.pay_date)
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
         raise

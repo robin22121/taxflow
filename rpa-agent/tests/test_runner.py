@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ JOB = Job(
     period="2026-08",
     business_number="123-45-67890",
     business_name="(주)하늘식품",
+    pay_date=date(2026, 9, 10),
 )
 
 
@@ -45,7 +48,7 @@ class FakeUploader:
         self.company = company
         self.login_error = login_error
         self.upload_error = upload_error
-        self.uploaded: list[tuple[Path, str]] = []
+        self.uploaded: list[tuple[Path, str, date]] = []
 
     def ensure_logged_in(self) -> None:
         if self.login_error:
@@ -54,11 +57,11 @@ class FakeUploader:
     def open_company(self, business_number: str) -> tuple[str, str]:
         return self.company
 
-    def upload_payroll(self, xlsx_path: Path, period: str) -> str:
+    def upload_payroll(self, xlsx_path: Path, period: str, pay_date: date) -> str:
         assert xlsx_path.read_bytes() == b"fake-xlsx"
         if self.upload_error:
             raise self.upload_error
-        self.uploaded.append((xlsx_path, period))
+        self.uploaded.append((xlsx_path, period, pay_date))
         return "3명 업로드 완료"
 
 
@@ -72,8 +75,16 @@ def test_success_reports_message_and_deletes_file(tmp_path: Path):
     api, uploader = FakeApi([JOB]), FakeUploader()
     assert process_one(api, uploader, tmp_path) is True
     assert api.reports == [("job1", True, "3명 업로드 완료")]
-    assert uploader.uploaded[0][1] == "2026-08"
+    assert uploader.uploaded[0][1:] == ("2026-08", date(2026, 9, 10))
     assert list(tmp_path.iterdir()) == []
+
+
+def test_missing_pay_date_is_reported_without_upload(tmp_path: Path):
+    api, uploader = FakeApi([replace(JOB, pay_date=None)]), FakeUploader()
+    assert process_one(api, uploader, tmp_path) is True
+    assert uploader.uploaded == []
+    assert api.reports[0][1] is False
+    assert "지급일이 없어" in api.reports[0][2]
 
 
 def test_company_mismatch_is_not_uploaded(tmp_path: Path):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import httpx
@@ -20,6 +21,7 @@ class Job:
     business_number: str | None  # 전체 가져오기만 None
     business_name: str
     kind: str = "WEHAGO_PAYROLL_INPUT"
+    pay_date: date | None = None  # 위하고 급여자료입력 지급일 — 서버가 아직 안 보내면 None
 
 
 class EasyoneApi:
@@ -49,6 +51,7 @@ class EasyoneApi:
             business_number=data["business_number"],
             business_name=data["business_name"],
             kind=data["kind"],
+            pay_date=date.fromisoformat(data["pay_date"]) if data.get("pay_date") else None,
         )
 
     def download_payroll_excel(self, job_id: str) -> bytes:
