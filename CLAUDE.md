@@ -28,6 +28,7 @@
 | 근로자 급여명세서 확인, 이의제기, WageAcknowledgment | `plan/20-worker-payslip.md` |
 | 근로계약서, EmploymentContract, E-9, 모국어 요약 | `plan/21-worker-contract.md` |
 | 출근·근태, 연장근로, AttendanceRecord, OvertimeRequest, 시간외수당 | `plan/22-worker-attendance.md` |
+| 세무사 세팅, 사무소 도입·온보딩, 노트북 설치, 수당·공제 등록 | `plan/23-세무사세팅.md` |
 
 요청이 모호하면 `plan.md` 인덱스에서 해당 영역을 찾아 1~2개 파일만 선택적으로 읽는다. 매칭이 어렵거나 여러 영역에 걸치는 경우, **읽기 전에 사용자에게 어떤 분할 문서를 봐야 할지 확인**한다 (토큰 절약).
 

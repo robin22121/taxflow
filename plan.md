@@ -29,6 +29,7 @@
 | [`plan/20-worker-payslip.md`](plan/20-worker-payslip.md) | 근로자 급여명세서 교환·확인·이의제기 (근로기준법 §48 이행 채널) |
 | [`plan/21-worker-contract.md`](plan/21-worker-contract.md) | 근로계약서 발급·다국어 요약·근로자 열람 (외국인고용법 모국어 요건) |
 | [`plan/22-worker-attendance.md`](plan/22-worker-attendance.md) | 출근·연장근로 기록·근로자 이의제기 (사업주 입력 vs 근로자 대조) |
+| [`plan/23-세무사세팅.md`](plan/23-세무사세팅.md) | **세무사 세팅** — 사무소 도입 시 기본 세팅 체크리스트 (자동화 노트북 설치·알리고 문자·카카오 채널·수임처별 위하고 사원·수당·공제 맞추기) |
 
 ---
 
