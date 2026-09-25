@@ -91,7 +91,8 @@ function fmt(ts: string | null) {
   return new Date(ts).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-export function ActivityBar() {
+/** insetLeftMd — md 이상에서 왼쪽을 비울 폭 (신고 화면은 거래처 열 240px 를 덮지 않는다) */
+export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } = {}) {
   const qc = useQueryClient();
   const [detail, setDetail] = useState<RpaActivityJob | null>(null);
   const [historyScope, setHistoryScope] = useState<ActivityScope | null>(null);
@@ -113,7 +114,7 @@ export function ActivityBar() {
 
   return (
     <>
-      <div className="fixed bottom-0 inset-x-0 z-30 h-11 border-t border-gray-200 bg-white/95 backdrop-blur flex items-center gap-2 px-3 md:px-5">
+      <div className={`fixed bottom-0 inset-x-0 ${insetLeftMd ? "md:left-[240px]" : ""} z-30 h-11 border-t border-gray-200 bg-white/95 backdrop-blur flex items-center gap-2 px-3 md:px-5`}>
         <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto">
           {jobs.length === 0 && <span className="text-[11.5px] text-gray-400">진행 중인 자동화 작업이 없습니다</span>}
           {jobs.map((job) => {

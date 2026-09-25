@@ -572,22 +572,10 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </div>
       </div>
 
-      {/* CENTER — 3 tabs + content */}
-      <div className="flex-1 min-w-0 bg-white flex flex-col min-h-0">
+      {/* CENTER — 3 tabs + content. pb-11 = 하단 작업바(ActivityBar h-11) 높이 — 작업바는 이 열 위에만 걸친다 */}
+      <div className="flex-1 min-w-0 bg-white flex flex-col min-h-0 pb-11">
         {selectedSession ? (
           <>
-            {/* 급여자료 입력 바 — 탭 위 */}
-            <PayrollInputBar
-              session={selectedSession}
-              showComm={mainTab === "received"}
-              commOpen={commOpen}
-              onToggleComm={() => setCommOpen((v) => !v)}
-              onPreview={(data, meta) => setPreview({ data, meta })}
-              onAddEmployee={() => setShowAddEmployee(true)}
-              onResign={() => setShowResign(true)}
-              selectedCount={selectedEntryIds.size}
-            />
-
             {/* Tab bar */}
             <div className="flex items-end gap-1 px-3 md:px-5 border-b border-gray-200 bg-white shrink-0">
               <MainTabButton active={mainTab === "received"} onClick={() => setMainTab("received")}>
@@ -637,6 +625,17 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
               )}
             </div>
 
+            {/* 급여자료 입력 바 — 가운데 열 맨 아래, 하단 작업바 바로 위 */}
+            <PayrollInputBar
+              session={selectedSession}
+              showComm={mainTab === "received"}
+              commOpen={commOpen}
+              onToggleComm={() => setCommOpen((v) => !v)}
+              onPreview={(data, meta) => setPreview({ data, meta })}
+              onAddEmployee={() => setShowAddEmployee(true)}
+              onResign={() => setShowResign(true)}
+              selectedCount={selectedEntryIds.size}
+            />
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
@@ -800,7 +799,7 @@ function PayrollInputBar({
   }
 
   return (
-    <div className="shrink-0 border-b border-gray-200 bg-white px-3 md:px-5 py-2">
+    <div className="shrink-0 border-t border-gray-200 bg-white px-3 md:px-5 py-2">
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mr-0.5">급여자료 입력</span>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.pdf" className="hidden"
@@ -1560,7 +1559,11 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
             {summaryMode === "wht" && (
               <WhtSubTabBar value={whtSubTab} onChange={setWhtSubTab} entries={entries} />
             )}
-            {displayEntries.length > 0 ? (
+            {summaryMode === "wht" && whtSubTab === "PREVIEW" ? (
+              entries.length > 0
+                ? <WhtFormPreview entries={entries} />
+                : <div className="flex items-center justify-center py-12 text-sm text-gray-400">아직 파싱된 항목이 없습니다</div>
+            ) : displayEntries.length > 0 ? (
               <table className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-white">
                   <tr className="border-b border-gray-200">
@@ -1599,8 +1602,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                   : "아직 파싱된 항목이 없습니다"}
               </div>
             )}
-            {summaryMode && displayEntries.length > 0 && <EntriesFooter mode={summaryMode} entries={displayEntries} />}
-            {summaryMode === "wht" && entries.length > 0 && <WhtFormPreview entries={entries} />}
+            {summaryMode && whtSubTab !== "PREVIEW" && displayEntries.length > 0 && <EntriesFooter mode={summaryMode} entries={displayEntries} />}
           </>
         )}
       </div>
@@ -1787,33 +1789,36 @@ function ResignModal({ filingId, entries, entryIds, onClose, onDone }: {
 
 /* ═══ 원천세관리 서브탭 (더존 [급여자료입력] / [일용근로소득자료입력] / [사업·기타소득] 미러링) ═══ */
 
-type WhtSubTab = "WAGE" | "DAILY" | "BIZ_OTHER";
+// 사업소득(A25, 3.3%)과 기타소득(A42, 필요경비 후 8.8%)은 신고서 코드·세율·지급명세서·위하고 입력 화면이
+// 모두 달라 탭을 나눈다. 퇴직소득은 별도 탭이 생기기 전까지 기타소득 탭에 함께 보인다.
+type WhtSubTab = "WAGE" | "BUSINESS" | "OTHER" | "DAILY" | "PREVIEW";
 
 const WHT_SUBTAB_LABEL: Record<WhtSubTab, string> = {
-  WAGE: "상용직",
-  DAILY: "일용직",
-  BIZ_OTHER: "사업·기타소득",
+  WAGE: "근로소득",
+  BUSINESS: "사업소득",
+  OTHER: "기타소득",
+  DAILY: "일용근로소득",
+  PREVIEW: "원천세 미리보기",
 };
+
+const WHT_SUBTABS: WhtSubTab[] = ["WAGE", "BUSINESS", "OTHER", "DAILY", "PREVIEW"];
 
 function matchesWhtSubTab(e: PayrollEntry, sub: WhtSubTab): boolean {
   if (sub === "WAGE") return e.income_type === "WAGE";
+  if (sub === "BUSINESS") return e.income_type === "BUSINESS";
+  if (sub === "OTHER") return e.income_type === "OTHER" || e.income_type === "RETIREMENT";
   if (sub === "DAILY") return e.income_type === "DAILY";
-  return e.income_type === "BUSINESS" || e.income_type === "OTHER" || e.income_type === "RETIREMENT";
+  return false; // PREVIEW 는 목록이 아니라 신고서 합계
 }
 
 function WhtSubTabBar({ value, onChange, entries }: {
   value: WhtSubTab; onChange: (v: WhtSubTab) => void; entries: PayrollEntry[];
 }) {
-  const counts: Record<WhtSubTab, number> = {
-    WAGE: entries.filter((e) => matchesWhtSubTab(e, "WAGE")).length,
-    DAILY: entries.filter((e) => matchesWhtSubTab(e, "DAILY")).length,
-    BIZ_OTHER: entries.filter((e) => matchesWhtSubTab(e, "BIZ_OTHER")).length,
-  };
-  const subs: WhtSubTab[] = ["WAGE", "DAILY", "BIZ_OTHER"];
   return (
     <div className="flex items-center gap-1 px-3 md:px-4 pt-3 pb-1 border-b border-gray-100">
-      {subs.map((s) => {
+      {WHT_SUBTABS.map((s) => {
         const active = value === s;
+        const count = s === "PREVIEW" ? null : entries.filter((e) => matchesWhtSubTab(e, s)).length;
         return (
           <button
             key={s}
@@ -1823,15 +1828,16 @@ function WhtSubTabBar({ value, onChange, entries }: {
             }`}
           >
             {WHT_SUBTAB_LABEL[s]}
-            <span className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1 rounded-full text-[10.5px] tabular-nums ${
-              active ? "bg-blue-500/40 text-white" : "bg-white text-gray-500 border border-gray-200"
-            }`}>
-              {counts[s]}
-            </span>
+            {count !== null && (
+              <span className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1 rounded-full text-[10.5px] tabular-nums ${
+                active ? "bg-blue-500/40 text-white" : "bg-white text-gray-500 border border-gray-200"
+              }`}>
+                {count}
+              </span>
+            )}
           </button>
         );
       })}
-      <span className="ml-2 text-[10.5px] text-gray-400">더존 [급여자료입력] · [일용근로소득자료입력] · [사업·기타소득] 분리 미러링</span>
     </div>
   );
 }

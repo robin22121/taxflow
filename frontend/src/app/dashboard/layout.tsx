@@ -146,7 +146,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </main>
 
       {/* 하단 자동화 작업바 (plan/17 §4-9) */}
-      <ActivityBar />
+      <ActivityBar insetLeftMd={pathname.startsWith("/dashboard/filings/")} />
 
       {certificate && (
         <CertificateIssueModal initialClientId={certificate.clientId} onClose={() => setCertificate(null)} />
