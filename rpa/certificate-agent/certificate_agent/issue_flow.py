@@ -438,8 +438,32 @@ def _capture_popup(context, page) -> tuple[bytes, str, str]:
     time.sleep(5.0)  # 리포트 뷰어 렌더 대기
     print(f"[+] 팝업: {popup.url}")
 
-    # 1순위: 뷰어 [인쇄] 가 서버(ClipAndMarkAny.jsp)에서 받아오는 원본 PDF 를 그대로 쓴다.
-    # 화면을 PDF 로 찍으면 뷰어 툴바가 같이 찍히고 오른쪽이 잘린다 (2026-09-22 실측).
+    try:
+        return _fetch_viewer_pdf(context, popup)
+    finally:
+        # 어느 경로로 끝나든 인쇄 미리보기·뷰어 창을 닫는다. 남겨두면 화면에 쌓이고
+        # 다음 발급에서 홈택스 탭을 잘못 고를 수 있다.
+        _close_viewer(popup)
+
+
+def _close_viewer(popup) -> None:
+    """Chrome 인쇄 미리보기(브라우저 UI)를 Esc 로 닫고 뷰어 팝업도 닫는다."""
+    for step, action in (
+        ("인쇄 미리보기 Esc", lambda: popup.keyboard.press("Escape")),
+        ("팝업 닫기", lambda: popup.close(run_before_unload=False)),
+    ):
+        try:
+            action()
+            time.sleep(0.5)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[*] {step} 실패({exc.__class__.__name__}) — 계속")
+
+
+def _fetch_viewer_pdf(context, popup) -> tuple[bytes, str, str]:
+    """1순위: 뷰어 [인쇄] 가 서버(ClipAndMarkAny.jsp)에서 받아오는 원본 PDF 를 그대로 쓴다.
+
+    화면을 PDF 로 찍으면 뷰어 툴바가 같이 찍히고 오른쪽이 잘린다 (2026-09-22 실측).
+    """
     try:
         with popup.expect_response(
             lambda r: "ClipAndMarkAny" in r.url and "pdf" in r.headers.get("content-type", ""),
@@ -472,9 +496,6 @@ def _capture_popup(context, page) -> tuple[bytes, str, str]:
         print(f"[!] printToPDF 실패, PNG 로 대체: {exc.__class__.__name__}: {exc}")
         png = popup.screenshot(full_page=True, timeout=20000)
         return png, "cert.png", "image/png"
-    finally:
-        # 부착 모드는 브라우저를 닫지 않으므로 뷰어 팝업이 쌓이지 않게 닫는다
-        popup.close()
 
 
 def issue_certificate(context, page, job: dict) -> tuple[bytes, str, str, str]:

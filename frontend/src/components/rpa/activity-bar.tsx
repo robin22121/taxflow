@@ -121,11 +121,13 @@ export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } =
           {jobs.length === 0 && <span className="text-[11.5px] text-gray-400">대기 중이거나 오늘 끝난 자동화 작업이 없습니다</span>}
           {jobs.map((job) => {
             const stage = jobStage(job);
+            // 끝났는데 아직 확인 안 한 작업은 깜박여서 눈에 띄게 한다 (확인하면 멈추고 바에서 사라짐)
+            const blink = isFinished(job) && !job.acknowledged_at;
             return (
               <button
                 key={job.id}
                 onClick={() => setDetail(job)}
-                className={"shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[12px] font-medium " + TONE_CLASS[stage.tone]}
+                className={"shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[12px] font-medium " + TONE_CLASS[stage.tone] + (blink ? " animate-pulse" : "")}
               >
                 <span className={"w-1.5 h-1.5 rounded-full " + DOT_CLASS[stage.tone]} />
                 <span>{jobOwner(job)}</span>
