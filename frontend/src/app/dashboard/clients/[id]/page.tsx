@@ -23,6 +23,7 @@ import {
 } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
+import { useConfirm } from "@/components/confirm-dialog";
 import {
   digitsOnly,
   formatBizNumber,
@@ -795,6 +796,7 @@ function StatusBadge({ status }: { status: string }) {
 /* ─── 사장님 화면 — 상설 링크 + PIN (plan/12-owner-portal.md §4.3) ─── */
 
 function PortalSection({ clientId }: { clientId: string }) {
+  const [confirm, confirmDialog] = useConfirm();
   const { data: link, isLoading } = usePortalLink(clientId);
   const { data: pin } = usePortalPinStatus(clientId);
   const rotate = useRotatePortalLink(clientId);
@@ -808,6 +810,8 @@ function PortalSection({ clientId }: { clientId: string }) {
   const locked = lockedUntil !== null && lockedUntil.getTime() > Date.now();
 
   return (
+    <>
+    {confirmDialog}
     <Card>
       <h2 className="text-lg font-semibold text-gray-900">사장님 화면</h2>
       <p className="text-xs text-gray-500 mt-0.5">
@@ -860,8 +864,8 @@ function PortalSection({ clientId }: { clientId: string }) {
           <Button
             variant="ghost"
             disabled={!link || rotate.isPending}
-            onClick={() => {
-              if (!window.confirm("기존 링크가 즉시 사용 불가가 됩니다. 새 링크를 발급할까요?")) return;
+            onClick={async () => {
+              if (!(await confirm("기존 링크가 즉시 사용 불가가 됩니다. 새 링크를 발급할까요?"))) return;
               rotate.mutate();
             }}
           >
@@ -903,7 +907,7 @@ function PortalSection({ clientId }: { clientId: string }) {
               variant="secondary"
               disabled={issuePin.isPending || (pinInput.length > 0 && pinInput.length !== 6)}
               onClick={async () => {
-                if (pin?.is_set && !window.confirm("기존 PIN이 즉시 무효화됩니다. 새 PIN을 설정할까요?")) return;
+                if (pin?.is_set && !(await confirm("기존 PIN이 즉시 무효화됩니다. 새 PIN을 설정할까요?"))) return;
                 setErr(null);
                 try {
                   const res = await issuePin.mutateAsync(pinInput || undefined);
@@ -950,12 +954,14 @@ function PortalSection({ clientId }: { clientId: string }) {
 
       {err && <p className="text-sm text-red-600 mt-3">{err}</p>}
     </Card>
+    </>
   );
 }
 
 /* ─── 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) ─── */
 
 function PayrollDefaultSection({ clientId }: { clientId: string }) {
+  const [confirm, confirmDialog] = useConfirm();
   const { data, isLoading } = usePayrollDefault(clientId);
   const update = useUpdatePayrollDefault(clientId);
   const reset = useResetPayrollDefault(clientId);
@@ -980,18 +986,21 @@ function PayrollDefaultSection({ clientId }: { clientId: string }) {
   ].join("|");
 
   return (
+    <>
+    {confirmDialog}
     <PayrollDefaultEditor
       key={dataKey}
       data={data}
       onSave={(patch) => update.mutateAsync(patch)}
-      onReset={() => {
-        if (window.confirm("시스템 기본값(비과세 한도 + 현행 요율)으로 리셋하시겠습니까?")) {
+      onReset={async () => {
+        if (await confirm("시스템 기본값(비과세 한도 + 현행 요율)으로 리셋하시겠습니까?")) {
           reset.mutate();
         }
       }}
       saving={update.isPending}
       resetting={reset.isPending}
     />
+    </>
   );
 }
 

@@ -30,6 +30,7 @@ import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Input, Modal } from "@/components/ui";
 import { useHeaderSlots } from "@/components/header-slot";
 import { WehagoSendModal } from "@/components/rpa/wehago-send-modal";
+import { useConfirm } from "@/components/confirm-dialog";
 import { gateStage, indexJobsByClient, listJobs, type GateStage } from "@/lib/rpa-api";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
@@ -1508,6 +1509,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
+  const [confirm, confirmDialog] = useConfirm();
   const [whtSubTab, setWhtSubTab] = useState<WhtSubTab>("WAGE");
   const tab = forcedTab ?? internalTab;
   const setTab = forcedTab ? () => {} : setInternalTab;
@@ -1543,9 +1545,9 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
     if (selected.size === displayEntries.length) setSelected(new Set());
     else setSelected(new Set(displayEntries.map((e) => e.id)));
   }
-  function bulkDelete() {
+  async function bulkDelete() {
     if (selected.size === 0) return;
-    if (!window.confirm(`선택된 ${selected.size}건을 삭제하시겠습니까?`)) return;
+    if (!(await confirm(`선택된 ${selected.size}건을 삭제하시겠습니까?`))) return;
     selected.forEach((id) => remove.mutate(id));
     setSelected(new Set());
   }
@@ -1583,6 +1585,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
 
   return (
     <>
+      {confirmDialog}
       {/* 거래처 정보는 좌측 목록 하단(ClientInfoPanel)으로 이동 — 여기는 선택 시 액션만 */}
       {(selected.size > 0 || showInternalTabBar) && (
         <div className="px-4 py-2 border-b border-gray-100 shrink-0">
@@ -1658,14 +1661,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                       검토 대상 ({pendingEntries.length}명)
                     </td></tr>
                   )}
-                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
                   {/* ── 승인 완료 섹션 ── */}
                   {approvedEntries.length > 0 && (
                     <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
                       승인 완료 ({approvedEntries.length}명)
                     </td></tr>
                   )}
-                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={() => { if (window.confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
                 </tbody>
               </table>
             ) : (
