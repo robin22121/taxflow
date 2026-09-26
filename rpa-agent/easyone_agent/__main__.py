@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import logging
+import re
 import sys
 
 from easyone_agent.api import EasyoneApi
@@ -43,8 +44,22 @@ def _prompt_secret(name: str, secret_key: str, hidden: bool) -> None:
         set_secret(secret_key, value)
 
 
+def _extract_agent_token(value: str) -> str | None:
+    """붙여 넣은 값에서 rpa_ 토큰만 꺼낸다.
+
+    설정 화면 안내 명령(`EASYONE_AGENT_TOKEN=rpa_... uv run ...`)을 통째로 붙여 넣어도 동작하게.
+    """
+    match = re.search(r"rpa_[A-Za-z0-9_\-]+", value)
+    return match.group(0) if match else None
+
+
 def _setup() -> None:
-    set_secret(SECRET_AGENT_TOKEN, getpass.getpass("이지원천 에이전트 토큰: ").strip())
+    while True:
+        token = _extract_agent_token(getpass.getpass("이지원천 에이전트 토큰 (rpa_ 로 시작): "))
+        if token:
+            break
+        print("rpa_ 로 시작하는 토큰을 찾지 못했습니다. 설정 → 자동화 PC 연결에서 발급한 토큰을 붙여 넣으세요.")
+    set_secret(SECRET_AGENT_TOKEN, token)
     set_secret(SECRET_WEHAGO_ID, input("위하고 아이디: ").strip())
     set_secret(SECRET_WEHAGO_PASSWORD, getpass.getpass("위하고 비밀번호: "))
 
