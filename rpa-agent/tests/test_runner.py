@@ -102,7 +102,9 @@ def test_upload_error_is_reported_and_loop_continues(tmp_path: Path):
     api = FakeApi([JOB])
     assert process_one(api, FakeUploader(upload_error=RuntimeError("양식 오류")), tmp_path)
     assert api.reports[0][1] is False
-    assert "양식 오류" in api.reports[0][2]
+    # 예상 못 한 오류는 기술 메시지 대신 사람이 읽을 안내 + 짧은 기술 정보
+    assert "위하고에는 저장되지 않았습니다" in api.reports[0][2]
+    assert "기술 정보: RuntimeError" in api.reports[0][2]
 
 
 def test_login_failure_is_reported_then_raised(tmp_path: Path):
@@ -199,3 +201,17 @@ def test_run_login_test_waits_for_job_then_stops():
     assert run_login_test(api, FakeUploader(), 5, sleep=sleep) is True
     assert sleeps == [5]
     assert len(api.reports) == 1
+
+
+def test_failure_message_shows_step_and_saved_state():
+    from easyone_agent.runner import failure_message
+    from easyone_agent.wehago import WehagoError
+
+    class U:
+        step = "사원코드 연결·저장"
+        may_have_saved = True
+
+    assert failure_message(WehagoError("위하고 사원과 맞지 않음"), U()) == "[사원코드 연결·저장] 위하고 사원과 맞지 않음"
+    msg = failure_message(TimeoutError("Locator.wait_for: Timeout 30000ms exceeded"), U())
+    assert msg.startswith("[사원코드 연결·저장] 위하고 화면이 예상과 달라 멈췄습니다")
+    assert "저장됐을 수 있으니" in msg and "Timeout 30000ms" not in msg

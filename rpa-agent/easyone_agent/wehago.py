@@ -151,6 +151,9 @@ class WehagoUploader:
         self._context = None
         self._page = None
         self._smarta_page = None  # open_payroll_screen 이 연 급여자료입력 탭
+        # 실패 안내용 — 지금 어느 단계인지, 위하고에 저장됐을 수 있는지
+        self.step = "준비"
+        self.may_have_saved = False
 
     def __enter__(self) -> WehagoUploader:
         from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -181,6 +184,8 @@ class WehagoUploader:
 
     def ensure_logged_in(self) -> None:
         """로그인 상태가 아니면 ID/PW로 로그인한다. 실패하면 LoginFailed (재시도 금지)."""
+        self.step = "위하고 로그인"
+        self.may_have_saved = False
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
         page = self._page
@@ -214,6 +219,17 @@ class WehagoUploader:
             self._save_failure_screenshot()
             raise LoginFailed(self._login_failure_reason()) from None
         self._dismiss_splash()
+
+    def save_failure_screenshot(self, name: str) -> None:
+        """예상 못 한 실패 때 원인 확인용 화면 캡처 — 노트북에만 남긴다 (서버로 보내지 않음)."""
+        page = self._smarta_page if self._smarta_page and not self._smarta_page.is_closed() else self._page
+        if page is None:
+            return
+        try:
+            self._screenshot_dir.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(self._screenshot_dir / f"{name}.png"))
+        except Exception:  # 캡처 실패가 작업 결과 회신을 막으면 안 된다
+            pass
 
     def _login_failure_reason(self) -> str:
         visible_text = self._page.locator("body").inner_text()
@@ -259,6 +275,7 @@ class WehagoUploader:
         Returns:
             (위하고 상호, 사업자번호) — 호출자가 작업의 거래처와 대조한다.
         """
+        self.step = "담당 수임처 검색"
         page = self._page
         for other in list(self._context.pages):
             if other is not page and "smarta.wehagot.com" in other.url:
@@ -296,6 +313,7 @@ class WehagoUploader:
         with self._context.expect_page(timeout=UPLOAD_WAIT_MS) as new_tab:
             row.locator("button.btn_quick", has_text=re.compile(r"^급여$")).click()
         smarta = new_tab.value
+        self.step = "급여자료입력 화면 열기"
         smarta.wait_for_load_state()
         menu = smarta.locator(f"a#{_PAYROLL_MENU_ID}.text_link")
         menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
@@ -340,12 +358,14 @@ class WehagoUploader:
                 저장 후 합계 불일치 등.
         """
         page = self._payroll_page()
+        self.step = "조회 조건 입력 (귀속연월·구분·지급일)"
         self._payroll_select_period(page, period, pay_date)
         think("wehago")
         page.locator(_COND_BAR).get_by_role("button", name="조회").click()
         self._wait_for_no_dimmed(page)
         page.wait_for_timeout(1_000)  # 그리드가 조회 결과로 바뀔 시간
 
+        self.step = "기존 급여 확인"
         existing = _grid_total(self._payroll_totals(page))
         if existing and not replace_existing:
             raise WehagoError(
@@ -354,11 +374,13 @@ class WehagoUploader:
             )
 
         # 엑셀 사원 ↔ 위하고 사원 — 코드가 다르면(U001 ↔ 1) 이름이 양쪽에서 한 명일 때만 위하고 코드로 맞춘다
+        self.step = "사원 대조"
         match = _match_employees(_excel_employees(xlsx_path), self._payroll_employees(page))
         if match.errors:
             raise WehagoError("위하고 사원과 맞지 않아 올리지 않음 — " + "; ".join(match.errors))
         warnings = match.warnings()
 
+        self.step = "엑셀 불러오기"
         allowances = self._payroll_allowances(page)
         expected = _excel_totals(xlsx_path, _nontaxable_limits(allowances))
         prepared = xlsx_path.with_name(f"{xlsx_path.stem}-upload.xlsx")
@@ -369,6 +391,7 @@ class WehagoUploader:
             dialog = self._payroll_open_upload(page, prepared)
         finally:
             prepared.unlink(missing_ok=True)  # 급여파일은 PC에 남기지 않는다
+        self.step = "엑셀 항목 연결 확인"
         mapping = self._payroll_map_headers(dialog)
         unmapped = _unmapped_amount_columns(mapping)
         if unmapped or not commit:
@@ -381,7 +404,9 @@ class WehagoUploader:
         # 매핑 칸마다 숨은 알림 [확인] 버튼이 있어 보이는 버튼만 고른다
         think("wehago")
         dialog.get_by_role("button", name="확인", exact=True).click()
+        self.step = "사원코드 연결·저장"
         self._payroll_convert(page)
+        self.step = "저장 후 대조"
 
         think("wehago")
         page.locator(_COND_BAR).get_by_role("button", name="조회").click()
@@ -502,19 +527,26 @@ class WehagoUploader:
         link = page.locator("div._isDialog:visible", has_text="사원코드연결")
         link.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         exclude = page.locator("div._isDialog:visible", has_text="제외하고 변환됩니다")
-        exclude.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        page.wait_for_timeout(1_500)  # 표가 채워질 시간
         if "데이터가 없습니다" not in link.inner_text():
-            think("wehago")
-            exclude.get_by_role("button", name="취소", exact=True).click()
+            # 연결 안 된 사원이 있으면 '제외하고 변환' 안내가 뜨지 않는다 (2026-09-27 실측) — 바로 취소
+            if exclude.count():
+                think("wehago")
+                exclude.get_by_role("button", name="취소", exact=True).click()
             think("wehago")
             link.get_by_role("button", name="취소(Esc)").click()
-            raise WehagoError("위하고 사원과 연결되지 않은 엑셀 사원이 있습니다 (사원코드 확인) — 변환 취소")
+            raise WehagoError(
+                "위하고 사원코드연결 화면에 연결되지 않은 사원이 남아 있어 저장하지 않았습니다 "
+                "— 이지원천과 위하고의 사원코드·이름을 확인하세요"
+            )
+        exclude.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
         exclude.get_by_role("button", name="확인", exact=True).click()
         # 같은 지급일의 기존 급여를 지우고 올린다는 확인 — 기존 급여 여부는 조회 직후 이미 확인했다
         overwrite = page.locator("div._isDialog:visible", has_text="삭제후 업로드됩니다")
         overwrite.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
+        self.may_have_saved = True  # 이 [확인]부터 위하고 급여가 바뀐다
         overwrite.get_by_role("button", name="확인", exact=True).click()
         page.locator("div._isDialog:visible").first.wait_for(state="hidden", timeout=UPLOAD_WAIT_MS)
         self._wait_for_no_dimmed(page)

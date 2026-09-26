@@ -48,13 +48,34 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
         raise
     except Exception as e:
         logger.exception("작업 실패 %s", job.id)
-        _report(api, job.id, False, f"{type(e).__name__}: {e}")
+        if not isinstance(e, WehagoError):
+            capture = getattr(uploader, "save_failure_screenshot", None)
+            if capture:
+                capture(f"failed-{job.id}")
+        _report(api, job.id, False, failure_message(e, uploader))
     else:
         _report(api, job.id, True, message)
     finally:
         # 급여파일은 개인정보라 PC에 남기지 않는다.
         xlsx_path.unlink(missing_ok=True)
     return True
+
+
+def failure_message(e: Exception, uploader: object) -> str:
+    """사무소 사용자가 읽을 실패 안내 — 어느 단계였는지, 위하고에 저장됐는지, 다음에 할 일.
+
+    WehagoError 는 이미 사람이 읽을 문장이다. 그 밖의 오류(화면 대기 시간 초과 등)는
+    기술 메시지 대신 단계·저장 여부로 풀어 쓰고, 기술 정보는 괄호에 짧게만 남긴다.
+    """
+    step = getattr(uploader, "step", "")
+    where = f"[{step}] " if step else ""
+    if isinstance(e, WehagoError):
+        return f"{where}{e}"
+    if getattr(uploader, "may_have_saved", False):
+        saved = "위하고에 저장됐을 수 있으니 급여자료입력 화면에서 확인한 뒤 필요하면 다시 전송하세요."
+    else:
+        saved = "위하고에는 저장되지 않았습니다. 잠시 후 다시 전송하고, 반복되면 담당자에게 알려 주세요."
+    return f"{where}위하고 화면이 예상과 달라 멈췄습니다 (응답 지연 또는 화면 변경). {saved} (기술 정보: {type(e).__name__})"
 
 
 def _process_import_job(api: EasyoneApi, uploader: WehagoUploader, job: Job, workdir: Path) -> bool:
