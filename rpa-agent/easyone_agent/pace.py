@@ -23,7 +23,8 @@ class Pace:
 
 
 PACE: dict[Site, Pace] = {
-    "wehago": Pace(think_sec=(0.5, 2.0), gap_sec=(5.0, 15.0), key_delay_ms=(50, 150)),
+    # 화면 단계 사이 최소 2초 — 로그인·수임처 검색·[급여]·급여자료입력이 너무 빨라 봇으로 보였다 (2026-09-27 사용자 지적)
+    "wehago": Pace(think_sec=(2.0, 3.5), gap_sec=(5.0, 15.0), key_delay_ms=(50, 150)),
     "hometax": Pace(think_sec=(0.5, 1.0), gap_sec=(3.0, 7.0), key_delay_ms=(30, 80)),
     "wetax": Pace(think_sec=(0.5, 1.0), gap_sec=(3.0, 7.0), key_delay_ms=(30, 80)),
 }

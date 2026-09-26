@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -35,6 +36,7 @@ _PAYROLL_SCREEN = f"/smarta/humanresource/{_PAYROLL_MENU_ID}"
 _COND_BAR = "div.basic_condition"  # div.item 순서: 귀속연월·구분·지급일·지급일 코드도움·정렬
 # 합계 열은 위하고가 다시 계산하므로 연결하지 않아도 된다
 _TOTAL_COLUMNS = {"지급액계", "공제액계", "차인지급액"}
+_EMPLOYEE_GRID = "Left_grid"  # 왼쪽 사원 목록 (cd_emp 사원코드 · nm_krname 이름)
 _TOTALS_GRID = "Right_top_grid"  # 오른쪽 위 전체 사원 급여항목 합계 (nm_allow·fg_tax·am_tax)
 _ALLOWANCE_GRID = "Mid_left_grid"  # 가운데 [급여항목] 그리드 (수당명 nm_allow·비과세코드 cd_freeref·비과세 한도 am_tflimit)
 # 이지원천 업로드 양식의 비과세 수당 열 → (위하고 비과세 코드, 이지원천 제목)
@@ -51,6 +53,10 @@ _REALGRID_VIEW_JS = """
     const gv = el[fk]._currentElement._owner._instance._gridView;
 """
 _REALGRID_ROWS_JS = f"(el) => {{ {_REALGRID_VIEW_JS} return gv.getDataSource().getJsonRows(0, -1); }}"
+_REALGRID_EMPLOYEES_JS = (
+    f"(el) => {{ {_REALGRID_VIEW_JS} return gv.getDataSource().getJsonRows(0, -1)"
+    ".map(r => [String(r.cd_emp ?? '').trim(), String(r.nm_krname ?? '').trim()]); }"
+)
 _REALGRID_SET_CURRENT_JS = f"(el, i) => {{ {_REALGRID_VIEW_JS} gv.setCurrent({{itemIndex: i}}); }}"
 
 # 엑셀업로드 팝업 → [{col, excel, wehago, has_amount}] (엑셀 A열부터)
@@ -259,6 +265,7 @@ class WehagoUploader:
                 other.close()
         self._smarta_page = None
 
+        think("wehago")
         page.goto(f"{WEHAGO_URL}/#/main")
         self._dismiss_splash()
         self._wait_for_no_dimmed()
@@ -266,6 +273,7 @@ class WehagoUploader:
         search.wait_for(state="visible", timeout=SIDEBAR_WAIT_MS)
         target = normalize_business_number(business_number)
         search.fill(target)
+        think("wehago")
         search.press("Enter")
         # 검색 결과가 늦게 걸러질 수 있다 (로그인 직후 목록 로딩) — 사업자번호가 같은 행만 고른다.
         rows = page.locator("li:has(p.company_num)")
@@ -284,12 +292,14 @@ class WehagoUploader:
         name = row.locator(".company_name a").first.inner_text().strip()
         number = _clean_business_number(row.locator("p.company_num").inner_text())
 
+        think("wehago")
         with self._context.expect_page(timeout=UPLOAD_WAIT_MS) as new_tab:
             row.locator("button.btn_quick", has_text=re.compile(r"^급여$")).click()
         smarta = new_tab.value
         smarta.wait_for_load_state()
         menu = smarta.locator(f"a#{_PAYROLL_MENU_ID}.text_link")
         menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
         menu.click()
         smarta.locator(_COND_BAR).wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
 
@@ -331,6 +341,7 @@ class WehagoUploader:
         """
         page = self._payroll_page()
         self._payroll_select_period(page, period, pay_date)
+        think("wehago")
         page.locator(_COND_BAR).get_by_role("button", name="조회").click()
         self._wait_for_no_dimmed(page)
         page.wait_for_timeout(1_000)  # 그리드가 조회 결과로 바뀔 시간
@@ -342,11 +353,17 @@ class WehagoUploader:
                 f"지급액 계 {existing:,}원) — 덮어쓰지 않음"
             )
 
+        # 엑셀 사원 ↔ 위하고 사원 — 코드가 다르면(U001 ↔ 1) 이름이 양쪽에서 한 명일 때만 위하고 코드로 맞춘다
+        match = _match_employees(_excel_employees(xlsx_path), self._payroll_employees(page))
+        if match.errors:
+            raise WehagoError("위하고 사원과 맞지 않아 올리지 않음 — " + "; ".join(match.errors))
+        warnings = match.warnings()
+
         allowances = self._payroll_allowances(page)
         expected = _excel_totals(xlsx_path, _nontaxable_limits(allowances))
         prepared = xlsx_path.with_name(f"{xlsx_path.stem}-upload.xlsx")
         try:
-            missing = _prepare_upload_xlsx(xlsx_path, prepared, allowances)
+            missing = _prepare_upload_xlsx(xlsx_path, prepared, allowances, match.code_map)
             if missing:
                 raise WehagoError(f"위하고 비과세 수당 미등록: {', '.join(missing)}")
             dialog = self._payroll_open_upload(page, prepared)
@@ -362,9 +379,11 @@ class WehagoUploader:
             return f"점검 완료 — 매핑 {sum(1 for m in mapping if m['wehago'])}개 열 (저장 안 함)"
 
         # 매핑 칸마다 숨은 알림 [확인] 버튼이 있어 보이는 버튼만 고른다
+        think("wehago")
         dialog.get_by_role("button", name="확인", exact=True).click()
         self._payroll_convert(page)
 
+        think("wehago")
         page.locator(_COND_BAR).get_by_role("button", name="조회").click()
         self._wait_for_no_dimmed(page)
         page.wait_for_timeout(1_000)
@@ -375,10 +394,11 @@ class WehagoUploader:
                 f"위하고에 저장됐으나 대조 불일치 (확인 필요) — 지급액 계 위하고 {got[0]:,} / 이지원천 {expected.gross:,}, "
                 f"비과세 위하고 {got[1]:,} / 이지원천 {expected.nontaxable:,}"
             )
-        return (
+        done = (
             f"급여자료 입력 완료 ({period}, 지급일 {pay_date.isoformat()}) — {expected.headcount}명, "
             f"지급액 계 {expected.gross:,}원, 비과세 {expected.nontaxable:,}원 대조 일치"
         )
+        return "\n".join([done, *warnings])
 
     # --- 위하고 → 이지원천 가져오기 (plan/16 §12, import_runner.WehagoImportSource) ---
 
@@ -457,6 +477,15 @@ class WehagoUploader:
                 return page
         raise WehagoError("SmartA 급여자료입력 화면이 열려 있지 않습니다")
 
+    def _payroll_employees(self, page) -> list[tuple[str, str]]:
+        """왼쪽 사원 그리드(조회구분 '전체사원_현재') → [(사원코드, 이름)].
+
+        그리드에는 주민번호 열도 있지만 코드·이름만 꺼낸다.
+        """
+        grid = page.locator(f"#{_EMPLOYEE_GRID}")
+        grid.wait_for(state="attached", timeout=UPLOAD_WAIT_MS)
+        return [tuple(r) for r in grid.evaluate(_REALGRID_EMPLOYEES_JS)]
+
     def _payroll_totals(self, page) -> list[dict[str, Any]]:
         """오른쪽 위 [급여항목 합계] 그리드 — 급여가 없으면 빈 목록."""
         grid = page.locator(f"#{_TOTALS_GRID}")
@@ -475,13 +504,17 @@ class WehagoUploader:
         exclude = page.locator("div._isDialog:visible", has_text="제외하고 변환됩니다")
         exclude.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         if "데이터가 없습니다" not in link.inner_text():
+            think("wehago")
             exclude.get_by_role("button", name="취소", exact=True).click()
+            think("wehago")
             link.get_by_role("button", name="취소(Esc)").click()
             raise WehagoError("위하고 사원과 연결되지 않은 엑셀 사원이 있습니다 (사원코드 확인) — 변환 취소")
+        think("wehago")
         exclude.get_by_role("button", name="확인", exact=True).click()
         # 같은 지급일의 기존 급여를 지우고 올린다는 확인 — 기존 급여 여부는 조회 직후 이미 확인했다
         overwrite = page.locator("div._isDialog:visible", has_text="삭제후 업로드됩니다")
         overwrite.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
         overwrite.get_by_role("button", name="확인", exact=True).click()
         page.locator("div._isDialog:visible").first.wait_for(state="hidden", timeout=UPLOAD_WAIT_MS)
         self._wait_for_no_dimmed(page)
@@ -516,15 +549,19 @@ class WehagoUploader:
         if _fake_text(items.nth(0)) != want_period:
             # 귀속연월은 키보드 입력이 먹히지 않는 경우가 있어(2026.03 으로 들어감, 2026-09-27 실측)
             # 달력 아이콘 → 월 버튼으로 고른다. 달력의 연도는 SmartA 귀속 연도로 고정.
+            think("wehago")
             items.nth(0).locator("div.fakebutton").click()
             months = page.locator("div.date_tbl td.date_day button")
             months.first.wait_for(state="visible", timeout=5_000)
+            think("wehago")
             months.filter(has_text=re.compile(rf"^{int(month)}월$")).click()
             self._payroll_handle_popup(page, pay_date)
         if _fake_text(items.nth(1)) != _PAY_KIND:
             # 구분은 한 글자 코드 입력칸 — 새 달은 '1. 급여'로 잡힐 수 있다 (2026-09-27 실측)
+            think("wehago")
             items.nth(1).locator("span.fakeinput").click()
             page.keyboard.type(_PAY_KIND[0])
+            think("wehago")
             page.keyboard.press("Tab")
             page.wait_for_timeout(500)
             self._payroll_handle_popup(page, pay_date)
@@ -532,8 +569,10 @@ class WehagoUploader:
         for _ in range(2):
             if _fake_text(items.nth(2)) == want_date:
                 break
+            think("wehago")
             items.nth(2).locator("div.fake_inputbox").click()
             page.keyboard.type(pay_date.strftime("%Y%m%d"))
+            think("wehago")
             page.keyboard.press("Enter")
             self._payroll_handle_popup(page, pay_date)
         shown = _fake_text(items.nth(0)), _fake_text(items.nth(1)), _fake_text(items.nth(2))
@@ -545,6 +584,7 @@ class WehagoUploader:
         copy_prev = page.locator("div._isDialog:visible", has_text="전월데이터를 복사")
         for _ in range(12):
             if copy_prev.count():
+                think("wehago")
                 copy_prev.locator("button", has_text="아니오").click()
                 return
             if pay_dates.count():
@@ -564,14 +604,17 @@ class WehagoUploader:
         for i, row in enumerate(rows):
             if str(row.get("dt_pay", "")).startswith(wanted) and str(row.get("fg_pay")) == "2":
                 if row.get("am_allowpay"):
+                    think("wehago")
                     dialog.locator("button", has_text="확인").click()
                     raise WehagoError(
                         f"위하고에 이미 입력된 급여자료가 있습니다 (지급일 {wanted}, "
                         f"{row.get('num')}명) — 덮어쓰지 않음"
                     )
                 grid.evaluate(_REALGRID_SET_CURRENT_JS, i)
+                think("wehago")
                 dialog.locator("button", has_text="확인").click()
                 return
+        think("wehago")
         dialog.locator("button", has_text="추가입력").click()
 
     def _payroll_open_upload(self, page, xlsx_path: Path):
@@ -588,6 +631,7 @@ class WehagoUploader:
         for _ in range(3):
             page.wait_for_timeout(1_000)
             page.evaluate("() => document.activeElement && document.activeElement.blur()")
+            think("wehago")
             try:
                 with page.expect_file_chooser(timeout=5_000) as chooser:
                     page.keyboard.press("Control+u")
@@ -603,9 +647,11 @@ class WehagoUploader:
 
     def _payroll_cancel_upload(self, page, dialog) -> None:
         """엑셀업로드 [취소] → '변환이 취소되었습니다.' 알림 [확인]까지 닫는다."""
+        think("wehago")
         dialog.get_by_role("button", name="취소", exact=True).click()
         notice = page.locator("div._isDialog:visible", has_text="변환이 취소되었습니다")
         notice.wait_for(state="visible", timeout=5_000)
+        think("wehago")
         notice.get_by_role("button", name="확인").click()
         notice.wait_for(state="hidden", timeout=5_000)
 
@@ -621,9 +667,11 @@ class WehagoUploader:
         preview = dialog.locator("table.LStbl:not(.rowspan_fix)")
         header = preview.locator("tr").nth(1)
         if header.locator("th, td").nth(1).evaluate(_BG_JS) != _SELECTED_BG:
+            think("wehago")
             header.locator("th").first.click()
         if header.locator("th, td").nth(1).evaluate(_BG_JS) != _SELECTED_BG:
             raise WehagoError("엑셀업로드 제목행 선택 실패")
+        think("wehago")
         dialog.locator("button", has_text="엑셀제목설정").click()
         dialog.locator("table.LStbl.rowspan_fix .fakeinput", has_text="사원번호").first.wait_for(
             state="visible", timeout=10_000
@@ -877,6 +925,70 @@ class _ExcelTotals:
     nontaxable: int  # 식대·자가운전·육아수당 합
 
 
+def _excel_employees(path: Path) -> list[tuple[str, str]]:
+    """이지원천 업로드 양식의 사원 (사원코드, 이름) — 2단 헤더 아래 A·B열."""
+    from openpyxl import load_workbook
+
+    ws = load_workbook(path, read_only=True).active
+    out = []
+    for row in ws.iter_rows(min_row=_EXCEL_HEADER_ROWS + 1, max_col=2, values_only=True):
+        code, name = (str(v).strip() if v is not None else "" for v in row)
+        if code:
+            out.append((code, name))
+    return out
+
+
+@dataclass(frozen=True, slots=True)
+class _EmployeeMatch:
+    code_map: dict[str, str]  # 엑셀 사원코드 → 위하고 사원코드
+    errors: list[str]  # 하나라도 있으면 올리지 않는다
+    recoded: list[str]  # 코드만 달라 위하고 코드로 맞춘 사원
+    wehago_only: list[str]  # 위하고에만 있는 사원 (이번 급여 없음)
+
+    def warnings(self) -> list[str]:
+        out = []
+        if self.recoded:
+            out.append(
+                "⚠️ 사원코드가 달라 위하고 코드로 맞춰 올림: " + ", ".join(self.recoded)
+                + " — 이지원천 사원코드를 위하고와 같게 고쳐 주세요"
+            )
+        if self.wehago_only:
+            out.append("⚠️ 위하고에만 있는 사원 (이번 급여 없음): " + ", ".join(self.wehago_only))
+        return out
+
+
+def _match_employees(excel: list[tuple[str, str]], wehago: list[tuple[str, str]]) -> _EmployeeMatch:
+    """엑셀 사원을 위하고 사원에 잇는다.
+
+    - 코드·이름이 같으면 그대로
+    - 코드만 다르면(이지원천 U001 ↔ 위하고 1) 이름이 양쪽에서 한 명뿐일 때만 위하고 코드로
+    - 위하고에 없음 · 같은 이름 여러 명 · 같은 코드인데 이름이 다름 → 오류 (다른 사람에게 급여가 갈 수 있다)
+    """
+    by_code = dict(wehago)
+    excel_names = Counter(name for _, name in excel)
+    code_map: dict[str, str] = {}
+    errors: list[str] = []
+    recoded: list[str] = []
+    for code, name in excel:
+        if by_code.get(code) == name:
+            code_map[code] = code
+        elif code in by_code:
+            errors.append(f"{name}({code}) — 위하고 {code}번은 {by_code[code]}")
+        else:
+            same_name = [c for c, n in wehago if n == name]
+            if len(same_name) == 1 and excel_names[name] == 1:
+                code_map[code] = same_name[0]
+                recoded.append(f"{name} {code}→{same_name[0]}")
+            elif not same_name:
+                errors.append(f"{name}({code}) — 위하고 사원등록에 없음")
+            else:
+                errors.append(f"{name}({code}) — 같은 이름이 여러 명이라 정할 수 없음")
+    targets = Counter(code_map.values())
+    errors += [f"위하고 {c}번에 엑셀 사원이 {k}명 연결됨" for c, k in targets.items() if k > 1]
+    wehago_only = [f"{n}({c})" for c, n in wehago if c not in targets]
+    return _EmployeeMatch(code_map, errors, recoded, wehago_only)
+
+
 def _nontaxable_limits(allowances: list[dict[str, Any]]) -> dict[str, int]:
     """비과세 코드 → 위하고에 등록된 월 비과세 한도 (한도가 없으면 빠짐)."""
     limits: dict[str, int] = {}
@@ -916,7 +1028,9 @@ def _grid_total(rows: list[dict[str, Any]], *, nontaxable_only: bool = False) ->
     )
 
 
-def _prepare_upload_xlsx(src: Path, dst: Path, allowances: list[dict[str, Any]]) -> list[str]:
+def _prepare_upload_xlsx(
+    src: Path, dst: Path, allowances: list[dict[str, Any]], code_map: dict[str, str] | None = None
+) -> list[str]:
     """위하고 [엑셀 불러오기]용 사본 — 제목 한 줄 양식 + 비과세 수당 제목을 위하고 수당명으로.
 
     1) 제목 한 줄: 2단 병합 헤더를 풀어 사원코드·사원명 등을 2행으로 내리고 1행(수당/공제 묶음)을
@@ -946,6 +1060,13 @@ def _prepare_upload_xlsx(src: Path, dst: Path, allowances: list[dict[str, Any]])
             missing.append(f"{label}({code})")
     if missing:
         return missing
+
+    # 사원코드를 위하고 코드로 (_match_employees 결과)
+    for row in ws.iter_rows(min_row=_EXCEL_HEADER_ROWS + 1, max_col=1):
+        cell = row[0]
+        code = str(cell.value).strip() if cell.value is not None else ""
+        if code_map and code in code_map:
+            cell.value = code_map[code]
 
     for merged in list(ws.merged_cells.ranges):
         if merged.min_row <= _EXCEL_HEADER_ROWS:
