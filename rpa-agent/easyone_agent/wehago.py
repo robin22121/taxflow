@@ -264,15 +264,23 @@ class WehagoUploader:
         self._wait_for_no_dimmed()
         search = page.locator("input[placeholder*='사업자등록번호']").first
         search.wait_for(state="visible", timeout=SIDEBAR_WAIT_MS)
-        search.fill(normalize_business_number(business_number))
+        target = normalize_business_number(business_number)
+        search.fill(target)
         search.press("Enter")
-        page.wait_for_timeout(1_000)
+        # 검색 결과가 늦게 걸러질 수 있다 (로그인 직후 목록 로딩) — 사업자번호가 같은 행만 고른다.
         rows = page.locator("li:has(p.company_num)")
-        if rows.count() != 1:
+        matching: list[int] = []
+        for _ in range(20):
+            page.wait_for_timeout(500)
+            numbers = [normalize_business_number(t) for t in rows.locator("p.company_num").all_inner_texts()]
+            matching = [i for i, n in enumerate(numbers) if n == target]
+            if matching and len(numbers) == len(matching):
+                break  # 검색이 걸러졌다
+        if len(matching) != 1:
             raise CompanyNotFound(
-                f"위하고 T 담당 수임처 검색 결과가 정확히 1건이 아닙니다 ({rows.count()}건)"
+                f"위하고 T 담당 수임처에서 사업자번호 {business_number} 가 정확히 1건이 아닙니다 ({len(matching)}건)"
             )
-        row = rows.first
+        row = rows.nth(matching[0])
         name = row.locator(".company_name a").first.inner_text().strip()
         number = _clean_business_number(row.locator("p.company_num").inner_text())
 
