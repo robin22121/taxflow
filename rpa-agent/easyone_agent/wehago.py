@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import re
-from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -382,19 +381,18 @@ class WehagoUploader:
                 f"지급액 계 {existing:,}원) — 덮어쓰지 않음"
             )
 
-        # 엑셀 사원 ↔ 위하고 사원 — 코드가 다르면(U001 ↔ 1) 이름이 양쪽에서 한 명일 때만 위하고 코드로 맞춘다
+        # 이지원천 직원과 위하고 사원이 하나라도 다르면(코드·명단·인원) 입력하지 않는다 (2026-09-27 사용자 결정)
         self.step = "사원 대조"
-        match = _match_employees(_excel_employees(xlsx_path), self._payroll_employees(page))
-        if match.errors:
-            raise WehagoError("위하고 사원과 맞지 않아 올리지 않음 — " + "; ".join(match.errors))
-        warnings = match.warnings()
+        mismatch = _employee_mismatch(_excel_employees(xlsx_path), self._payroll_employees(page))
+        if mismatch:
+            raise WehagoError(mismatch)
 
         self.step = "엑셀 불러오기"
         allowances = self._payroll_allowances(page)
         expected = _excel_totals(xlsx_path, _nontaxable_limits(allowances))
         prepared = xlsx_path.with_name(f"{xlsx_path.stem}-upload.xlsx")
         try:
-            missing = _prepare_upload_xlsx(xlsx_path, prepared, allowances, match.code_map)
+            missing = _prepare_upload_xlsx(xlsx_path, prepared, allowances)
             if missing:
                 raise WehagoError(f"위하고 비과세 수당 미등록: {', '.join(missing)}")
             dialog = self._payroll_open_upload(page, prepared)
@@ -428,11 +426,10 @@ class WehagoUploader:
                 f"위하고에 저장됐으나 대조 불일치 (확인 필요) — 지급액 계 위하고 {got[0]:,} / 이지원천 {expected.gross:,}, "
                 f"비과세 위하고 {got[1]:,} / 이지원천 {expected.nontaxable:,}"
             )
-        done = (
+        return (
             f"급여자료 입력 완료 ({period}, 지급일 {pay_date.isoformat()}) — {expected.headcount}명, "
             f"지급액 계 {expected.gross:,}원, 비과세 {expected.nontaxable:,}원 대조 일치"
         )
-        return "\n".join([done, *warnings])
 
     # --- 위하고 → 이지원천 가져오기 (plan/16 §12, import_runner.WehagoImportSource) ---
 
@@ -979,55 +976,52 @@ def _excel_employees(path: Path) -> list[tuple[str, str]]:
     return out
 
 
-@dataclass(frozen=True, slots=True)
-class _EmployeeMatch:
-    code_map: dict[str, str]  # 엑셀 사원코드 → 위하고 사원코드
-    errors: list[str]  # 하나라도 있으면 올리지 않는다
-    recoded: list[str]  # 코드만 달라 위하고 코드로 맞춘 사원
-    wehago_only: list[str]  # 위하고에만 있는 사원 (이번 급여 없음)
+def _employee_mismatch(excel: list[tuple[str, str]], wehago: list[tuple[str, str]]) -> str | None:
+    """이지원천 직원(엑셀)과 위하고 사원이 다르면 사용자에게 보낼 설명, 같으면 None.
 
-    def warnings(self) -> list[str]:
-        out = []
-        if self.recoded:
-            out.append(
-                "⚠️ 사원코드가 달라 위하고 코드로 맞춰 올림: " + ", ".join(self.recoded)
-                + " — 이지원천 사원코드를 위하고와 같게 고쳐 주세요"
-            )
-        if self.wehago_only:
-            out.append("⚠️ 위하고에만 있는 사원 (이번 급여 없음): " + ", ".join(self.wehago_only))
-        return out
-
-
-def _match_employees(excel: list[tuple[str, str]], wehago: list[tuple[str, str]]) -> _EmployeeMatch:
-    """엑셀 사원을 위하고 사원에 잇는다.
-
-    - 코드·이름이 같으면 그대로
-    - 코드만 다르면(이지원천 U001 ↔ 위하고 1) 이름이 양쪽에서 한 명뿐일 때만 위하고 코드로
-    - 위하고에 없음 · 같은 이름 여러 명 · 같은 코드인데 이름이 다름 → 오류 (다른 사람에게 급여가 갈 수 있다)
+    사원코드·이름·인원이 모두 같아야 한다. 이름으로 코드를 짐작해 맞추지 않는다 — 다른 사람에게
+    급여가 들어가거나 누락된 직원을 놓칠 수 있다 (2026-09-27 사용자 결정).
     """
     by_code = dict(wehago)
-    excel_names = Counter(name for _, name in excel)
-    code_map: dict[str, str] = {}
-    errors: list[str] = []
-    recoded: list[str] = []
+    wehago_by_name: dict[str, list[str]] = {}
+    for code, name in wehago:
+        wehago_by_name.setdefault(name, []).append(code)
+    excel_codes = {code for code, _ in excel}
+
+    wrong_code: list[str] = []
+    name_differs: list[str] = []
+    not_in_wehago: list[str] = []
     for code, name in excel:
         if by_code.get(code) == name:
-            code_map[code] = code
-        elif code in by_code:
-            errors.append(f"{name}({code}) — 위하고 {code}번은 {by_code[code]}")
+            continue
+        if code in by_code:
+            name_differs.append(f"{code}번 이지원천 {name} · 위하고 {by_code[code]}")
+        elif name in wehago_by_name:
+            wrong_code.append(f"{name}(이지원천 {code} · 위하고 {', '.join(wehago_by_name[name])})")
         else:
-            same_name = [c for c, n in wehago if n == name]
-            if len(same_name) == 1 and excel_names[name] == 1:
-                code_map[code] = same_name[0]
-                recoded.append(f"{name} {code}→{same_name[0]}")
-            elif not same_name:
-                errors.append(f"{name}({code}) — 위하고 사원등록에 없음")
-            else:
-                errors.append(f"{name}({code}) — 같은 이름이 여러 명이라 정할 수 없음")
-    targets = Counter(code_map.values())
-    errors += [f"위하고 {c}번에 엑셀 사원이 {k}명 연결됨" for c, k in targets.items() if k > 1]
-    wehago_only = [f"{n}({c})" for c, n in wehago if c not in targets]
-    return _EmployeeMatch(code_map, errors, recoded, wehago_only)
+            not_in_wehago.append(f"{name}({code})")
+    matched_names = {name for code, name in excel if by_code.get(code) == name} | {
+        name for code, name in excel if code not in by_code and name in wehago_by_name
+    }
+    only_wehago = [f"{n}({c})" for c, n in wehago if c not in excel_codes and n not in matched_names]
+
+    parts = []
+    if len(excel) != len(wehago):
+        parts.append(f"인원: 이지원천 {len(excel)}명 / 위하고 {len(wehago)}명")
+    if wrong_code:
+        parts.append("사원코드 다름: " + ", ".join(wrong_code))
+    if name_differs:
+        parts.append("같은 사원코드에 이름이 다름: " + ", ".join(name_differs))
+    if not_in_wehago:
+        parts.append("위하고에 없음: " + ", ".join(not_in_wehago))
+    if only_wehago:
+        parts.append("이지원천에 없음(위하고에만 있음): " + ", ".join(only_wehago))
+    if not parts:
+        return None
+    return (
+        "이지원천과 위하고 직원 정보가 달라 입력하지 않았습니다 — " + " · ".join(parts)
+        + ". 이지원천 직원의 위하고 사원코드와 명단을 위하고와 같게 맞춘 뒤 다시 전송하세요."
+    )
 
 
 def _nontaxable_limits(allowances: list[dict[str, Any]]) -> dict[str, int]:
@@ -1069,9 +1063,7 @@ def _grid_total(rows: list[dict[str, Any]], *, nontaxable_only: bool = False) ->
     )
 
 
-def _prepare_upload_xlsx(
-    src: Path, dst: Path, allowances: list[dict[str, Any]], code_map: dict[str, str] | None = None
-) -> list[str]:
+def _prepare_upload_xlsx(src: Path, dst: Path, allowances: list[dict[str, Any]]) -> list[str]:
     """위하고 [엑셀 불러오기]용 사본 — 제목 한 줄 양식 + 비과세 수당 제목을 위하고 수당명으로.
 
     1) 제목 한 줄: 2단 병합 헤더를 풀어 사원코드·사원명 등을 2행으로 내리고 1행(수당/공제 묶음)을
@@ -1101,13 +1093,6 @@ def _prepare_upload_xlsx(
             missing.append(f"{label}({code})")
     if missing:
         return missing
-
-    # 사원코드를 위하고 코드로 (_match_employees 결과)
-    for row in ws.iter_rows(min_row=_EXCEL_HEADER_ROWS + 1, max_col=1):
-        cell = row[0]
-        code = str(cell.value).strip() if cell.value is not None else ""
-        if code_map and code in code_map:
-            cell.value = code_map[code]
 
     for merged in list(ws.merged_cells.ranges):
         if merged.min_row <= _EXCEL_HEADER_ROWS:

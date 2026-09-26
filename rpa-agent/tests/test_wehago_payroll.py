@@ -4,7 +4,7 @@ from easyone_agent.wehago import (
     _excel_employees,
     _excel_totals,
     _grid_total,
-    _match_employees,
+    _employee_mismatch,
     _nontaxable_limits,
     _prepare_upload_xlsx,
     _unmapped_amount_columns,
@@ -135,45 +135,33 @@ def test_excel_totals_caps_nontaxable_at_wehago_limit(tmp_path):
     assert (totals.gross, totals.nontaxable) == (3_450_000, 400_000)
 
 
-# --- 사원 맞추기 (2026-09-27 서도: 이지원천 U001 ↔ 위하고 1) ---
+# --- 사원 대조 — 하나라도 다르면 입력하지 않는다 (2026-09-27 사용자 결정) ---
 
 SEODO_WEHAGO = [("1", "한지민"), ("2", "오세훈"), ("3", "윤미래"), ("4", "서유나")]
 
 
-def test_same_codes_pass_through():
-    m = _match_employees([("1", "한지민"), ("2", "오세훈")], SEODO_WEHAGO)
-    assert m.code_map == {"1": "1", "2": "2"}
-    assert m.errors == [] and m.recoded == []
-    assert m.wehago_only == ["윤미래(3)", "서유나(4)"]
+def test_identical_employees_pass():
+    assert _employee_mismatch(list(SEODO_WEHAGO), SEODO_WEHAGO) is None
 
 
-def test_different_codes_are_recoded_by_unique_name():
-    excel = [("U001", "한지민"), ("U002", "오세훈"), ("U003", "윤미래"), ("U005", "서유나")]
-    m = _match_employees(excel, SEODO_WEHAGO)
-    assert m.errors == []
-    assert m.code_map == {"U001": "1", "U002": "2", "U003": "3", "U005": "4"}
-    assert m.recoded == ["한지민 U001→1", "오세훈 U002→2", "윤미래 U003→3", "서유나 U005→4"]
-    assert any("이지원천 사원코드" in w for w in m.warnings())
+def test_seodo_2026_08_real_case_is_blocked():
+    # 이지원천 급여대장_2026-08 (3명, U 코드) vs 위하고 서도-202608 (4명, 1~4)
+    msg = _employee_mismatch([("U002", "오세훈"), ("U003", "윤미래"), ("U005", "서유나")], SEODO_WEHAGO)
+    assert msg.startswith("이지원천과 위하고 직원 정보가 달라 입력하지 않았습니다")
+    assert "인원: 이지원천 3명 / 위하고 4명" in msg
+    assert "사원코드 다름: 오세훈(이지원천 U002 · 위하고 2), 윤미래(이지원천 U003 · 위하고 3), 서유나(이지원천 U005 · 위하고 4)" in msg
+    assert "이지원천에 없음(위하고에만 있음): 한지민(1)" in msg
 
 
-def test_unknown_duplicate_name_and_code_collision_are_errors():
-    wehago = [("1", "한지민"), ("2", "김철수"), ("3", "김철수")]
-    m = _match_employees([("U009", "박영희"), ("U010", "김철수"), ("1", "오세훈")], wehago)
-    assert m.errors == [
-        "박영희(U009) — 위하고 사원등록에 없음",
-        "김철수(U010) — 같은 이름이 여러 명이라 정할 수 없음",
-        "오세훈(1) — 위하고 1번은 한지민",
-    ]
+def test_same_count_but_code_or_name_differs_is_blocked():
+    msg = _employee_mismatch([("1", "한지민"), ("2", "김철수"), ("3", "윤미래"), ("9", "박영희")], SEODO_WEHAGO)
+    assert "인원" not in msg
+    assert "같은 사원코드에 이름이 다름: 2번 이지원천 김철수 · 위하고 오세훈" in msg
+    assert "위하고에 없음: 박영희(9)" in msg
+    assert "이지원천에 없음(위하고에만 있음): 서유나(4)" in msg  # 오세훈은 위 줄에 이미 나온다
 
 
-def test_upload_copy_uses_wehago_codes(tmp_path):
-    src, dst = tmp_path / "in.xlsx", tmp_path / "out.xlsx"
+def test_excel_employees_reads_code_and_name(tmp_path):
+    src = tmp_path / "in.xlsx"
     _payroll_xlsx(src, childcare=0)
-    from openpyxl import load_workbook
-
-    wb = load_workbook(src)
-    wb.active["A3"] = "U001"
-    wb.save(src)
-    assert _excel_employees(src) == [("U001", "한지민")]
-    assert _prepare_upload_xlsx(src, dst, SEODO_ALLOWANCES, {"U001": "1"}) == []
-    assert load_workbook(dst).active["A2"].value == "1"
+    assert _excel_employees(src) == [("1", "한지민")]
