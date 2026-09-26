@@ -173,6 +173,15 @@ class WehagoUploader:
         self._context = contexts[0] if contexts else self._browser.new_context()
         pages = self._context.pages
         self._page = pages[0] if pages else self._context.new_page()
+        # Playwright 는 붙을 때 크롬 다운로드를 가로채(임시 폴더·무작위 이름·확장자 없음) 사람이
+        # 위하고에서 내려받은 엑셀을 못 쓰게 된다 (2026-09-27). 에이전트는 이 기능을 쓰지 않으므로
+        # 크롬 기본 다운로드(다운로드 폴더·원래 이름)로 되돌린다.
+        try:
+            self._browser.new_browser_cdp_session().send(
+                "Browser.setDownloadBehavior", {"behavior": "default"}
+            )
+        except PlaywrightError:
+            pass
         return self
 
     def __exit__(self, *exc: object) -> None:
