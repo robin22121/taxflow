@@ -502,7 +502,7 @@ class WehagoUploader:
         ]
 
     def _payroll_select_period(self, page, period: str, pay_date: date) -> None:
-        """귀속연월(월만 입력) → 지급일 입력 → 그때마다 뜨는 팝업 처리.
+        """귀속연월(달력에서 월 선택) → 구분 → 지급일 입력 → 그때마다 뜨는 팝업 처리.
 
         귀속연월·지급일을 입력하면 상황에 따라 팝업이 뜬다 (2026-09-24·25 실측):
         - 지급일자가 이미 있는 달: '지급일자' 목록 팝업 (RealGrid) — 기존 지급일 선택 또는 [추가입력]
@@ -514,9 +514,19 @@ class WehagoUploader:
         want_period, want_date = f"{year}.{month}", pay_date.strftime("%Y.%m.%d")
         items = page.locator(_COND_BAR).locator("div.item")
         if _fake_text(items.nth(0)) != want_period:
-            items.nth(0).locator("div.fake_inputbox").click()
-            page.keyboard.type(month)
-            page.keyboard.press("Enter")
+            # 귀속연월은 키보드 입력이 먹히지 않는 경우가 있어(2026.03 으로 들어감, 2026-09-27 실측)
+            # 달력 아이콘 → 월 버튼으로 고른다. 달력의 연도는 SmartA 귀속 연도로 고정.
+            items.nth(0).locator("div.fakebutton").click()
+            months = page.locator("div.date_tbl td.date_day button")
+            months.first.wait_for(state="visible", timeout=5_000)
+            months.filter(has_text=re.compile(rf"^{int(month)}월$")).click()
+            self._payroll_handle_popup(page, pay_date)
+        if _fake_text(items.nth(1)) != _PAY_KIND:
+            # 구분은 한 글자 코드 입력칸 — 새 달은 '1. 급여'로 잡힐 수 있다 (2026-09-27 실측)
+            items.nth(1).locator("span.fakeinput").click()
+            page.keyboard.type(_PAY_KIND[0])
+            page.keyboard.press("Tab")
+            page.wait_for_timeout(500)
             self._payroll_handle_popup(page, pay_date)
         # 팝업에서 [추가입력]을 누르면 지급일 칸이 비어 직접 입력을 기다린다
         for _ in range(2):
