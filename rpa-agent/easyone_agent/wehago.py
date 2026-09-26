@@ -191,10 +191,16 @@ class WehagoUploader:
             raise LoginFailed("로그인 화면이 열리지 않음") from None
 
         # React 입력칸이라 fill()로는 값이 반영되지 않을 수 있어 한 글자씩 친다.
-        id_input.press_sequentially(self._user_id, delay=key_delay_ms("wehago"))
+        # 세션 만료 화면은 이전 아이디가 칸에 남아 있어 먼저 비운다 — 안 비우면 아이디가
+        # 두 번 이어 붙어 로그인이 실패한다 (2026-09-27 실측).
+        pw_input = page.locator("#inputPw")
+        _type_fresh(id_input, self._user_id)
         think("wehago")
-        page.locator("#inputPw").press_sequentially(self._password, delay=key_delay_ms("wehago"))
+        _type_fresh(pw_input, self._password)
         think("wehago")
+        # 틀린 값으로 [로그인]을 누르면 실패 횟수가 쌓여 계정이 잠길 수 있다 — 누르기 전에 확인
+        if id_input.input_value() != self._user_id or pw_input.input_value() != self._password:
+            raise LoginFailed("로그인 칸 입력값이 저장된 아이디·비밀번호와 달라 [로그인]을 누르지 않음")
         page.locator(".login_form button.WSC_LUXButton").click()
         try:
             page.wait_for_url(lambda url: "#/login" not in url, timeout=LOGIN_WAIT_MS)
@@ -829,6 +835,16 @@ def _split_before_slash(value: str) -> str | None:
     if not value:
         return None
     return value.split("/")[0].strip() or None
+
+
+def _type_fresh(locator, text: str) -> None:
+    """입력칸을 비우고 한 글자씩 친다 (React 입력칸 — fill 은 값이 반영되지 않을 수 있음)."""
+    locator.click()
+    locator.press("ControlOrMeta+a")
+    locator.press("Backspace")
+    if locator.input_value():
+        locator.fill("")
+    locator.press_sequentially(text, delay=key_delay_ms("wehago"))
 
 
 def _fake_text(item) -> str:
