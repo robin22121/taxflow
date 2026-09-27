@@ -245,6 +245,9 @@ export type EmployeePatch = Partial<{
   job_type: string | null;
   hired_at: string | null;
   resigned_at: string | null;
+  dependents_count: number;
+  children_count: number;
+  withholding_rate_adjust: number;
 }>;
 
 /** 직원 정보 수정 — 사원코드를 빈 값으로 보내면 서버가 거래처의 다음 번호를 붙인다. */

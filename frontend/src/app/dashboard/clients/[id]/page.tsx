@@ -390,9 +390,12 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
     job_type: employee.job_type ?? "",
     hired_at: employee.hired_at ?? "",
     resigned_at: employee.resigned_at ?? "",
+    dependents_count: String(employee.dependents_count),
+    children_count: String(employee.children_count),
+    withholding_rate_adjust: String(employee.withholding_rate_adjust),
   });
   const [error, setError] = useState<string | null>(null);
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
   const code = form.employee_code.trim();
   const nonNumeric = code !== "" && !/^\d+$/.test(code);
@@ -410,6 +413,9 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
           job_type: form.job_type.trim() || null,
           hired_at: form.hired_at || null,
           resigned_at: form.resigned_at || null,
+          dependents_count: Math.max(1, Number(form.dependents_count) || 1),
+          children_count: Math.max(0, Number(form.children_count) || 0),
+          withholding_rate_adjust: Number(form.withholding_rate_adjust) || 100,
         },
       });
       onClose();
@@ -436,6 +442,26 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
         <label className="space-y-1">입사일<input type="date" className={field} value={form.hired_at} onChange={set("hired_at")} /></label>
         <label className="space-y-1">퇴사일<input type="date" className={field} value={form.resigned_at} onChange={set("resigned_at")} /></label>
       </div>
+      <details className="mt-3 rounded-lg border border-gray-200 px-3 py-2">
+        <summary className="cursor-pointer text-[12px] font-medium text-gray-700">
+          소득세 계산 설정 (대부분 기본값 그대로 두면 됩니다)
+        </summary>
+        <div className="mt-2 grid grid-cols-3 gap-3 text-[12px] text-gray-600">
+          <label className="space-y-1">부양가족수 (본인 포함)
+            <input type="number" min={1} className={field} value={form.dependents_count} onChange={set("dependents_count")} />
+          </label>
+          <label className="space-y-1">8~20세 자녀수
+            <input type="number" min={0} className={field} value={form.children_count} onChange={set("children_count")} />
+          </label>
+          <label className="space-y-1">원천징수 조정율
+            <select className={field} value={form.withholding_rate_adjust} onChange={set("withholding_rate_adjust")}>
+              <option value="80">80%</option>
+              <option value="100">100% (기본)</option>
+              <option value="120">120%</option>
+            </select>
+          </label>
+        </div>
+      </details>
       {nonNumeric && (
         <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
           사원코드에 숫자가 아닌 글자가 있습니다. 위하고 사원코드는 보통 숫자(1, 2, 3…)라서, 다르면 위하고 전송이 멈춥니다.

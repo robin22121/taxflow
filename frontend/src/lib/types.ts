@@ -245,6 +245,9 @@ export type Employee = {
   rrn_last4: string | null;
   status: string;
   business_type_code: string | null;
+  dependents_count: number;
+  children_count: number;
+  withholding_rate_adjust: number;
 };
 
 export type ImportEmployeeResult = {
