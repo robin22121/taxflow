@@ -782,8 +782,13 @@ def _computed_fields(
         non_taxable = 0
 
     taxable = cand.total_amount - non_taxable
+    # 부양가족·자녀·조정율은 사원등록(Employee) 값을 쓴다 — 미매칭이면 안전한 기본값(1/0/100).
+    dependents = matched_emp.dependents_count if matched_emp else 1
+    children = matched_emp.children_count if matched_emp else 0
+    rate_adjust = matched_emp.withholding_rate_adjust if matched_emp else 100
     tax = calculate_withholding_tax(
-        cand.income_type, taxable, dependents=1, business_type_code=biz_code,
+        cand.income_type, taxable, dependents=dependents, children=children,
+        rate_adjust=rate_adjust, business_type_code=biz_code,
     )
     # 4대보험 (plan.md 3.8):
     # 1순위 — 회사가 이미 적용한 실제 공제액 (급여대장·명세서에서 읽은 값)
@@ -808,6 +813,9 @@ def _computed_fields(
         "car_amount": car,
         "childcare_amount": childcare,
         "taxable": taxable,
+        "dependents": dependents,
+        "children": children,
+        "rate_adjust": rate_adjust,
         "national_pension": si.national_pension,
         "health_insurance": si.health_insurance,
         "employment_insurance": si.employment_insurance,

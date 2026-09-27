@@ -1,7 +1,7 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Date, Enum, ForeignKey, Index, LargeBinary, String
+from sqlalchemy import Date, Enum, ForeignKey, Index, Integer, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models._base import Base, IdMixin, TimestampMixin
@@ -36,6 +36,10 @@ class Employee(Base, IdMixin, TimestampMixin):
     business_type_code: Mapped[str | None] = mapped_column(String(10))  # 사업소득 업종코드 (940100~940929)
     hired_at: Mapped[date | None] = mapped_column(Date)
     resigned_at: Mapped[date | None] = mapped_column(Date)
+    # 간이세액표 계산용 (위하고 T 사원등록 공제탭과 대응, plan/16 §13-1)
+    dependents_count: Mapped[int] = mapped_column(Integer, default=1)      # 공제대상가족수 (본인 포함)
+    children_count: Mapped[int] = mapped_column(Integer, default=0)       # 8세 이상 20세 이하 자녀 수
+    withholding_rate_adjust: Mapped[int] = mapped_column(Integer, default=100)  # 조정율 80/100/120(%)
     status: Mapped[EmploymentStatus] = mapped_column(
         Enum(EmploymentStatus, native_enum=False, length=20),
         default=EmploymentStatus.ACTIVE,

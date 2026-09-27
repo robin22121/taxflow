@@ -729,6 +729,9 @@ async def create_employee(
         position=payload.position,
         job_type=payload.job_type,
         hired_at=payload.hired_at,
+        dependents_count=payload.dependents_count,
+        children_count=payload.children_count,
+        withholding_rate_adjust=payload.withholding_rate_adjust,
         status=EmploymentStatus.ACTIVE if payload.rrn else EmploymentStatus.PENDING,
     )
     db.add(emp)

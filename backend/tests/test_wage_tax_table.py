@@ -87,6 +87,18 @@ def test_above_table_max_uses_formula():
     assert lookup_wage_tax(15_000_000, 1) == expected14
 
 
+def test_rate_adjust_scales_final_tax():
+    """별표2 비고 6호 — 조정신청 시 80%/120%를 최종 세액(자녀공제 반영 후)에 곱한다."""
+    base = lookup_wage_tax(2_100_000, 1)
+    assert base == 22_740
+    assert lookup_wage_tax(2_100_000, 1, rate_adjust=100) == base
+    assert lookup_wage_tax(2_100_000, 1, rate_adjust=80) == int(base * 0.8)
+    assert lookup_wage_tax(2_100_000, 1, rate_adjust=120) == int(base * 1.2)
+
+    wt = calculate_withholding_tax(IncomeType.WAGE, 2_100_000, dependents=1, rate_adjust=80)
+    assert wt.income_tax == int(base * 0.8)
+
+
 def test_table_is_continuous_and_covers_full_range():
     """CSV 파싱 무결성 — 구간이 770천원부터 빈틈없이 이어져야 한다."""
     from app.services.wage_tax_table import _table

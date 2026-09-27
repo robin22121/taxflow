@@ -85,12 +85,18 @@ def _over_table_addition(monthly_wage: int) -> float:
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-def lookup_wage_tax(monthly_wage: int, dependents: int = 1, children: int = 0) -> int:
+def lookup_wage_tax(
+    monthly_wage: int, dependents: int = 1, children: int = 0, rate_adjust: int = 100,
+) -> int:
     """월급여액(비과세·학자금 제외, 원)에 대한 간이세액표상 소득세.
 
     ``children`` 은 공제대상가족 중 8세 이상 20세 이하 자녀 수로, 기본값은 0이다.
     거래처가 자녀 자료를 제출하지 않으면 자녀가 없는 것으로 보고 세액을 계산한다
     (자녀 공제는 세액을 줄이므로, 0으로 두면 과소징수가 아닌 쪽으로 안전하다).
+
+    ``rate_adjust`` 는 별표2 비고 6호의 원천징수세액 조정신청 비율(80/100/120, %)이다.
+    원천징수의무자가 국세청에 조정신청을 하면 이 표로 구한 세액에 이 비율을 곱해
+    징수한다 — 위하고 T 사원등록의 "간이세액표조정율" 필드와 대응 (`Employee.withholding_rate_adjust`).
     """
     if monthly_wage <= 0:
         return 0
@@ -108,4 +114,7 @@ def lookup_wage_tax(monthly_wage: int, dependents: int = 1, children: int = 0) -
             return 0
         tax = _tax_for_dependents(row, dependents)
 
-    return max(0, tax - _child_credit(children))
+    tax = max(0, tax - _child_credit(children))
+    if rate_adjust != 100:
+        tax = int(tax * rate_adjust / 100)
+    return tax

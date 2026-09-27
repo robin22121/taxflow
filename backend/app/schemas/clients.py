@@ -69,6 +69,9 @@ class EmployeeCreate(BaseModel):
     job_type: str | None = None    # 직종 (급여대장 E열)
     hired_at: date | None = None
     business_type_code: str | None = None  # 사업소득 업종코드 (940xxx)
+    dependents_count: int = 1   # 공제대상가족수 (간이세액표용, 본인 포함)
+    children_count: int = 0     # 8~20세 자녀수 (간이세액표 자녀공제용)
+    withholding_rate_adjust: int = 100  # 조정율 80/100/120(%)
 
 
 class EmployeeUpdate(BaseModel):
@@ -81,6 +84,9 @@ class EmployeeUpdate(BaseModel):
     job_type: str | None = None
     hired_at: date | None = None
     resigned_at: date | None = None
+    dependents_count: int | None = None
+    children_count: int | None = None
+    withholding_rate_adjust: int | None = None
 
 
 class EmployeeOut(BaseModel):
@@ -95,6 +101,9 @@ class EmployeeOut(BaseModel):
     rrn_last4: str | None
     status: str
     business_type_code: str | None
+    dependents_count: int
+    children_count: int
+    withholding_rate_adjust: int
 
     model_config = {"from_attributes": True}
 

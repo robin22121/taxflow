@@ -724,7 +724,10 @@ async def update_entry(
         if not manual_tax:
             from app.services.tax_calc import calculate_withholding_tax
             tax = calculate_withholding_tax(
-                entry.income_type, entry.taxable, dependents=entry.dependents or 1
+                entry.income_type, entry.taxable,
+                dependents=entry.dependents or 1,
+                children=entry.children or 0,
+                rate_adjust=entry.rate_adjust or 100,
             )
             entry.income_tax = tax.income_tax
             entry.local_tax = tax.local_tax

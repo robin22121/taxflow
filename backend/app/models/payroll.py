@@ -76,6 +76,8 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
     rent_support: Mapped[int] = mapped_column(Integer, default=0)          # 월세지원금
     payment_date: Mapped[date | None] = mapped_column(Date)
     dependents: Mapped[int] = mapped_column(Integer, default=1)  # 부양가족수 (간이세액표용)
+    children: Mapped[int] = mapped_column(Integer, default=0)    # 8~20세 자녀수 (간이세액표 자녀공제용)
+    rate_adjust: Mapped[int] = mapped_column(Integer, default=100)  # 조정율 80/100/120(%)
 
     match_status: Mapped[MatchStatus] = mapped_column(
         Enum(MatchStatus, native_enum=False, length=30),
