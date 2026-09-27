@@ -399,6 +399,7 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
     setForm((f) => ({ ...f, [key]: e.target.value }));
   const code = form.employee_code.trim();
   const nonNumeric = code !== "" && !/^\d+$/.test(code);
+  const rehired = Boolean(employee.resigned_at) && !form.resigned_at;
 
   async function save() {
     setError(null);
@@ -465,6 +466,13 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
       {nonNumeric && (
         <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
           사원코드에 숫자가 아닌 글자가 있습니다. 위하고 사원코드는 보통 숫자(1, 2, 3…)라서, 다르면 위하고 전송이 멈춥니다.
+        </p>
+      )}
+      {rehired && (
+        <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+          퇴사일을 지워 재직으로 되돌렸습니다. 위하고 T는 재입사자에게 옛 사원코드가 아닌 <strong>새 사원코드</strong>를
+          주는 것이 원칙입니다 — 위하고 사원등록에서도 이 직원을 새 코드로 등록한 뒤, 여기 사원코드도 그 번호로 바꿔주세요.
+          코드가 다르면 위하고 전송이 안전하게 멈추고 알려드립니다.
         </p>
       )}
       <p className="mt-3 text-[11.5px] text-gray-500">주민번호는 여기서 바꾸지 않습니다.</p>
