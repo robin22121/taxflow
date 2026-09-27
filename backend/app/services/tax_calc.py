@@ -156,8 +156,11 @@ def income_type_to_wehago_code(t: IncomeType) -> str:
 # Verify against the latest official notice before billing real customers.
 
 _NPS_RATE = 0.045              # 국민연금 사용자 부담
-_NPS_MIN_BASE = 370_000        # 기준소득월액 하한
-_NPS_MAX_BASE = 5_900_000      # 기준소득월액 상한
+# 기준소득월액 상·하한 — 2026.7.1 개정 시행분(위하고 T 실측, 2026-09-28).
+# 하한 400,000→410,000, 상한 6,370,000→6,590,000. 이 상수가 유일한 출처이며
+# insurance_excel.py 등 다른 모듈은 여기서 가져다 쓴다(plan/06-insurance.md §6-3).
+_NPS_MIN_BASE = 410_000        # 기준소득월액 하한
+_NPS_MAX_BASE = 6_590_000      # 기준소득월액 상한
 _HI_RATE = 0.03545             # 건강보험 사용자 부담
 _LTC_RATE_OF_HI = 0.1295       # 장기요양 = 건보료 × 12.95%
 _EI_RATE = 0.009               # 고용보험 실업급여

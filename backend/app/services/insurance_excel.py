@@ -27,18 +27,20 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.models.payroll import MatchStatus, PayrollEntry
 from app.services.crypto import decrypt_rrn
-from app.services.tax_calc import SocialInsurance, calculate_social_insurance
+from app.services.tax_calc import (
+    SocialInsurance,
+    _NPS_MAX_BASE,
+    _NPS_MIN_BASE,
+    calculate_social_insurance,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# 정책 상수 — 국민연금 기준소득월액 (2025.7 ~ 2026.6 적용)
+# 정책 상수 — 국민연금 기준소득월액 상·하한은 tax_calc.NPS_MIN_BASE/MAX_BASE 로 통일
+# (plan/06-insurance.md §6-3, 2026-09-28). 여기서 따로 정의하지 않는다.
 # ---------------------------------------------------------------------------
-# 출처: 국민연금공단 고시. 보수월액 변경 신고 시 NPS 기준소득월액 유효 범위.
-# 주: tax_calc 의 _NPS_MIN/MAX_BASE 는 보험료 산식 캡(별도 정책 캡과 동일치 관리 책임).
-_NPS_BASE_MIN = 400_000
-_NPS_BASE_MAX = 6_370_000
 _NPS_CHANGE_THRESHOLD = 0.20  # 변동률 20% 이상에서 NPS 변경신청 가능
 
 # Employee 모델 미보유 코드 — 본 단계 DB 마이그레이션 비범위.
@@ -118,7 +120,7 @@ def _change_judgment(entry: PayrollEntry) -> ChangeJudgment:
     cur = entry.total_amount
     pct = ((cur - prev) / prev) if prev > 0 else 0.0
     nps_eligible = prev > 0 and abs(pct) >= _NPS_CHANGE_THRESHOLD
-    within = _NPS_BASE_MIN <= cur <= _NPS_BASE_MAX
+    within = _NPS_MIN_BASE <= cur <= _NPS_MAX_BASE
     reason = "1" if cur > prev else "2"
     return ChangeJudgment(
         nps_eligible=nps_eligible,
