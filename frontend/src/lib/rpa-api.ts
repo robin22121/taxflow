@@ -91,11 +91,20 @@ export function createWehagoUploads(filingId: string, clientIds: string[]): Prom
   });
 }
 
+/** 소득유형별 상태 표시 — 선택용이 아니라 읽기 전용 표시다 (plan/16 §4-1). */
+export type IncomeTypeStatus = {
+  income_type: "WAGE" | "BUSINESS" | "OTHER" | "DAILY";
+  count: number;
+  unapproved_count: number;
+  automated: boolean;
+};
+
 /** 위하고 전송 모달용 — 거래처별 적용 지급일과 서버 쪽 차단 사유 (사업자번호·사원코드·지급일·진행 중). */
 export type WehagoUploadPreview = {
   client_id: string;
   pay_date: string | null;
   blocked_reason: string | null;
+  income_types: IncomeTypeStatus[];
 };
 
 export function previewWehagoUploads(filingId: string): Promise<WehagoUploadPreview[]> {

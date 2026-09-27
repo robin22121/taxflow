@@ -10,7 +10,51 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Badge, Button, Modal } from "@/components/ui";
 import { ApiError } from "@/lib/api";
-import { createWehagoUploads, previewWehagoUploads } from "@/lib/rpa-api";
+import { createWehagoUploads, previewWehagoUploads, type IncomeTypeStatus } from "@/lib/rpa-api";
+
+const INCOME_TYPE_LABEL: Record<IncomeTypeStatus["income_type"], string> = {
+  WAGE: "근로",
+  BUSINESS: "사업",
+  OTHER: "기타",
+  DAILY: "일용",
+};
+
+/** 소득유형 4칸 — 선택 체크박스가 아니라 상태 표시다. 전송은 거래처 단위로 원자적이다 (plan/16 §4-1). */
+function IncomeTypeChips({ types }: { types: IncomeTypeStatus[] }) {
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {types.map((t) => {
+        const label = INCOME_TYPE_LABEL[t.income_type];
+        if (t.count === 0) {
+          return (
+            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[10.5px] bg-gray-100 text-gray-400">
+              {label} 자료없음
+            </span>
+          );
+        }
+        if (!t.automated) {
+          return (
+            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[10.5px] bg-amber-50 text-amber-700 border border-amber-200">
+              {label} {t.count}건 · 자동화 미지원
+            </span>
+          );
+        }
+        if (t.unapproved_count > 0) {
+          return (
+            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[10.5px] bg-red-50 text-red-700 border border-red-200">
+              {label} {t.unapproved_count}/{t.count} 미승인
+            </span>
+          );
+        }
+        return (
+          <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[10.5px] bg-green-50 text-green-700 border border-green-200">
+            {label} {t.count}건 완료
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 export type SendTarget = { clientId: string; clientName: string; blockedReason: string | null };
 
@@ -34,7 +78,12 @@ export function WehagoSendModal({
   const byClient = new Map((preview ?? []).map((p) => [p.client_id, p]));
   const rows = targets.map((t) => {
     const p = byClient.get(t.clientId);
-    return { ...t, payDate: p?.pay_date ?? null, reason: t.blockedReason ?? p?.blocked_reason ?? null };
+    return {
+      ...t,
+      payDate: p?.pay_date ?? null,
+      reason: t.blockedReason ?? p?.blocked_reason ?? null,
+      incomeTypes: p?.income_types ?? [],
+    };
   });
   const sendable = rows.filter((r) => !r.reason).map((r) => r.clientId);
 
@@ -101,12 +150,17 @@ export function WehagoSendModal({
           const blocked = Boolean(r.reason);
           return (
             <label key={r.clientId}
-              className={`flex items-center gap-2.5 py-2 px-1 ${blocked ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50"}`}>
-              <input type="checkbox" checked={!blocked && selected.includes(r.clientId)} disabled={blocked}
-                onChange={() => toggle(r.clientId)} className="h-3.5 w-3.5 accent-blue-600" />
-              <span className="flex-1 text-[13px] text-gray-900">{r.clientName}</span>
-              {r.payDate && <span className="text-[11px] text-gray-500 tabular-nums">지급일 {r.payDate}</span>}
-              {r.reason && <Badge tone="danger">{r.reason}</Badge>}
+              className={`flex flex-col gap-1.5 py-2 px-1 ${blocked ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50"}`}>
+              <div className="flex items-center gap-2.5">
+                <input type="checkbox" checked={!blocked && selected.includes(r.clientId)} disabled={blocked}
+                  onChange={() => toggle(r.clientId)} className="h-3.5 w-3.5 accent-blue-600" />
+                <span className="flex-1 text-[13px] text-gray-900">{r.clientName}</span>
+                {r.payDate && <span className="text-[11px] text-gray-500 tabular-nums">지급일 {r.payDate}</span>}
+                {r.reason && <Badge tone="danger">{r.reason}</Badge>}
+              </div>
+              {r.incomeTypes.length > 0 && (
+                <div className="pl-6"><IncomeTypeChips types={r.incomeTypes} /></div>
+              )}
             </label>
           );
         })}
@@ -115,6 +169,12 @@ export function WehagoSendModal({
       {rows.some((r) => r.reason === "급여지급일 미설정") && (
         <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
           급여지급일은 거래처 상세 → 기본 세팅에서 설정합니다 (위하고 급여자료입력은 지급일로 조회).
+        </p>
+      )}
+      {rows.some((r) => r.reason?.includes("자동화 미지원")) && (
+        <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+          원천징수이행상황신고서는 근로·사업·기타·일용소득을 합산한 신고서 한 장이라, 자동화가 없는
+          소득이 섞인 거래처는 전체를 전송할 수 없습니다. 해당 소득은 위하고에 직접 입력한 뒤 진행하세요.
         </p>
       )}
     </Modal>
