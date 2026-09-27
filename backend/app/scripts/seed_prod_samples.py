@@ -311,7 +311,7 @@ async def main() -> None:
                     emp = emp_lookup[cm["biz_number"]].get(r["code"])
                     non_taxable = r["meal"] + r["car"] + r["childcare"]
                     taxable = r["total_pay"] - non_taxable
-                    a_code = "A01" if client.is_corporation else "A02"
+                    a_code = "A01"  # 간이세액(정상 근로) — 법인 여부와 무관, A02는 중도퇴사자 전용
                     db.add(PayrollEntry(
                         monthly_filing_id=filing.id,
                         collection_session_id=session.id,

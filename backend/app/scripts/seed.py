@@ -292,7 +292,7 @@ async def main() -> None:
                         income_type, taxable, dependents=1,
                         business_type_code=biz_code,
                     )
-                    a_code = income_type_to_a_code(income_type, is_corporation=client.is_corporation)
+                    a_code = income_type_to_a_code(income_type)
 
                     # prev_amount for current period
                     prev_amount = base if is_current else None

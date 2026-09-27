@@ -389,7 +389,7 @@ async def import_payroll(
         tax = calculate_withholding_tax(
             income_type, taxable, dependents=1, business_type_code=biz_code,
         )
-        a_code = income_type_to_a_code(income_type, is_corporation=client.is_corporation)
+        a_code = income_type_to_a_code(income_type)
         salary_amt = total_amount if income_type == IncomeType.WAGE else None
         bonus_amt = 0 if income_type == IncomeType.WAGE else None
 

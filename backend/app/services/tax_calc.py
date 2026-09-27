@@ -121,11 +121,15 @@ def calculate_withholding_tax(
 # A코드 매핑 (원천징수이행상황신고서용)
 # ---------------------------------------------------------------------------
 
-def income_type_to_a_code(t: IncomeType, is_corporation: bool = False) -> str:
-    """IncomeType → 국세청 원천징수이행상황신고서 A코드."""
-    if t == IncomeType.WAGE:
-        return "A01" if is_corporation else "A02"
+def income_type_to_a_code(t: IncomeType) -> str:
+    """IncomeType → 국세청 원천징수이행상황신고서 A코드 (별지 제21호서식, 2026.5.22 개정).
+
+    근로소득 A01(간이세액)/A02(중도퇴사)는 법인·개인사업자 여부와 무관하고
+    **중도퇴사자 정산 여부**로 갈린다 — 중도퇴사자 정산은 plan/16 §4-8에서
+    이미 자동화 범위 밖(수동 처리)이므로, 우리 엔트리는 항상 정상 근로(A01)로 본다.
+    """
     return {
+        IncomeType.WAGE: "A01",
         IncomeType.DAILY: "A03",
         IncomeType.BUSINESS: "A25",
         IncomeType.OTHER: "A42",

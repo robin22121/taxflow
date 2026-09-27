@@ -752,7 +752,7 @@ def _computed_fields(
         if matched_emp and cand.income_type == IncomeType.BUSINESS
         else None
     )
-    a_code = income_type_to_a_code(cand.income_type, is_corporation=client.is_corporation)
+    a_code = income_type_to_a_code(cand.income_type)
 
     # 비과세 지급항목 (plan.md 3.8):
     # 비과세는 상용근로(WAGE)에만 존재. 일용·사업·기타·퇴직소득은 비과세 0.
