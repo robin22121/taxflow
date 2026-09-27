@@ -36,6 +36,7 @@ from app.models import (
     RpaNotificationKind,
     User,
 )
+from app.models.payroll import IncomeType
 from app.models.rpa import WEHAGO_IMPORT_KINDS, WEHAGO_JOB_KINDS
 from app.schemas.rpa import (
     AgentFilingResultIn,
@@ -50,6 +51,7 @@ from app.schemas.rpa import (
     RpaJobOut,
     RpaJobResultIn,
     RpaNotificationOut,
+    IncomeTypeStatus,
     WehagoUploadCreate,
     WehagoUploadPreviewRow,
 )
@@ -57,6 +59,17 @@ from app.services.payroll_defaults import resolve_pay_date
 from app.services.payroll_excel import PayrollExcelError, generate_payroll_excel
 
 router = APIRouter()
+
+# 위하고 급여자료입력(SmartA SWSA0101) 자동화가 있는 소득유형 — plan/16 §4-1 (2026-09-28).
+# 사업소득(§13-3 경로 B 구현 중)·기타·일용소득은 아직 자동화가 없다. 하나가 생기면 여기 추가한다.
+AUTOMATED_INCOME_TYPES = {IncomeType.WAGE}
+_INCOME_TYPE_LABEL = {
+    IncomeType.WAGE: "근로소득",
+    IncomeType.BUSINESS: "사업소득",
+    IncomeType.OTHER: "기타소득",
+    IncomeType.DAILY: "일용소득",
+    IncomeType.RETIREMENT: "퇴직소득",
+}
 
 AGENT_TOKEN_PREFIX = "rpa_"
 # 에이전트가 이 시간 안에 결과를 회신하지 않으면 멈춘 것으로 본다.
@@ -243,16 +256,52 @@ async def preview_wehago_uploads(
             )
         ).scalars().all()
     )
+
+    # 소득유형별 상태 (근로/사업/기타/일용) — 선택용이 아니라 표시용이다 (plan/16 §4-1).
+    # 퇴직소득은 화면의 원천세 미리보기와 동일하게 기타소득에 합쳐서 보여준다.
+    DISPLAY_TYPES = ["WAGE", "BUSINESS", "OTHER", "DAILY"]
+    income_rows = (
+        await db.execute(
+            select(PayrollEntry.client_id, PayrollEntry.income_type, PayrollEntry.approved).where(
+                PayrollEntry.monthly_filing_id == filing.id
+            )
+        )
+    ).all()
+    breakdown: dict[str, dict[str, list[bool]]] = {}
+    for cid, income_type, approved in income_rows:
+        dtype = "OTHER" if income_type == IncomeType.RETIREMENT else income_type.value
+        breakdown.setdefault(cid, {}).setdefault(dtype, []).append(approved)
+
     rows = []
     for c in clients:
         pay_date, reason = await _pay_date(db, filing.id, c.id, filing.period)
+        client_breakdown = breakdown.get(c.id, {})
+        income_types = [
+            IncomeTypeStatus(
+                income_type=t,
+                count=len(client_breakdown.get(t, [])),
+                unapproved_count=sum(1 for a in client_breakdown.get(t, []) if not a),
+                automated=IncomeType[t] in AUTOMATED_INCOME_TYPES,
+            )
+            for t in DISPLAY_TYPES
+        ]
         if not (c.business_number or "").strip():
             reason = "사업자번호 없음"
         elif c.id in no_code:
             reason = "위하고 사원코드 없는 사원 있음"
         elif c.id in active:
             reason = "이미 전송 대기·진행 중"
-        rows.append(WehagoUploadPreviewRow(client_id=c.id, pay_date=pay_date, blocked_reason=reason))
+        elif any(not s.automated and s.count > 0 for s in income_types):
+            labels = "·".join(
+                _INCOME_TYPE_LABEL[IncomeType[s.income_type]]
+                for s in income_types if not s.automated and s.count > 0
+            )
+            reason = f"{labels} 자동화 미지원"
+        rows.append(
+            WehagoUploadPreviewRow(
+                client_id=c.id, pay_date=pay_date, blocked_reason=reason, income_types=income_types,
+            )
+        )
     return rows
 
 
@@ -294,23 +343,40 @@ async def create_wehago_uploads(
 
     rows = (
         await db.execute(
-            select(PayrollEntry.client_id, PayrollEntry.approved).where(
+            select(PayrollEntry.client_id, PayrollEntry.approved, PayrollEntry.income_type).where(
                 PayrollEntry.monthly_filing_id == filing.id,
                 PayrollEntry.client_id.in_(client_ids),
             )
         )
     ).all()
-    unapproved = {cid for cid, approved in rows if not approved}
+    unapproved = {cid for cid, approved, _ in rows if not approved}
     if unapproved:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             f"미승인 자료가 있는 거래처는 전송할 수 없습니다: {names(unapproved)}. "
             "먼저 검증·승인을 완료하세요.",
         )
-    empty = set(client_ids) - {cid for cid, _ in rows}
+    empty = set(client_ids) - {cid for cid, _, _ in rows}
     if empty:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"자료가 없는 거래처는 전송할 수 없습니다: {names(empty)}."
+        )
+
+    # 소득유형별 원자적 전송 (plan/16 §4-1, 2026-09-28) — 신고서 한 장에 전 소득유형이 합산되므로
+    # 자동화가 없는 소득유형(사업·기타·일용)에 데이터가 있으면 그 거래처 전체를 전송하지 않는다.
+    unautomated_types: dict[str, set[IncomeType]] = {}
+    for cid, _approved, income_type in rows:
+        if income_type not in AUTOMATED_INCOME_TYPES:
+            unautomated_types.setdefault(cid, set()).add(income_type)
+    if unautomated_types:
+        detail = ", ".join(
+            f"{by_id[cid].business_name}({'·'.join(_INCOME_TYPE_LABEL[t] for t in sorted(types, key=str))})"
+            for cid, types in unautomated_types.items()
+        )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"자동화가 아직 없는 소득유형이 있어 전송할 수 없습니다: {detail}. "
+            "해당 소득은 당분간 수동으로 처리하고, 근로소득만 있는 거래처부터 전송하세요.",
         )
 
     # 위하고는 사원코드로 사원을 연결한다 — 코드가 없으면 다른 사원에게 급여가 들어갈 수 있다.
@@ -637,6 +703,9 @@ async def agent_download_payroll_excel(
                 .where(
                     PayrollEntry.monthly_filing_id == job.monthly_filing_id,
                     PayrollEntry.client_id == job.client_id,
+                    # 급여자료입력(SmartA SWSA0101)은 근로소득 전용 — 사업·기타·일용은 다른 화면(§13-3)이라
+                    # 여기 섞이면 안 된다. create_wehago_uploads가 미리 막지만, 방어적으로 한 번 더 거른다.
+                    PayrollEntry.income_type == IncomeType.WAGE,
                 )
                 .options(selectinload(PayrollEntry.employee))
             )

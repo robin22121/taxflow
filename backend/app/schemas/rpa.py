@@ -30,12 +30,26 @@ class WehagoUploadCreate(BaseModel):
     client_ids: list[str] = Field(min_length=1)
 
 
+class IncomeTypeStatus(BaseModel):
+    """전송 모달의 소득유형별 상태 표시 — 선택용이 아니라 읽기 전용 표시다 (plan/16 §4-1).
+
+    ``automated`` 가 false 인데 ``count`` > 0 이면 그 거래처 전체가 전송 차단된다
+    (원천징수이행상황신고서가 소득유형을 합산한 한 장이라, 일부만 위하고에 넣을 수 없다).
+    """
+
+    income_type: str  # WAGE / BUSINESS / OTHER / DAILY
+    count: int
+    unapproved_count: int
+    automated: bool
+
+
 class WehagoUploadPreviewRow(BaseModel):
     """위하고 전송 모달용 — 거래처별 적용 지급일과 서버 쪽 차단 사유 (승인·자료 여부는 화면이 이미 안다)."""
 
     client_id: str
     pay_date: date | None
     blocked_reason: str | None
+    income_types: list[IncomeTypeStatus] = []
 
 
 # --- 게이트 2 : 위하고 마감·제작 + 홈택스·위택스 일괄 작업 등록 -----------
