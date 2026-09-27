@@ -4,13 +4,15 @@
 원격 디버깅 포트를 열어 실행하고, 에이전트는 `connect_over_cdp`로만 붙는다
 (에이전트가 브라우저 프로세스를 관리하지 않는다).
 
-로그인·수임처 목록·수임처정보 화면은 2026-09-23 실측(§9-2 후속)으로 셀렉터를 확정했다.
-급여자료입력 · SmartA 사원자료 엑셀변환 화면은 추가 실측 필요 (NotImplementedError).
+로그인·수임처 목록·수임처정보·급여자료입력·사원자료 엑셀변환(§12) 화면은
+2026-09-23~25 실측으로 셀렉터를 확정했다. 사원자료 엑셀변환은 구현은 됐으나
+실제 노트북에서 끝까지 실행해 검증하는 절차가 아직 남아 있다 (export_employees 참고).
 """
 
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -32,6 +34,12 @@ UPLOAD_WAIT_MS = 30_000
 _PAY_KIND = "2. 급여+상여"  # 급여자료입력 구분 — 새로 연 화면은 비어 있다가 귀속연월 입력 후 채워진다
 _PAYROLL_MENU_ID = "SWSA0101"  # 급여자료입력 화면 코드 = SmartA 메뉴 링크 id
 _PAYROLL_SCREEN = f"/smarta/humanresource/{_PAYROLL_MENU_ID}"
+
+# SmartA 사원등록 → 사원자료 엑셀변환 (§12, 2026-09-23 실측)
+_EMPLOYEE_REGISTER_MENU_ID = "SWPM0108"  # 사원등록 화면 코드 = SmartA 메뉴 링크 id
+_MORE_MENU_POPOVER = "div.LUX_basic_popover.popover_funtion"  # 화면 우측 상단 더보기(⋮) 아이콘 (43×32)
+_MORE_MENU_POPUP = "div.resultbx"  # 더보기 팝오버 컨테이너
+_EMPLOYEE_EXPORT_ITEM = "dl:has(dt:text-is('엑셀')) dd:text-is('사원자료 엑셀변환')"
 _COND_BAR = "div.basic_condition"  # div.item 순서: 귀속연월·구분·지급일·지급일 코드도움·정렬
 # 합계 열은 위하고가 다시 계산하므로 연결하지 않아도 된다
 _TOTAL_COLUMNS = {"지급액계", "공제액계", "차인지급액"}
@@ -273,15 +281,15 @@ class WehagoUploader:
             close_buttons.last.click(force=True)
             page.wait_for_timeout(400)
 
-    def open_payroll_screen(self, business_number: str, period: str) -> tuple[str, str]:
-        """위하고 T 메인 담당 수임처 → [급여] → SmartA 메인 → 급여자료입력 (2026-09-25 실측).
+    def _open_smarta_menu(self, business_number: str, menu_id: str):
+        """위하고 T 메인 담당 수임처 → [급여] → SmartA 메인 → 지정 메뉴 (2026-09-25 실측).
 
         수임처는 사업자번호(하이픈 없는 10자리)로 검색해 정확히 1건일 때만 연다.
-        [급여]는 SmartA 를 새 탭으로 열고, 메뉴의 급여자료입력은 그 탭 안에서 바뀐다.
+        [급여]는 SmartA 를 새 탭으로 열고, 메뉴는 그 탭 안에서 바뀐다.
         오래된 SmartA 탭은 세션이 끊겨 있을 수 있어(`#/login/?type=expired`) 닫고 새로 연다.
 
         Returns:
-            (위하고 상호, 사업자번호) — 호출자가 작업의 거래처와 대조한다.
+            (SmartA 탭, 위하고 상호, 사업자번호) — 호출자가 작업의 거래처와 대조한다.
         """
         self.step = "담당 수임처 검색"
         page = self._page
@@ -321,12 +329,21 @@ class WehagoUploader:
         with self._context.expect_page(timeout=UPLOAD_WAIT_MS) as new_tab:
             row.locator("button.btn_quick", has_text=re.compile(r"^급여$")).click()
         smarta = new_tab.value
-        self.step = "급여자료입력 화면 열기"
         smarta.wait_for_load_state()
-        menu = smarta.locator(f"a#{_PAYROLL_MENU_ID}.text_link")
+        menu = smarta.locator(f"a#{menu_id}.text_link")
         menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
         menu.click()
+        return smarta, name, number
+
+    def open_payroll_screen(self, business_number: str, period: str) -> tuple[str, str]:
+        """수임처 → SmartA 급여자료입력(SWSA0101) 진입 (2026-09-25 실측).
+
+        Returns:
+            (위하고 상호, 사업자번호) — 호출자가 작업의 거래처와 대조한다.
+        """
+        smarta, name, number = self._open_smarta_menu(business_number, _PAYROLL_MENU_ID)
+        self.step = "급여자료입력 화면 열기"
         smarta.locator(_COND_BAR).wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
 
         # 탭 제목 "급여자료입력(2026) - 서도" — 회사·귀속 연도를 한 번 더 확인
@@ -479,21 +496,65 @@ class WehagoUploader:
         return self._read_company_basic()
 
     def export_employees(self, business_number: str, workdir: Path) -> Path:
-        """SmartA 사원등록(SWPM0108) → 추가기능(⋮) → [사원자료 엑셀변환] 다운로드 파일.
+        """SmartA 사원등록(SWPM0108) → 추가기능(⋮) → [사원자료 엑셀변환] 다운로드 파일 (§12).
 
-        위하고 T 담당 수임처 대시보드에서 [급여] 버튼을 클릭하면 새 탭에 SmartA 가 열리는데
-        (SSO 토큰 sao 를 포함한 URL), 그 진입 경로 실측 전이라 NotImplementedError.
+        위하고 T 담당 수임처 → [급여] → SmartA 새 탭 → 사원등록(SWPM0108) 진입까지는
+        `_open_smarta_menu`(급여자료입력과 공용, 2026-09-25 실측)로 처리한다.
 
         캡처 완료된 사실 (2026-09-23):
-        - SmartA URL: `smarta.wehagot.com/#/smarta/humanresource/SWPM0108?sao=...&cno=<CNO>&cd_com=<CDCOM>&gisu=<PERIOD>&yminsa=<YEAR>&...`
         - 트리거: 상단 우측 `div.LUX_basic_popover.popover_funtion` (43×32 아이콘)
         - 팝오버 컨테이너: `div.resultbx` (position:absolute, z-index:45)
         - 항목: `dl:has(dt:text-is('엑셀')) dd:text-is('사원자료 엑셀변환')`
         - 다운로드 파일명: `<회사명>_사원등록_<YYYYMMDD>.xlsx` (기본 Downloads 폴더)
         - Playwright download 이벤트가 잡히지 않으므로 폴더 감시 방식으로 수신해야 함
+
+        ⚠️ 팝오버 트리거·다운로드 완료 흐름은 아직 실제 환경에서 끝까지 실행해 보지
+        않았다 — 이지원 실기에서 1회 검증 필요 (특히 다운로드 폴더 경로와 파일명
+        패턴이 실측 노트북·계정에서 그대로인지).
+
+        Args:
+            business_number: 대상 거래처 사업자번호.
+            workdir: 다운로드한 파일을 옮겨 둘 작업 폴더 — 호출자가 처리 후 지운다.
+
+        Returns:
+            workdir 안으로 옮겨진 엑셀 파일 경로.
+
+        Raises:
+            WehagoError: 다운로드가 시간 안에 나타나지 않음.
+            CompanyNotFound, CompanyMismatch: 수임처 검색 실패 (`_open_smarta_menu`).
         """
-        # TODO: 담당 수임처 대시보드 → SmartA 진입 → 사원등록 이동 → 엑셀변환 클릭 → Downloads 감시
-        raise NotImplementedError("위하고 T → SmartA 사원자료 엑셀변환 경로 실측 후 구현")
+        smarta, name, _number = self._open_smarta_menu(business_number, _EMPLOYEE_REGISTER_MENU_ID)
+
+        self.step = "사원자료 엑셀변환"
+        downloads_dir = Path.home() / "Downloads"
+        before = set(downloads_dir.glob("*.xlsx"))
+        popover = smarta.locator(_MORE_MENU_POPOVER).first
+        popover.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        popover.click()
+        popup = smarta.locator(_MORE_MENU_POPUP)
+        popup.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        item = popup.locator(_EMPLOYEE_EXPORT_ITEM)
+        think("wehago")
+        item.click()
+
+        deadline = time.monotonic() + UPLOAD_WAIT_MS / 1000
+        found: Path | None = None
+        while time.monotonic() < deadline:
+            candidates = {p for p in downloads_dir.glob(f"{name}_사원등록_*.xlsx") if p not in before}
+            if candidates:
+                found = max(candidates, key=lambda p: p.stat().st_mtime)
+                break
+            smarta.wait_for_timeout(500)
+        if found is None:
+            raise WehagoError(
+                f"사원자료 엑셀변환 다운로드를 찾지 못했습니다 ({downloads_dir} 감시 시간 초과)"
+            )
+
+        workdir.mkdir(parents=True, exist_ok=True)
+        dest = workdir / found.name
+        found.replace(dest)
+        return dest
 
     # ---- 내부 헬퍼 ----
 
