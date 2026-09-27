@@ -32,12 +32,14 @@ from app.schemas.clients import (
     ClientUpdate,
     EmployeeCreate,
     EmployeeOut,
+    EmployeeUpdate,
     PayrollDefaultOut,
     PayrollDefaultUpdate,
     PayrollHistoryPeriod,
     PayrollHistoryRow,
 )
 from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
+from app.services.employee_codes import employee_code_taken, next_employee_code
 from app.services.storage import get_storage
 from app.services.invite import get_or_create_session, send_invite_to_client
 from app.services.portal import (
@@ -714,12 +716,15 @@ async def create_employee(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     rrn_encrypted = encrypt_rrn(payload.rrn) if payload.rrn else None
     rrn_last4 = _rrn_last4(payload.rrn) if payload.rrn else None
+    code = (payload.employee_code or "").strip() or await next_employee_code(db, client_id)
+    if await employee_code_taken(db, client_id, code):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 다른 직원이 쓰고 있습니다")
     emp = Employee(
         client_id=client_id,
         name=payload.name,
         rrn_encrypted=rrn_encrypted,
         rrn_last4=rrn_last4,
-        employee_code=payload.employee_code,
+        employee_code=code,
         department=payload.department,
         position=payload.position,
         job_type=payload.job_type,
@@ -727,6 +732,32 @@ async def create_employee(
         status=EmploymentStatus.ACTIVE if payload.rrn else EmploymentStatus.PENDING,
     )
     db.add(emp)
+    await db.commit()
+    await db.refresh(emp)
+    return emp
+
+
+@router.patch("/{client_id}/employees/{employee_id}", response_model=EmployeeOut)
+async def update_employee(
+    client_id: str,
+    employee_id: str,
+    payload: EmployeeUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Employee:
+    """직원 정보 수정 (이름·사원코드·부서·직급·직종·입사일·퇴사일). 주민번호는 여기서 바꾸지 않는다."""
+    await _authorize_client(db, client_id, user)
+    emp = await db.get(Employee, employee_id)
+    if not emp or emp.client_id != client_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
+    patch = payload.model_dump(exclude_unset=True)
+    if "employee_code" in patch:
+        code = (patch["employee_code"] or "").strip() or await next_employee_code(db, client_id)
+        if await employee_code_taken(db, client_id, code, exclude_employee_id=emp.id):
+            raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 다른 직원이 쓰고 있습니다")
+        patch["employee_code"] = code
+    for key, value in patch.items():
+        setattr(emp, key, value.strip() if isinstance(value, str) else value)
     await db.commit()
     await db.refresh(emp)
     return emp

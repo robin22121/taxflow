@@ -36,6 +36,7 @@ from app.schemas.filings import (
     NewEmployeeIn,
     ParsedEntryPreview,
 )
+from app.services.employee_codes import next_employee_code
 from app.services.ai_parser import merge_rrn_sidechannel, parse_payroll_message
 from app.services.crypto import decrypt_rrn, encrypt_rrn, normalize_rrn, rrn_last4
 from app.services.file_intake import intake_file
@@ -434,7 +435,8 @@ async def _create_employee_from_review(
         name=name,
         rrn_encrypted=rrn_encrypted,
         rrn_last4=last4,
-        employee_code=payload.employee_code,
+        # 비워 두면 거래처의 다음 숫자 번호 — 위하고 사원코드와 같게 (services/employee_codes.py)
+        employee_code=(payload.employee_code or "").strip() or await next_employee_code(db, client.id),
         department=payload.department,
         position=payload.position,
         job_type=payload.job_type,

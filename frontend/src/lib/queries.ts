@@ -237,6 +237,26 @@ export function useClientEmployees(clientId: string) {
   });
 }
 
+export type EmployeePatch = Partial<{
+  name: string;
+  employee_code: string;
+  department: string | null;
+  position: string | null;
+  job_type: string | null;
+  hired_at: string | null;
+  resigned_at: string | null;
+}>;
+
+/** 직원 정보 수정 — 사원코드를 빈 값으로 보내면 서버가 거래처의 다음 번호를 붙인다. */
+export function useUpdateEmployee(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: EmployeePatch }) =>
+      api<Employee>(`/api/v1/clients/${clientId}/employees/${id}`, { method: "PATCH", json: patch }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients", clientId, "employees"] }),
+  });
+}
+
 export function useImportEmployees(clientId: string) {
   const qc = useQueryClient();
   return useMutation({

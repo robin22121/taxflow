@@ -1117,7 +1117,8 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
                             <input
                               value={entry.new_employee?.employee_code ?? ""}
                               onChange={(e) => patch(i, { new_employee: { ...entry.new_employee, employee_code: e.target.value } })}
-                              placeholder="사번(선택)"
+                              placeholder="사원코드 (비우면 다음 번호)"
+                              title="위하고 사원코드와 같게 숫자만 입력하세요"
                               className="w-28 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11.5px]"
                             />
                           </div>

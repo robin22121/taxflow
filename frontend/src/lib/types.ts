@@ -237,6 +237,9 @@ export type Employee = {
   id: string;
   name: string;
   employee_code: string | null;
+  department?: string | null;
+  position?: string | null;
+  job_type?: string | null;
   hired_at: string | null;
   resigned_at: string | null;
   rrn_last4: string | null;

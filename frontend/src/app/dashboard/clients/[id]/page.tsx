@@ -7,6 +7,7 @@ import {
   useClientArchive,
   useClientDetail,
   useClientEmployees,
+  useUpdateEmployee,
   useClientPayrollHistory,
   useImportEmployees,
   useImportPayroll,
@@ -33,6 +34,7 @@ import {
   priorPeriod,
 } from "@/lib/format";
 import type {
+  Employee,
   ArchivePeriod,
   Client,
   ImportEmployeeResult,
@@ -72,6 +74,7 @@ export default function ClientDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [wehagoOpen, setWehagoOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
   if (isLoading || !client) return <p className="p-6 text-gray-900">로딩 중...</p>;
 
@@ -319,7 +322,8 @@ export default function ClientDetailPage({
                   <th className="text-left py-2 pr-3">주민번호</th>
                   <th className="text-left py-2 pr-3">입사일</th>
                   <th className="text-left py-2 pr-3">퇴사일</th>
-                  <th className="text-left py-2">상태</th>
+                  <th className="text-left py-2 pr-3">상태</th>
+                  <th className="text-right py-2">관리</th>
                 </tr>
               </thead>
               <tbody>
@@ -341,8 +345,13 @@ export default function ClientDetailPage({
                     <td className="py-2 pr-3 text-gray-500">
                       {e.resigned_at || "—"}
                     </td>
-                    <td className="py-2">
+                    <td className="py-2 pr-3">
                       <StatusBadge status={e.status} />
+                    </td>
+                    <td className="py-2 text-right">
+                      <Button variant="ghost" className="!text-[12px] !px-2 !py-0.5" onClick={() => setEditingEmployee(e)}>
+                        수정
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -356,12 +365,85 @@ export default function ClientDetailPage({
         )}
       </Card>
 
+      {editingEmployee && (
+        <EmployeeEditModal clientId={id} employee={editingEmployee} onClose={() => setEditingEmployee(null)} />
+      )}
+
       {/* 급여 이력 — 거래처의 전체 월 급여자료 */}
       <PayrollHistorySection clientId={id} />
 
       {/* 보관함 — 사장님 화면에 뜨는 신고 결과를 세무사가 채운다 */}
       <ArchiveSection clientId={id} />
     </div>
+  );
+}
+
+/* ─── 직원 정보 수정 ─── */
+
+function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; employee: Employee; onClose: () => void }) {
+  const update = useUpdateEmployee(clientId);
+  const [form, setForm] = useState({
+    name: employee.name,
+    employee_code: employee.employee_code ?? "",
+    department: employee.department ?? "",
+    position: employee.position ?? "",
+    job_type: employee.job_type ?? "",
+    hired_at: employee.hired_at ?? "",
+    resigned_at: employee.resigned_at ?? "",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+  const code = form.employee_code.trim();
+  const nonNumeric = code !== "" && !/^\d+$/.test(code);
+
+  async function save() {
+    setError(null);
+    try {
+      await update.mutateAsync({
+        id: employee.id,
+        patch: {
+          name: form.name.trim(),
+          employee_code: code,
+          department: form.department.trim() || null,
+          position: form.position.trim() || null,
+          job_type: form.job_type.trim() || null,
+          hired_at: form.hired_at || null,
+          resigned_at: form.resigned_at || null,
+        },
+      });
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  const field = "w-full rounded-lg border border-gray-300 px-3 py-1.5 text-[13px] outline-none focus:border-blue-500";
+  return (
+    <Modal open={true} onClose={onClose} title={`직원 정보 수정 — ${employee.name}`}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button onClick={save} disabled={!form.name.trim() || update.isPending}>{update.isPending ? "저장 중..." : "저장"}</Button>
+      </>}>
+      <div className="grid grid-cols-2 gap-3 text-[12px] text-gray-600">
+        <label className="space-y-1">이름<input className={field} value={form.name} onChange={set("name")} /></label>
+        <label className="space-y-1">사원코드 (위하고와 같게)
+          <input className={field} value={form.employee_code} onChange={set("employee_code")} placeholder="비우면 다음 번호" inputMode="numeric" />
+        </label>
+        <label className="space-y-1">부서<input className={field} value={form.department} onChange={set("department")} /></label>
+        <label className="space-y-1">직급<input className={field} value={form.position} onChange={set("position")} /></label>
+        <label className="space-y-1">직종<input className={field} value={form.job_type} onChange={set("job_type")} /></label>
+        <label className="space-y-1">입사일<input type="date" className={field} value={form.hired_at} onChange={set("hired_at")} /></label>
+        <label className="space-y-1">퇴사일<input type="date" className={field} value={form.resigned_at} onChange={set("resigned_at")} /></label>
+      </div>
+      {nonNumeric && (
+        <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+          사원코드에 숫자가 아닌 글자가 있습니다. 위하고 사원코드는 보통 숫자(1, 2, 3…)라서, 다르면 위하고 전송이 멈춥니다.
+        </p>
+      )}
+      <p className="mt-3 text-[11.5px] text-gray-500">주민번호는 여기서 바꾸지 않습니다.</p>
+      {error && <p className="mt-2 text-[12px] text-red-600">{error}</p>}
+    </Modal>
   );
 }
 

@@ -71,6 +71,18 @@ class EmployeeCreate(BaseModel):
     business_type_code: str | None = None  # 사업소득 업종코드 (940xxx)
 
 
+class EmployeeUpdate(BaseModel):
+    """직원 정보 수정 — 보낸 항목만 바꾼다. 사원코드를 빈 값으로 보내면 다음 번호가 붙는다."""
+
+    name: str | None = Field(default=None, min_length=1)
+    employee_code: str | None = None
+    department: str | None = None
+    position: str | None = None
+    job_type: str | None = None
+    hired_at: date | None = None
+    resigned_at: date | None = None
+
+
 class EmployeeOut(BaseModel):
     id: str
     name: str
