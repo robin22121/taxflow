@@ -30,6 +30,7 @@ import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Input, Modal } from "@/components/ui";
 import { useHeaderSlots } from "@/components/header-slot";
 import { WehagoSendModal } from "@/components/rpa/wehago-send-modal";
+import { ProductionModal } from "@/components/rpa/production-modal";
 import { useConfirm } from "@/components/confirm-dialog";
 import { gateStage, indexJobsByClient, listJobs, type GateStage } from "@/lib/rpa-api";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
@@ -55,6 +56,7 @@ export default function FilingDetailPage({
   const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showSendModal, setShowSendModal] = useState(false);
+  const [showProductionModal, setShowProductionModal] = useState(false);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [showUnifiedPicker, setShowUnifiedPicker] = useState(false);
   const [unifiedClientIds, setUnifiedClientIds] = useState<string[]>([]);
@@ -65,6 +67,16 @@ export default function FilingDetailPage({
 
   const allEntries = entries ?? [];
   const sessions = data?.sessions ?? [];
+
+  // ② 제작 대상 판별 — 위하고 입력이 끝난(input_done) 거래처만 제작할 수 있다.
+  const { data: rpaJobsForProduction = [] } = useQuery({
+    queryKey: ["rpa", "jobs", id],
+    queryFn: () => listJobs(id),
+    refetchInterval: 10_000,
+  });
+  const jobsByClientForProduction = indexJobsByClient(rpaJobsForProduction);
+  const productionStageOf = (clientId: string) =>
+    gateStage(jobsByClientForProduction[clientId]?.input, jobsByClientForProduction[clientId]?.production, undefined);
 
   useEffect(() => {
     if (sessions.length === 0) return;
@@ -286,8 +298,8 @@ export default function FilingDetailPage({
               ① 위하고 전송
             </button>
             <span className="text-gray-300 text-[11px] px-0.5">›</span>
-            <button disabled title="준비 중 — 자동화 PC의 원천세·지방세 제작·신고 기능 개발 후 열립니다"
-              className="px-2.5 py-1 rounded-full text-[12px] font-medium text-gray-400 cursor-not-allowed">
+            <button onClick={() => setShowProductionModal(true)}
+              className="px-2.5 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700">
               ② 제작
             </button>
             <span className="text-gray-300 text-[11px] px-0.5">›</span>
@@ -350,6 +362,23 @@ export default function FilingDetailPage({
           }))}
           currentClientId={selectedSession?.client_id ?? null}
           onClose={() => setShowSendModal(false)}
+        />
+      )}
+
+      {showProductionModal && (
+        <ProductionModal
+          filingId={id}
+          targets={sessions.map((s) => {
+            const stage = productionStageOf(s.client_id);
+            const reason =
+              stage === "input_done" ? null
+              : stage === "failed" ? "자동화 실패 — 확인 필요"
+              : stage === "producing" || stage === "production_done" || stage === "published" ? "이미 제작 진행·완료"
+              : "위하고 입력 미완료";
+            return { clientId: s.client_id, clientName: s.client_name, blockedReason: reason };
+          })}
+          currentClientId={selectedSession?.client_id ?? null}
+          onClose={() => setShowProductionModal(false)}
         />
       )}
 
