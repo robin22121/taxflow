@@ -756,3 +756,71 @@ export function useMessageHistory(limit: number, offset: number) {
       api<MessageHistoryPage>(`/api/v1/messages/history?limit=${limit}&offset=${offset}`),
   });
 }
+
+// ── 전월 동일 페스트패스 (plan/01-workflow-roadmap.md §1.3) ────────────────
+
+export type FastPathRow = {
+  employee_id: string | null;
+  raw_name: string;
+  income_type: string;
+  total_amount: number;
+  non_taxable: number;
+  taxable: number;
+  income_tax_prev: number;
+  income_tax_curr: number;
+  local_tax_prev: number;
+  local_tax_curr: number;
+};
+
+export type FastPathSummary = {
+  client_id: string;
+  client_name: string;
+  prev_period: string;
+  curr_period: string;
+  person_count: number;
+  resigned_excluded: number;
+  total_pay: number;
+  withholding_prev: number;
+  withholding_curr: number;
+  local_tax_prev: number;
+  local_tax_curr: number;
+  delta_pct: number;
+  threshold_pct: number;
+  within_threshold: boolean;
+  can_commit: boolean;
+  blocker: string | null;
+  rows: FastPathRow[];
+};
+
+export type FastPathCommitOut = {
+  session_id: string;
+  created_entries: number;
+  withholding_curr: number;
+  local_tax_curr: number;
+  delta_pct: number;
+  approved: boolean;
+};
+
+export function useFastPathPreview(filingId: string, clientId: string) {
+  return useMutation({
+    mutationFn: (thresholdPct?: number) =>
+      api<FastPathSummary>(
+        `/api/v1/filings/${filingId}/clients/${clientId}/fast-path/preview`,
+        { method: "POST", json: { threshold_pct: thresholdPct ?? 2.0 } },
+      ),
+  });
+}
+
+export function useFastPathCommit(filingId: string, clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (thresholdPct?: number) =>
+      api<FastPathCommitOut>(
+        `/api/v1/filings/${filingId}/clients/${clientId}/fast-path/commit`,
+        { method: "POST", json: { threshold_pct: thresholdPct ?? 2.0 } },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["filings", filingId] });
+    },
+  });
+}

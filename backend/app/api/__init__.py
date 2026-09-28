@@ -13,6 +13,7 @@ def register_routes(app: FastAPI) -> None:
         clients,
         collect,
         employee_changes,
+        fast_path,
         filings,
         imports,
         messages,
@@ -28,6 +29,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(clients.router, prefix="/api/v1/clients", tags=["clients"])
     app.include_router(imports.router, prefix="/api/v1/clients", tags=["imports"])
     app.include_router(filings.router, prefix="/api/v1/filings", tags=["filings"])
+    app.include_router(fast_path.router, prefix="/api/v1/filings", tags=["fast-path"])
     app.include_router(messages.router, prefix="/api/v1/messages", tags=["messages"])
     app.include_router(collect.router, prefix="/api/v1/collect", tags=["collect"])
     app.include_router(

@@ -92,6 +92,23 @@
 
 ## 4. 백로그 (추후 진행)
 
+### [ ] "전월 동일" 페스트패스 (2026-09-28 결정, `plan/01-workflow-roadmap.md` §1.3) — 🟡 **부분 구현**
+- **Backend** ✅ — `backend/app/api/fast_path.py` (2026-09-28)
+  - `POST /filings/{fid}/clients/{cid}/fast-path/preview` — 전월 `PayrollEntry` 복사(재계산 없음) → 인원·총지급·원천세·지방세·전월 대비 델타% 반환
+  - `POST /filings/{fid}/clients/{cid}/fast-path/commit` — 최신 세율(`calculate_withholding_tax`)로 재계산한 뒤 `approved=True`로 저장, 델타 초과·기존 항목 존재 시 409
+  - 세션은 미존재 시 `get_or_create_session()`으로 자동 생성, `CollectionEvent(channel="fast_path_prev_same")` 감사 로그 남김
+- **Frontend** ✅ — `components/rpa/fast-path-modal.tsx` + `queries.ts` 훅 (2026-09-28)
+  - 필링 상세 `PayrollInputBar` 상단에 "전월 동일 신고" 버튼 추가 (기존 "전월자료 불러오기" 옆)
+  - 요약 카드(인원·총지급·원천세 curr/prev·지방세 curr/prev·델타%) + 임계치 초과 시 상세 검토 안내
+  - 원클릭 승인 후 기존 3-게이트(위하고 전송 → 제작 → 발송 확정) 흐름에 자연 합류
+- **게이트 3 (담당자 발송 확정)** ✅ 기존 인프라 재사용 — `components/rpa/rpa-panel.tsx:170` `publishFilingResult()`로 `ClientFilingResult.published_at` 채워야 사장님 포털·문자 발송 트리거
+- **임계치 초기값**: 원천세 합계 델타 ±2% (`fast_path.py:DEFAULT_THRESHOLD_PCT`), 조명신 사무소 시범 운영 후 조정
+- **남은 작업**
+  - [ ] 페스트패스 단위 테스트 (`backend/tests/test_fast_path.py`) — 전월 없음·모두 퇴사·델타 초과·기존 항목 존재·정상 커밋 5케이스
+  - [ ] 커밋 후 자동으로 위하고 전송 큐잉까지 체이닝 여부 결정 (현재는 사용자가 다시 "① 위하고 전송" 버튼 클릭)
+  - [ ] 부양가족·자녀 수 최신값(직원 마스터) 반영 — 현재는 전월 엔트리의 `dependents/children` 그대로 사용
+  - [ ] 임계치 사무소별 커스텀(`TaxOffice.fast_path_threshold_pct`) — 조명신 시범 이후
+
 ### [ ] 이지원(자동화 노트북) RPA 남은 작업 — 2026-09-27 인계
 완료·운영 배포(`0421d65`): 홈택스 자동 로그인 방침·사이트별 세션 원칙(plan/16 §8-3)·봇 탐지 대응 설계(§8-4),
 작업 대기열 직원별 라운드로빈, 사이트별 사람 속도(`pace.py`), 하단 작업바 전체작업↔내작업 토글·오늘 작업 칩·[내역보기] 3일/1주/한 달.

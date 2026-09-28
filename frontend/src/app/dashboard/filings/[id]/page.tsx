@@ -31,6 +31,7 @@ import { Badge, BezelCard, Button, Eyebrow, Input, Modal } from "@/components/ui
 import { useHeaderSlots } from "@/components/header-slot";
 import { WehagoSendModal } from "@/components/rpa/wehago-send-modal";
 import { ProductionModal } from "@/components/rpa/production-modal";
+import { FastPathModal } from "@/components/rpa/fast-path-modal";
 import { useConfirm } from "@/components/confirm-dialog";
 import { gateStage, indexJobsByClient, listJobs, type GateStage } from "@/lib/rpa-api";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
@@ -559,6 +560,14 @@ function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => voi
 
 type MainTab = "received" | "wht" | "insurance";
 
+type QaIntent = "practitioner" | "customer";
+type QaMessage = {
+  role: "user" | "assistant";
+  content: string;
+  ts: number;
+  intent?: QaIntent; // user 메시지에만 의미가 있다 — 답변은 직전 user 메시지의 intent 를 상속
+};
+
 function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar }: {
   filingId: string;
   sessions: CollectionSession[];
@@ -583,6 +592,31 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showResign, setShowResign] = useState(false);
+
+  // 원천세 Q&A 팝업 — 하단 바의 Q&A 모드에서 질문 → 팝업 열리며 대화 이어감
+  const [qaOpen, setQaOpen] = useState(false);
+  const [qaMessages, setQaMessages] = useState<QaMessage[]>([]);
+  const [qaThinking, setQaThinking] = useState(false);
+
+  const askQuestion = useCallback((question: string, intent: QaIntent) => {
+    const q = question.trim();
+    if (!q) return;
+    setQaMessages((prev) => [...prev, { role: "user", content: q, ts: Date.now(), intent }]);
+    setQaOpen(true);
+    setQaThinking(true);
+    // TODO: /api/qa 엔드포인트 연결 (Phase 3~5). 현재는 intent 별 stub.
+    window.setTimeout(() => {
+      const stub =
+        intent === "practitioner"
+          ? "[실무 참고] 실제 답변은 법령 MCP 연결 후 표시됩니다.\n· 관련 조문·시행령·시행규칙\n· 예규·판례\n· 서식 링크·기재요령\n· 절차 안내 (신고기한·제출처)\n\n(원본 질문: " + q + ")"
+          : "[고객 응대] 실제 답변은 백엔드 연결 후 표시됩니다.\n· 쉬운 말로 요약된 설명\n· 실제 액수 시뮬레이션 (급여·4대보험 등)\n· 사례별 예상치 (예: 신규사업자 과세유형 전환 예상 연환산 매출·전환예정일)\n\n(원본 질문: " + q + ")";
+      setQaMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: stub, ts: Date.now(), intent },
+      ]);
+      setQaThinking(false);
+    }, 700);
+  }, []);
 
   const isReview = (s: CollectionSession) => {
     const se = entries.filter((e) => e.client_id === s.client_id);
@@ -679,8 +713,17 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 4대보험관리
               </MainTabButton>
               <div className="flex-1" />
-              <div className="pb-2 text-[11px] text-gray-500 hidden sm:flex items-center gap-1.5">
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 border border-blue-100">
+              <div className="pb-2 text-[11px] text-gray-500 flex items-center gap-1.5">
+                {mainTab === "received" && (
+                  <Button
+                    variant={commOpen ? "primary" : "secondary"}
+                    className="!text-[11px] !px-2 !py-0.5"
+                    onClick={() => setCommOpen((v) => !v)}
+                  >
+                    고객소통내역 {commOpen ? "▶" : "◀"}
+                  </Button>
+                )}
+                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 border border-blue-100">
                   {selectedSession.client_name}
                 </span>
               </div>
@@ -718,14 +761,13 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
 
             {/* 급여자료 입력 바 — 가운데 열 맨 아래, 하단 작업바 바로 위 */}
             <PayrollInputBar
+              filingId={filingId}
               session={selectedSession}
-              showComm={mainTab === "received"}
-              commOpen={commOpen}
-              onToggleComm={() => setCommOpen((v) => !v)}
               onPreview={(data, meta) => setPreview({ data, meta })}
               onAddEmployee={() => setShowAddEmployee(true)}
               onResign={() => setShowResign(true)}
               selectedCount={selectedEntryIds.size}
+              onAsk={askQuestion}
             />
           </>
         ) : (
@@ -758,6 +800,15 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
           onClose={() => setPreview(null)}
         />
       )}
+
+      <QAAssistantDialog
+        open={qaOpen}
+        messages={qaMessages}
+        thinking={qaThinking}
+        onAsk={askQuestion}
+        onClear={() => setQaMessages([])}
+        onClose={() => setQaOpen(false)}
+      />
     </div>
   );
 }
@@ -813,25 +864,34 @@ type PreviewMeta = {
 };
 
 function PayrollInputBar({
-  session, showComm, commOpen, onToggleComm, onPreview, onAddEmployee, onResign, selectedCount,
+  filingId, session, onPreview, onAddEmployee, onResign, selectedCount, onAsk,
 }: {
+  filingId: string;
   session: CollectionSession;
-  showComm: boolean;
-  commOpen: boolean;
-  onToggleComm: () => void;
   onPreview: (data: CollectPreview, meta: PreviewMeta) => void;
   onAddEmployee: () => void;
   onResign: () => void;
   selectedCount: number;
+  onAsk: (question: string, intent: QaIntent) => void;
 }) {
   const previewUpload = usePreviewUpload();
   const previewCarryForward = usePreviewCarryForward();
   const previewText = usePreviewText();
   const fileRef = useRef<HTMLInputElement>(null);
   const [pastedText, setPastedText] = useState("");
+  const [mode, setMode] = useState<"payroll" | "qa">("payroll");
+  const [qaInput, setQaInput] = useState("");
+  const [fastPathOpen, setFastPathOpen] = useState(false);
 
   const busy = previewUpload.isPending || previewCarryForward.isPending || previewText.isPending;
   const today = new Date().toISOString().slice(0, 10);
+
+  function submitQa(intent: QaIntent) {
+    const q = qaInput.trim();
+    if (!q) return;
+    onAsk(q, intent);
+    setQaInput("");
+  }
 
   function runText() {
     const text = pastedText.trim();
@@ -892,51 +952,124 @@ function PayrollInputBar({
   return (
     <div className="shrink-0 border-t border-gray-200 bg-white px-3 md:px-5 py-2">
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mr-0.5">급여자료 입력</span>
+        <div className="inline-flex items-center p-0.5 rounded-full bg-gray-50 border border-gray-200 text-[11px] mr-0.5">
+          <button
+            type="button"
+            onClick={() => setMode("payroll")}
+            className={`px-2 py-1 rounded-full font-medium transition-all ${
+              mode === "payroll" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            급여입력
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("qa")}
+            className={`px-2 py-1 rounded-full font-medium transition-all ${
+              mode === "qa" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            AI 도우미
+          </button>
+        </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.pdf" className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = "";
             if (f) runFile(f);
           }} />
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={runCarryForward}
-          title="전월 급여자료를 이번 달 후보로 불러옵니다">
-          {previewCarryForward.isPending ? "불러오는 중..." : "전월자료 불러오기"}
-        </Button>
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
-          {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
-        </Button>
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onAddEmployee}>
-          직원 추가
-        </Button>
-        <Button variant="danger" className="!text-[12px] !px-2.5 !py-1" onClick={onResign} disabled={selectedCount === 0}
-          title={selectedCount === 0 ? "표에서 퇴사할 직원을 선택하세요" : undefined}>
-          퇴사처리{selectedCount > 0 ? ` (${selectedCount})` : ""}
-        </Button>
-        <textarea
-          className="flex-1 min-w-40 h-8 text-[12px] border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
-          placeholder="카톡 내용을 여기 붙여넣고 [반영하기] 를 누르세요"
-          rows={1}
-          value={pastedText}
-          disabled={busy}
-          onChange={(e) => setPastedText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              runText();
-            }
-          }}
-        />
-        <Button variant="primary" className="!text-[12px] !px-2.5 !py-1" disabled={!pastedText.trim() || busy} onClick={runText}
-          title="붙여넣은 텍스트를 AI로 파싱해 급여 항목으로 반영합니다 (⌘/Ctrl+Enter)">
-          {previewText.isPending ? "AI 읽는 중..." : "반영하기"}
-        </Button>
-        {showComm && (
-          <Button variant={commOpen ? "primary" : "secondary"} className="!text-[12px] !px-2.5 !py-1" onClick={onToggleComm}>
-            고객소통내역 {commOpen ? "▶" : "◀"}
-          </Button>
+        {mode === "payroll" ? (
+          <>
+            <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={runCarryForward}
+              title="전월 급여자료를 이번 달 후보로 불러옵니다">
+              {previewCarryForward.isPending ? "불러오는 중..." : "전월자료 불러오기"}
+            </Button>
+            <Button
+              variant="primary"
+              className="!text-[12px] !px-2.5 !py-1"
+              disabled={busy}
+              onClick={() => setFastPathOpen(true)}
+              title="전월과 동일하면 요약 카드로 확인 후 원클릭 승인 (plan/01 §1.3)"
+            >
+              전월 동일 신고
+            </Button>
+            <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
+              {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
+            </Button>
+            <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onAddEmployee}>
+              직원 추가
+            </Button>
+            <Button variant="danger" className="!text-[12px] !px-2.5 !py-1" onClick={onResign} disabled={selectedCount === 0}
+              title={selectedCount === 0 ? "표에서 퇴사할 직원을 선택하세요" : undefined}>
+              퇴사처리{selectedCount > 0 ? ` (${selectedCount})` : ""}
+            </Button>
+            <textarea
+              className="flex-1 min-w-40 h-8 text-[12px] border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
+              placeholder="카톡 내용을 여기 붙여넣고 [반영하기] 를 누르세요"
+              rows={1}
+              value={pastedText}
+              disabled={busy}
+              onChange={(e) => setPastedText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  runText();
+                }
+              }}
+            />
+            <Button variant="primary" className="!text-[12px] !px-2.5 !py-1" disabled={!pastedText.trim() || busy} onClick={runText}
+              title="붙여넣은 텍스트를 AI로 파싱해 급여 항목으로 반영합니다 (⌘/Ctrl+Enter)">
+              {previewText.isPending ? "AI 읽는 중..." : "반영하기"}
+            </Button>
+          </>
+        ) : (
+          <>
+            <textarea
+              className="flex-1 min-w-40 h-8 text-[12px] border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
+              placeholder="세법·4대보험·예규·판례·서식·시뮬레이션 등 (⌘Enter=실무, ⇧⌘Enter=응대)"
+              rows={1}
+              value={qaInput}
+              onChange={(e) => setQaInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  submitQa(e.shiftKey ? "customer" : "practitioner");
+                }
+              }}
+            />
+            <Button
+              variant="secondary"
+              className="!text-[12px] !px-2.5 !py-1"
+              disabled={!qaInput.trim()}
+              onClick={() => submitQa("practitioner")}
+              title="담당자 실무용 — 조문·판례·예규·서식·절차 정확 인용 (⌘/Ctrl+Enter)"
+            >
+              실무 참고
+            </Button>
+            <Button
+              variant="primary"
+              className="!text-[12px] !px-2.5 !py-1"
+              disabled={!qaInput.trim()}
+              onClick={() => submitQa("customer")}
+              title="전화 응대용 — 쉬운 말 + 액수 시뮬레이션 (⇧⌘/Ctrl+Enter)"
+            >
+              고객 응대
+            </Button>
+          </>
         )}
       </div>
+      {fastPathOpen && (
+        <FastPathModal
+          open={fastPathOpen}
+          onClose={() => setFastPathOpen(false)}
+          filingId={filingId}
+          clientId={session.client_id}
+          clientName={session.client_name}
+          onCommitted={() => {
+            /* onSuccess에서 queries가 invalidate되므로 별도 처리 불필요 */
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -3471,3 +3604,148 @@ function anomalyReasons(e: PayrollEntry): AnomalyReason[] {
 }
 
 void getToken;
+
+/* ═══ 세무·법령 Q&A 팝업 ═══ */
+
+function QAAssistantDialog({
+  open,
+  messages,
+  thinking,
+  onAsk,
+  onClear,
+  onClose,
+}: {
+  open: boolean;
+  messages: QaMessage[];
+  thinking: boolean;
+  onAsk: (question: string, intent: QaIntent) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, thinking, open]);
+
+  function submit(intent: QaIntent) {
+    const q = input.trim();
+    if (!q || thinking) return;
+    onAsk(q, intent);
+    setInput("");
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="AI 도우미" size="lg">
+      <div className="flex flex-col h-[60vh]">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+          {messages.length === 0 ? (
+            <div className="text-center py-8 space-y-2">
+              <p className="text-[13px] text-gray-500">
+                세법·4대보험·예규·판례·서식·시뮬레이션 등을 두 가지 방식으로 답합니다.
+              </p>
+              <ul className="text-[12px] text-gray-500 space-y-0.5">
+                <li>
+                  <span className="font-semibold text-gray-700">실무 참고</span> — 담당자용, 조문·판례·예규·서식·절차 정확 인용
+                </li>
+                <li>
+                  <span className="font-semibold text-gray-700">고객 응대</span> — 전화 응대용, 쉬운 말 + 실제 액수 시뮬레이션
+                </li>
+              </ul>
+            </div>
+          ) : (
+            messages.map((m, i) => (
+              <div
+                key={i}
+                className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
+              >
+                <div className="max-w-[80%]">
+                  {m.intent && (
+                    <div
+                      className={`text-[10px] font-semibold mb-0.5 ${
+                        m.role === "user" ? "text-right" : "text-left"
+                      } ${m.intent === "practitioner" ? "text-blue-700" : "text-emerald-700"}`}
+                    >
+                      {m.intent === "practitioner" ? "실무 참고" : "고객 응대"}
+                    </div>
+                  )}
+                  <div
+                    className={`rounded-2xl px-3 py-2 text-[13px] whitespace-pre-wrap break-words ${
+                      m.role === "user"
+                        ? m.intent === "customer"
+                          ? "bg-emerald-600 text-white"
+                          : "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-900"
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+          {thinking && (
+            <div className="flex justify-start">
+              <div className="rounded-2xl px-3 py-2 text-[13px] bg-gray-100 text-gray-500">
+                답변 생성 중...
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="mt-3 pt-3 border-t border-gray-200">
+          <div className="flex gap-2 items-end">
+            <textarea
+              className="flex-1 min-h-[36px] max-h-32 text-[13px] border border-gray-200 rounded-lg px-2.5 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
+              placeholder="추가 질문 — ⌘Enter=실무 참고, ⇧⌘Enter=고객 응대"
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  submit(e.shiftKey ? "customer" : "practitioner");
+                }
+              }}
+              disabled={thinking}
+            />
+            <Button
+              variant="secondary"
+              className="!text-[13px] !px-3 !py-1.5"
+              disabled={!input.trim() || thinking}
+              onClick={() => submit("practitioner")}
+              title="담당자 실무용 — 조문·판례·예규·서식·절차 정확 인용"
+            >
+              실무 참고
+            </Button>
+            <Button
+              variant="primary"
+              className="!text-[13px] !px-3 !py-1.5"
+              disabled={!input.trim() || thinking}
+              onClick={() => submit("customer")}
+              title="전화 응대용 — 쉬운 말 + 액수 시뮬레이션"
+            >
+              고객 응대
+            </Button>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-gray-400">
+            <span>
+              법령 MCP 연결 시 세법·4대보험 조항·예규·판례·서식 근거와 시뮬레이션 계산이 제공됩니다 (백엔드 연결 대기).
+            </span>
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={onClear}
+                className="text-gray-500 hover:text-gray-700 underline underline-offset-2"
+              >
+                대화 새로 시작
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
