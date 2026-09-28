@@ -137,12 +137,13 @@ def _rrn_digits(encrypted: bytes | None) -> str:
 
 
 def _yyyymm(period: str) -> str:
-    """'2025-11' → '202511'."""
-    return period.replace("-", "")
+    """'2025-11' → '2025.11' — 위하고 날짜 입력은 점 구분·0 패딩 필수 (2026-09-28 실측 확인)."""
+    return period.replace("-", ".")
 
 
 def _yyyymmdd(value) -> str:
-    return value.strftime("%Y%m%d") if value else ""
+    """점 구분·0 패딩 (예: 2026.01.05) — "2026.1.5"처럼 패딩이 빠지면 입력 오류가 난다."""
+    return value.strftime("%Y.%m.%d") if value else ""
 
 
 def generate_smarta_business_xls(entries: list[PayrollEntry], period: str) -> bytes:

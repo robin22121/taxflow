@@ -41,6 +41,12 @@ _MORE_MENU_POPOVER = "div.LUX_basic_popover.popover_funtion"  # 화면 우측 �
 _MORE_MENU_POPUP = "div.resultbx"  # 더보기 팝오버 컨테이너
 _EMPLOYEE_EXPORT_ITEM = "dl:has(dt:text-is('엑셀')) dd:text-is('사원자료 엑셀변환')"
 _COND_BAR = "div.basic_condition"  # div.item 순서: 귀속연월·구분·지급일·지급일 코드도움·정렬
+
+# SmartA 사업소득자료입력 → 엑셀서식 불러오기 (§13-3, 2026-09-28 실측)
+_BUSINESS_INCOME_MENU_ID = "SWBU0102"  # 사업소득자료입력 화면 코드
+_MORE_BUTTON = "button#collect"  # 더보기(⋮) — 급여자료입력과 같은 id, 실제 HTML로 확인됨
+_EXCEL_UPLOAD_MENU_ITEM = "엑셀서식 불러오기"  # 더보기 메뉴 항목 (공백 있음)
+_EXCEL_UPLOAD_CONFIRM_BUTTON = "엑셀서식불러오기"  # 옵션 다이얼로그 최종 버튼 (공백 없음 — 항목명과 다름, 실측 확인)
 # 합계 열은 위하고가 다시 계산하므로 연결하지 않아도 된다
 _TOTAL_COLUMNS = {"지급액계", "공제액계", "차인지급액"}
 _EMPLOYEE_GRID = "Left_grid"  # 왼쪽 사원 목록 (cd_emp 사원코드 · nm_krname 이름)
@@ -555,6 +561,84 @@ class WehagoUploader:
         dest = workdir / found.name
         found.replace(dest)
         return dest
+
+    def upload_business_income(
+        self, business_number: str, xlsx_path: Path, *, replace_existing: bool = False,
+    ) -> str:
+        """사업소득자료입력(SWBU0102) → 더보기 → 엑셀서식 불러오기 (§13-3, 2026-09-28 실측).
+
+        급여자료입력과 달리 위하고 자체 엑셀 템플릿을 그대로 채워 올려야 하고
+        (`app.services.smarta_business_xls.generate_smarta_business_xls`가 이 양식을
+        그대로 만든다), 파일 선택 전에 "불러오기 방법선택"·"소액징수부"를 고르는 옵션
+        다이얼로그를 한 번 더 거친다. 완료 메시지가 "마감(완료)월의 데이터는 반영되지
+        않습니다"라고 안내하는 것으로 보아, 화면에 조회된 기간이 아니라 **엑셀 각 행의
+        지급년월일 기준**으로 처리되는 것으로 보인다 — 그래서 이 메서드는 지급년월 조회를
+        하지 않는다 (미확정, 실기 검증 필요. 조회가 필요하다고 판명되면 추가해야 한다).
+
+        캡처 완료된 사실 (2026-09-28):
+        - 더보기 버튼 실제 HTML: `<button class="WSC_LUXButton" id="collect">` (급여자료입력과 동일 id)
+        - 메뉴 항목: "엑셀서식 불러오기" (기능모음 섹션, 공백 있음)
+        - 옵션 다이얼로그: "불러오기 방법선택"(기존 데이터 삭제하고 불러오기 / 기존 데이터
+          삭제안하고 추가불러오기) · "소액징수부"(포함/미포함) 라디오 → [엑셀서식불러오기]
+          버튼(공백 없음) 클릭 시 OS 파일선택창
+        - 완료 팝업: "엑셀 불러오기가 완료되었습니다. ※마감(완료)월의 데이터는 반영되지
+          않습니다." + [확인]
+        - 형식 오류 시(예: 지급연월일 "2026.9.25"처럼 0 미패딩) 별도 오류 문구가 뜬다 —
+          정확한 문구는 미확보, 완료 팝업에 "완료"가 없으면 실패로 간주해 원문을 그대로 회신한다
+
+        ⚠️ 아직 실기에서 끝까지 실행해 보지 않았다 — 특히 더보기 팝업 안에서 항목 텍스트로
+        바로 클릭되는지(다른 화면처럼 dl/dt/dd 구조일 수 있음), 라디오 선택이 텍스트 클릭으로
+        되는지는 검증 필요.
+
+        Args:
+            business_number: 대상 거래처 사업자번호.
+            xlsx_path: `generate_smarta_business_xls`로 만든 업로드용 엑셀.
+            replace_existing: True면 "기존 데이터 삭제하고 불러오기", False(기본)면
+                "기존 데이터 삭제안하고 추가불러오기" — 데이터 손실 방지가 기본값
+                (§4-2 `upload_payroll`의 `replace_existing` 원칙과 동일).
+
+        Returns:
+            완료 팝업의 원문 메시지.
+
+        Raises:
+            WehagoError: 더보기 메뉴·옵션 다이얼로그·파일선택창·완료 팝업 중 하나라도
+                예상과 다르거나, 위하고가 입력 오류를 회신함.
+            CompanyNotFound, CompanyMismatch: 수임처 검색 실패 (`_open_smarta_menu`).
+        """
+        smarta, _name, _number = self._open_smarta_menu(business_number, _BUSINESS_INCOME_MENU_ID)
+
+        self.step = "더보기 메뉴 열기"
+        more = smarta.locator(_MORE_BUTTON)
+        more.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        more.click()
+        think("wehago")
+        smarta.get_by_text(_EXCEL_UPLOAD_MENU_ITEM, exact=True).click()
+
+        self.step = "엑셀서식 불러오기 옵션 선택"
+        dialog = smarta.locator("div._isDialog:visible", has_text="엑셀서식 불러오기")
+        dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        option_label = (
+            "기존 데이터 삭제하고 불러오기" if replace_existing else "기존 데이터 삭제안하고 추가불러오기"
+        )
+        think("wehago")
+        dialog.get_by_text(option_label, exact=True).click()
+
+        self.step = "엑셀 파일 선택"
+        with smarta.expect_file_chooser(timeout=UPLOAD_WAIT_MS) as chooser:
+            think("wehago")
+            dialog.get_by_role("button", name=_EXCEL_UPLOAD_CONFIRM_BUTTON, exact=True).click()
+        chooser.value.set_files(str(xlsx_path))
+
+        self.step = "엑셀 불러오기 완료 대기"
+        result = smarta.locator("div._isDialog:visible")
+        result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        text = result.inner_text().strip()
+        think("wehago")
+        result.get_by_role("button", name="확인", exact=True).click()
+        if "완료" not in text:
+            raise WehagoError(f"사업소득 엑셀서식 불러오기 실패 — 위하고 응답: {text}")
+        return text
 
     # ---- 내부 헬퍼 ----
 

@@ -56,8 +56,10 @@ def test_every_business_type_code_maps_to_a_template_label():
 
 
 def test_period_and_date_formatting():
-    assert _yyyymm("2025-11") == "202511"
-    assert _yyyymmdd(date(2025, 11, 25)) == "20251125"
+    """위하고 날짜 입력은 점 구분·0 패딩 필수 — "2026.1.5"처럼 패딩이 빠지면 입력 오류 (2026-09-28 실측)."""
+    assert _yyyymm("2025-11") == "2025.11"
+    assert _yyyymmdd(date(2025, 11, 25)) == "2025.11.25"
+    assert _yyyymmdd(date(2026, 1, 5)) == "2026.01.05"
     assert _yyyymmdd(None) == ""
 
 
