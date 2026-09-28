@@ -196,3 +196,13 @@
   5. 나머지 코드(학자금 G01, 연구보조비 H06~H10, 국외근로 M01~M04, 출산지원금 Q03/Q04, 직무발명보상금 R11, 종업원할인 W01, 주식매수선택권 S01/U01/U02, 기타 감면 T01~T50) — 수요 확인 후 순차
 - **낮은 우선순위**: "작성여부 X" 코드(A01~F01, H02~H04, J01, N01, P02, V01~V05 등)는 지급명세서 미기재 → 과세표준 제외만 되면 충분
 - **기준 자료**: 2026년 개정 근로소득 비과세/감면코드 표 (사용자 제공, 2026-09-25)
+
+### [ ] 수임처별 히스토리 (전화내역·제출서류내역·컴플레인) — ⚠️ **미구현** (2026-09-28 제안)
+- **목표**: 거래처(수임처)별로 전화내역·제출서류내역·컴플레인을 기록. (1) 거래처 목록/상세에 작게 "히스토리" 토글을 두어 클릭 시 해당 거래처 히스토리만 펼쳐보기, (2) 상단에 별도 "히스토리" 메뉴를 신설해 전체 거래처 통합 조회
+- **현재 구조와의 차이**: 상시 노출되는 좌측 거래처 목록 자체가 없음 — 거래처는 `/dashboard/clients` 목록 페이지와 `/dashboard/clients/[id]` 상세 페이지로 분리(`frontend/src/app/dashboard/layout.tsx`는 좌측 사이드바가 아닌 상단 탭바, `NAV_ITEMS`). "맨왼쪽 업체리스트"를 상시 레이아웃으로 만들려면 `plan/09-design.md` A3(사이드바 리디자인)·C1(거래처 상세 탭 구조) 항목과 함께 레이아웃 변경이 선행되어야 함. 우선은 거래처 상세 페이지(`clients/[id]/page.tsx`) 내 아코디언 섹션으로 시작 가능
+- **데이터 모델(안)**: `ClientHistoryEntry(id, client_id, type: CALL|DOCUMENT|COMPLAINT, summary, detail, occurred_at, created_by(=user_id), attachment_url?, complaint_status?: OPEN|RESOLVED)` — 3종을 분리 테이블이 아닌 `type` 컬럼으로 통합해야 "전체 히스토리" 메뉴에서 유형 무관하게 시간순 통합 조회·필터가 쉬움
+- **구현 방향**:
+  1. Backend: `ClientHistoryEntry` 모델(`plan/02-data-model.md` 반영) + `POST/GET /api/v1/clients/{id}/history`(거래처별), `GET /api/v1/history`(전체, `client_id`/`type`/기간/담당자 쿼리 필터)
+  2. Frontend: 거래처 상세에 히스토리 아코디언(최근 N건 + 더보기), `dashboard/history/page.tsx` 신설(전체 조회 테이블 + 필터), `dashboard/layout.tsx`의 `NAV_ITEMS`에 "히스토리" 메뉴 추가
+  3. 컴플레인은 `complaint_status`로 해결/미해결 구분 — 전체 히스토리 화면에서 "미해결 컴플레인만 보기" 필터 우선 고려
+- **미결정 사항**: 좌측 상시 목록 레이아웃 도입 여부·시점(디자인 C1과 통합 여부), 등록 방식(수동 입력만 vs 문자발송·수집 세션과 자동 연동 여부)
