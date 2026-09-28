@@ -104,9 +104,9 @@
 - **게이트 3 (담당자 발송 확정)** ✅ 기존 인프라 재사용 — `components/rpa/rpa-panel.tsx:170` `publishFilingResult()`로 `ClientFilingResult.published_at` 채워야 사장님 포털·문자 발송 트리거
 - **임계치 초기값**: 원천세 합계 델타 ±2% (`fast_path.py:DEFAULT_THRESHOLD_PCT`), 조명신 사무소 시범 운영 후 조정
 - **남은 작업**
-  - [x] 페스트패스 통합 테스트 (`backend/tests/test_fast_path.py`, 2026-09-28) — 6케이스 (프리뷰 정상·404·전월 없음·기존 항목 blocker·정상 커밋·델타 초과) 전부 통과
-  - [ ] 커밋 후 자동으로 위하고 전송 큐잉까지 체이닝 여부 결정 (현재는 사용자가 다시 "① 위하고 전송" 버튼 클릭)
-  - [ ] 부양가족·자녀 수 최신값(직원 마스터) 반영 — 현재는 전월 엔트리의 `dependents/children` 그대로 사용
+  - [x] 페스트패스 테스트 (`backend/tests/test_fast_path.py`, 2026-09-28) — 6케이스 통합 + 3케이스 단위(마스터값 우선 검증) 총 9개 통과
+  - [x] 커밋 후 자동 위하고 전송 체이닝 (2026-09-28, `d050dba`) — FastPathModal이 `createWehagoUploads` 이어서 호출, blocker 시 승인은 유지하고 사유 안내
+  - [x] 부양가족·자녀·조정률 최신값 반영 (2026-09-28) — `_recalc_row(entry, employee)`가 Employee 마스터의 `dependents_count`/`children_count`/`withholding_rate_adjust`를 **우선** 사용, 마스터 미매칭 시 전월 엔트리 값 fallback. 재계산에 실제로 사용한 값이 저장됨
   - [ ] 임계치 사무소별 커스텀(`TaxOffice.fast_path_threshold_pct`) — 조명신 시범 이후
 
 ### [ ] 이지원(자동화 노트북) RPA 남은 작업 — 2026-09-27 인계

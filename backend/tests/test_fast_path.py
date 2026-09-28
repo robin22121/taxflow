@@ -1,4 +1,4 @@
-"""전월 동일 페스트패스 (plan/01-workflow-roadmap.md §1.3) 통합 테스트.
+"""전월 동일 페스트패스 (plan/01-workflow-roadmap.md §1.3) 통합·단위 테스트.
 
 시드 데이터는 2026-01 ~ 2026-04 4개월 필링을 만든다 (`scripts/seed.py`).
 페스트패스는 "이번 달"에 진입하려면 그 달 필링이 있고, 전월에 데이터가 있어야 한다.
@@ -8,7 +8,29 @@
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
+
+from app.api.fast_path import _recalc_row
+from app.models.employee import Employee, EmploymentStatus
+from app.models.payroll import IncomeType, PayrollEntry
+
+
+@pytest_asyncio.fixture(scope="module", autouse=True)
+async def _reset_after_fast_path():
+    """이 모듈은 5월 필링을 새로 만들고 approved 엔트리를 추가하므로,
+    끝난 뒤엔 DB를 재시드해 후속 테스트(예: `test_rpa_wehago_upload`)가
+    기대하는 원래 시드 상태로 되돌린다.
+    """
+    yield
+    from app.db import Base, engine
+    from app import models  # noqa: F401
+    from app.scripts.seed import main as seed_main
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    await seed_main()
 
 
 async def _april_client_id(http: AsyncClient, auth_headers: dict) -> str:
@@ -176,3 +198,78 @@ async def test_commit_rejects_when_delta_exceeds_threshold(
         # 완전 동일 케이스: 200 + approved=True
         assert r.status_code == 200
         assert r.json()["approved"] is True
+
+
+# ---------------------------------------------------------------------------
+# _recalc_row 단위 테스트 — 부양가족·자녀·조정률 최신값 우선 사용 검증
+# ---------------------------------------------------------------------------
+
+
+def _make_entry(*, dependents: int, children: int, rate_adjust: int) -> PayrollEntry:
+    """세액 재계산에 필요한 최소 필드만 채운 전월 엔트리."""
+    return PayrollEntry(
+        raw_name="테스트",
+        income_type=IncomeType.WAGE,
+        total_amount=3_000_000,
+        non_taxable=200_000,
+        taxable=2_800_000,
+        dependents=dependents,
+        children=children,
+        rate_adjust=rate_adjust,
+        income_tax=0,
+        local_tax=0,
+    )
+
+
+def _make_employee(
+    *, dependents_count: int, children_count: int, withholding_rate_adjust: int
+) -> Employee:
+    return Employee(
+        client_id="c",
+        name="테스트",
+        dependents_count=dependents_count,
+        children_count=children_count,
+        withholding_rate_adjust=withholding_rate_adjust,
+        status=EmploymentStatus.ACTIVE,
+    )
+
+
+def test_recalc_row_uses_employee_master_values_when_available():
+    """마스터에 dependents_count가 있으면 전월 엔트리 값보다 우선 사용."""
+    entry = _make_entry(dependents=1, children=0, rate_adjust=100)
+    # 마스터에서 부양가족 3명(본인+배우자+자녀1)로 업데이트된 상황
+    employee = _make_employee(
+        dependents_count=3, children_count=1, withholding_rate_adjust=100
+    )
+    income_tax_master, _, dep_used, kids_used, adj_used = _recalc_row(entry, employee)
+    assert dep_used == 3
+    assert kids_used == 1
+    assert adj_used == 100
+
+    # 대조: 마스터 없이 전월값(1명, 자녀 0)로 계산하면 세액이 더 많다
+    income_tax_prev, _, _, _, _ = _recalc_row(entry, None)
+    assert income_tax_master < income_tax_prev
+
+
+def test_recalc_row_falls_back_to_entry_when_no_employee_master():
+    """직원 마스터 매칭 실패(사업소득 프리랜서 등) 시 전월 엔트리 값 그대로 사용."""
+    entry = _make_entry(dependents=2, children=0, rate_adjust=100)
+    _, _, dep_used, kids_used, adj_used = _recalc_row(entry, None)
+    assert dep_used == 2
+    assert kids_used == 0
+    assert adj_used == 100
+
+
+def test_recalc_row_rate_adjust_master_wins():
+    """조정률(80/100/120)도 마스터가 우선 — 세율 조정 신청 반영."""
+    entry = _make_entry(dependents=1, children=0, rate_adjust=100)
+    # 마스터에서 120% 조정 신청 상태
+    employee = _make_employee(
+        dependents_count=1, children_count=0, withholding_rate_adjust=120
+    )
+    income_tax_120, _, _, _, adj_used = _recalc_row(entry, employee)
+    assert adj_used == 120
+
+    # 100% 대비 120%가 세액이 더 크다
+    income_tax_100, _, _, _, _ = _recalc_row(entry, None)
+    assert income_tax_120 > income_tax_100

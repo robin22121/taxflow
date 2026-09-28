@@ -136,16 +136,19 @@ async def _load_prev_entries(
     return list(rows), prev_period
 
 
-async def _active_employee_ids(db: AsyncSession, client_id: str) -> set[str]:
+async def _active_employees(
+    db: AsyncSession, client_id: str
+) -> dict[str, Employee]:
+    """재직 중인 직원 마스터 (`id → Employee`). 부양가족·자녀 최신값을 세액 계산에 반영하기 위해 필요."""
     rows = (
         await db.execute(
-            select(Employee.id).where(
+            select(Employee).where(
                 Employee.client_id == client_id,
                 Employee.status != EmploymentStatus.RESIGNED,
             )
         )
     ).scalars().all()
-    return set(rows)
+    return {e.id: e for e in rows}
 
 
 async def _current_entry_count(
@@ -162,24 +165,39 @@ async def _current_entry_count(
     return len(rows)
 
 
-def _recalc_row(entry: PayrollEntry, client: Client) -> tuple[int, int]:
+def _recalc_row(
+    entry: PayrollEntry, employee: Employee | None
+) -> tuple[int, int, int, int, int]:
     """전월 엔트리를 최신 세율·부양가족 값으로 재계산.
 
     - taxable = total_amount - non_taxable (전월 값 그대로 씀. 비과세 정책 변경 없음)
-    - 부양가족/자녀/조정률/업종코드는 전월 값 그대로 (변경 시 [5] 검토에서 수정)
+    - 부양가족/자녀/조정률: Employee 마스터가 있으면 그 값을 **우선** 사용
+      (혼인·출산·부양가족 변경이 반영된다). 마스터 미매칭이면 전월 값 fallback.
     - 최신 세율표(wage_tax_table) + 사업소득 세율은 tax_calc가 latest를 참조
+
+    Returns:
+        (income_tax, local_tax, dependents, children, rate_adjust) —
+        재계산에 실제로 사용한 값을 함께 반환해 저장 시 그대로 쓸 수 있다.
     """
     taxable = max(0, entry.taxable or 0)
     biz_code = entry.business_type_code
+    if employee is not None:
+        dependents = employee.dependents_count or 1
+        children = employee.children_count or 0
+        rate_adjust = employee.withholding_rate_adjust or 100
+    else:
+        dependents = entry.dependents or 1
+        children = entry.children or 0
+        rate_adjust = entry.rate_adjust or 100
     tax = calculate_withholding_tax(
         entry.income_type,
         taxable,
-        dependents=entry.dependents or 1,
-        children=entry.children or 0,
-        rate_adjust=entry.rate_adjust or 100,
+        dependents=dependents,
+        children=children,
+        rate_adjust=rate_adjust,
         business_type_code=biz_code,
     )
-    return tax.income_tax, tax.local_tax
+    return tax.income_tax, tax.local_tax, dependents, children, rate_adjust
 
 
 async def _build_summary(
@@ -195,7 +213,7 @@ async def _build_summary(
             f"{prev_period} 급여자료가 없습니다 — 전월 동일 페스트패스를 사용할 수 없습니다",
         )
 
-    active_ids = await _active_employee_ids(db, client.id)
+    employees = await _active_employees(db, client.id)
 
     rows: list[FastPathRow] = []
     resigned = 0
@@ -206,10 +224,12 @@ async def _build_summary(
     local_tax_curr = 0
     for pe in prev_entries:
         # 퇴사 처리된 직원은 이월하지 않음 (carry_forward preview와 동일 정책)
-        if pe.employee_id and pe.employee_id not in active_ids:
+        if pe.employee_id and pe.employee_id not in employees:
             resigned += 1
             continue
-        curr_income, curr_local = _recalc_row(pe, client)
+        curr_income, curr_local, _, _, _ = _recalc_row(
+            pe, employees.get(pe.employee_id) if pe.employee_id else None
+        )
         prev_income = pe.income_tax or 0
         prev_local = pe.local_tax or 0
         rows.append(
@@ -327,7 +347,7 @@ async def fast_path_commit(
         )
 
     prev_entries, _ = await _load_prev_entries(db, client, filing)
-    active_ids = await _active_employee_ids(db, client.id)
+    employees = await _active_employees(db, client.id)
 
     session = await get_or_create_session(db, filing, client)
     session.status = CollectionSessionStatus.RECEIVED
@@ -348,9 +368,10 @@ async def fast_path_commit(
 
     created = 0
     for pe in prev_entries:
-        if pe.employee_id and pe.employee_id not in active_ids:
+        if pe.employee_id and pe.employee_id not in employees:
             continue
-        income_tax, local_tax = _recalc_row(pe, client)
+        emp = employees.get(pe.employee_id) if pe.employee_id else None
+        income_tax, local_tax, dependents, children, rate_adjust = _recalc_row(pe, emp)
         db.add(
             PayrollEntry(
                 monthly_filing_id=filing.id,
@@ -380,9 +401,10 @@ async def fast_path_commit(
                 settlement_insurance=pe.settlement_insurance or 0,
                 rent_support=pe.rent_support or 0,
                 payment_date=None,
-                dependents=pe.dependents or 1,
-                children=pe.children or 0,
-                rate_adjust=pe.rate_adjust or 100,
+                # 재계산에 실제로 사용한 최신값을 그대로 저장 (Employee 마스터 값 우선)
+                dependents=dependents,
+                children=children,
+                rate_adjust=rate_adjust,
                 match_status=MatchStatus.MATCHED if pe.employee_id else MatchStatus.AMBIGUOUS,
                 prev_amount=pe.total_amount or 0,
                 approved=True,  # 페스트패스 게이트를 통과했으므로 자동 승인
