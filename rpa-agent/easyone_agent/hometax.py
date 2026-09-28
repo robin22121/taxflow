@@ -11,9 +11,16 @@ Playwright로 처리할 수 없다. 이 모듈은 브라우저 안에서 진행 
 홈택스 세션에 CDP로 붙어 서도(224-02-38407, 더미 수임처) 사업자번호로 실측):
 - 일용ㆍ간이지급명세서 통합 작성 화면(`open_simplified_statement_screen` 이하) — 사업자번호
   조회까지 실제 동작 확인.
-- 원천세 신고(원천징수이행상황신고서) 화면은 진입(`open_wht_filing_screen` 이하) 카드 클릭까지만
-  실측했다. 그 다음 화면(안내 팝업 닫기 이후)은 실제 정부 신고 화면으로 더 들어가는 조작이라
-  이 세션에서는 진행하지 않았다 — 사람이 직접 이어서 실측해야 한다.
+- 원천세 신고(원천징수이행상황신고서) [정기신고](직접작성) 화면은 진입(`open_wht_filing_screen`
+  이하) 카드 클릭까지만 실측했다. 그 다음 화면(안내 팝업 닫기 이후)은 실제 정부 신고 화면으로
+  더 들어가는 조작이라 이 세션에서는 진행하지 않았다 — 사람이 직접 이어서 실측해야 한다.
+- 원천세 신고 [파일변환신고](위하고T 등에서 제작한 신고서 파일을 그대로 올리는 방식,
+  `open_file_conversion_filing_screen`·`select_conversion_file` 이하) — 화면 진입, [파일선택]
+  버튼이 여는 네이티브 파일 선택창을 Playwright `expect_file_chooser`로 가로채 파일 첨부까지
+  실제 동작 확인(테스트용 샘플 파일로 검증, `tests/fixtures/wht_filing_sample_224-02-38407.csv`
+  — 국세청 전산매체 제출요령의 정확한 레코드 포맷을 확인하지 못해 만든 임시 샘플이라 실제 파일
+  형식과 다를 수 있다). **[파일검증하기]부터는 실제 정부 신고 화면을 더 진행시키는 조작이라
+  자동화 환경 안전 정책상 진행하지 않았다** — 사람이 직접 눌러야 한다.
 
 **이 모듈은 어떤 함수도 지급명세서·원천세 신고서의 "제출/신고" 버튼을 클릭하지 않는다.**
 그 버튼들의 셀렉터는 참고용으로만 아래 `_DO_NOT_CLICK_SUBMIT_SELECTORS` 에 기록해 두고,
@@ -65,7 +72,9 @@ class FilingType:
 _DO_NOT_CLICK_SUBMIT_SELECTORS = {
     "간이지급명세서 제출하기": "#mf_txppWframe_btnSbms",
     "간이지급명세서 제출전 미리보기": "#mf_txppWframe_btnSbms_20_01",
-    # 원천세 신고서 자체 제출 버튼은 안내 팝업 다음 화면부터라 아직 실측하지 못했다.
+    # 원천세 신고서(정기신고 직접작성) 자체 제출 버튼은 안내 팝업 다음 화면부터라 아직 실측 못함.
+    "파일변환신고 파일검증하기": "#mf_txppWframe_pf_UTERNAAZ0Z11_btn_cenSts",
+    "파일변환신고 제출하러 가기": "#mf_txppWframe_pf_UTERNAAZ0Z11_btn_rigSts",
 }
 
 
@@ -260,6 +269,48 @@ class HometaxSession:
             "[정기신고] 카드 클릭까지만 실측됨. 이어지는 안내 팝업 닫기·실제 신고서 작성 "
             "화면(사업자번호·귀속월·A코드별 금액 입력)은 사람이 직접 실측 후 구현해야 한다."
         )
+
+    def open_file_conversion_filing_screen(self) -> None:
+        """[파일변환신고] 카드를 클릭한다 — 위하고T 등에서 제작한 신고서 파일을 그대로 업로드하는 방식.
+
+        `open_wht_filing_screen()`을 먼저 호출해야 한다. 이 화면의 신고구분ㆍ신고종류ㆍ신고서종류
+        드롭박스는 기본값이 이미 정기(확정)ㆍ정기신고ㆍ원천징수이행상황신고서라 별도로 건드리지
+        않는다(2026-09-28 실측).
+        """
+        assert self._page is not None, "open_wht_filing_screen() 먼저 호출"
+        card_id = self._page.evaluate(
+            """() => {
+                for (const el of document.querySelectorAll('[id^="mf_txppWframe"].w2group.tit, [id^="mf_txppWframe"] .w2group.tit')) {
+                    if (el.textContent.trim() === '파일변환신고') {
+                        const a = el.closest('a');
+                        return a ? a.id : null;
+                    }
+                }
+                return null;
+            }"""
+        )
+        if not card_id:
+            raise HometaxError("[파일변환신고] 카드를 찾지 못함 — 화면 구조가 바뀌었을 수 있음")
+        self._page.click(f"#{card_id}")
+        self._page.locator("#mf_txppWframe_pf_UTERNAAZ0Z11_btn_selFileB").wait_for(
+            state="visible", timeout=LOGIN_FORM_WAIT_MS
+        )
+
+    def select_conversion_file(self, file_path: str) -> None:
+        """[파일선택] 버튼을 눌러 신고서 파일(위하고T 등에서 제작한 파일)을 첨부한다.
+
+        [파일선택]은 네이티브 파일 선택창을 여는 버튼이라(page.locator로 잡히는 `<input type=file>`이
+        DOM에 없음, 2026-09-28 실측) Playwright의 `expect_file_chooser`로 가로채야 한다.
+
+        **여기서 멈춘다.** 파일 첨부 다음 단계인 [파일검증하기]ㆍ[제출하러 가기]는 이 메서드가
+        호출하지 않는다 (`_DO_NOT_CLICK_SUBMIT_SELECTORS` 참조) — 실제 정부 신고 화면을 더
+        진행시키는 조작이라 사람이 직접 눌러야 한다.
+        """
+        assert self._page is not None, "open_file_conversion_filing_screen() 먼저 호출"
+        with self._page.expect_file_chooser(timeout=LOGIN_FORM_WAIT_MS) as fc_info:
+            self._page.click("#mf_txppWframe_pf_UTERNAAZ0Z11_btn_selFileB")
+        fc_info.value.set_files(file_path)
+        self._page.wait_for_timeout(1000)
 
     def save_failure_screenshot(self, name: str) -> None:
         if self._page is None:
