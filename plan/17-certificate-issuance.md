@@ -478,7 +478,7 @@ curl -X POST http://localhost:8100/api/user/issue-requests \
 **2단계 — 세무사 아이디 + 공동인증서 로그인 (1단계 성공 후)**
 
 - 원래 Phase 2 스코프였으나, 실제 운영 경로가 세무사 대리 로그인이므로 Phase 1.5 에서 미리 실측한다.
-- 추가 자격증명 (`setup` 확장): `hometax_cert_path` (인증서 파일 경로 또는 저장소 위치), `hometax_cert_pw`.
+- 추가 자격증명 (`setup` 확장): `hometax_cert_pw`. 파일 경로는 **표준 NPKI 경로** (`%LOCALAPPDATA%\..\LocalLow\NPKI\`, 자동화 전용 Windows 계정 프로필 하위)로 고정 — 홈택스 인증서 선택창이 자동 스캔하므로 `hometax_cert_path` 별도 저장 불필요 (2026-09-28 결정, `plan/16-wehago-rpa.md` §8-2).
 - **인증서 선택 창·비밀번호 입력은 Playwright 로 조작 가능** (2026-09-18 사용자 확인). 이 부분은 미지수가 아니다.
 - ~~남은 실측 대상: 공동인증서 로그인이 브라우저 확장·nProtect 등 별도 모듈을 요구하는지, 인증서를 어느 저장 위치에서 읽는지~~ → **2026-09-25 해소.** 이지원에 인증서·아이디·비밀번호를 저장해 두면 Playwright 자동 로그인이 동작함을 사용자가 확인 (`plan/16-wehago-rpa.md` §3-1 과 공유). 운영 경로는 §3-9-7-4.
 - 세무대리 관리번호·수임처 다중 선택은 이 단계에서도 **범위 밖** — Phase 2.
