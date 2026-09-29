@@ -362,7 +362,7 @@ async def client_archive(db: AsyncSession, client: Client) -> list[ArchiveRow]:
                 func.sum(PayrollEntry.income_tax + PayrollEntry.local_tax),
             )
             .join(MonthlyFiling, MonthlyFiling.id == PayrollEntry.monthly_filing_id)
-            .where(PayrollEntry.client_id == client.id)
+            .where(PayrollEntry.client_id == client.id, PayrollEntry.deleted.is_(False))
             .group_by(MonthlyFiling.period)
         )
     ).all()
@@ -449,6 +449,7 @@ async def _estimated_tax(db: AsyncSession, client_id: str, period: str) -> int:
             .where(
                 PayrollEntry.client_id == client_id,
                 MonthlyFiling.period == period,
+                PayrollEntry.deleted.is_(False),
             )
         )
     ).scalar()
@@ -569,6 +570,7 @@ async def last_month_summary(
             .where(
                 PayrollEntry.client_id == client.id,
                 MonthlyFiling.period == prev,
+                PayrollEntry.deleted.is_(False),
             )
             .order_by(PayrollEntry.raw_name)
         )
@@ -650,6 +652,7 @@ async def monthly_cost_series(
             .where(
                 PayrollEntry.client_id == client.id,
                 MonthlyFiling.period.in_(periods),
+                PayrollEntry.deleted.is_(False),
             )
             .group_by(MonthlyFiling.period, PayrollEntry.income_type)
         )
@@ -743,6 +746,7 @@ async def employee_detail(
             .where(
                 PayrollEntry.client_id == client.id,
                 PayrollEntry.employee_id == emp.id,
+                PayrollEntry.deleted.is_(False),
             )
             .order_by(PayrollEntry.created_at.desc())
             .limit(1)
@@ -765,6 +769,7 @@ async def employee_detail(
                     PayrollEntry.client_id == client.id,
                     PayrollEntry.employee_id == emp.id,
                     MonthlyFiling.period.like(f"{this_year}-%"),
+                    PayrollEntry.deleted.is_(False),
                 )
                 .order_by(MonthlyFiling.period.desc())
             )

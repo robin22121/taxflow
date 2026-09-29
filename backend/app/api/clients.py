@@ -796,7 +796,7 @@ async def get_payroll_history(
             select(PayrollEntry, MonthlyFiling, Employee)
             .join(MonthlyFiling, MonthlyFiling.id == PayrollEntry.monthly_filing_id)
             .outerjoin(Employee, Employee.id == PayrollEntry.employee_id)
-            .where(PayrollEntry.client_id == client_id)
+            .where(PayrollEntry.client_id == client_id, PayrollEntry.deleted.is_(False))
             .order_by(MonthlyFiling.period.desc(), PayrollEntry.raw_name)
         )
     ).all()

@@ -316,6 +316,7 @@ async def gated_payroll(
             .where(
                 PayrollEntry.client_id == link.client.id,
                 PayrollEntry.monthly_filing_id == link.filing.id,
+                PayrollEntry.deleted.is_(False),
             )
             .order_by(PayrollEntry.raw_name)
         )
@@ -360,6 +361,7 @@ async def portal_payslips(
                     MonthlyFiling.period == period,
                     PayrollEntry.income_type == IncomeType.WAGE,
                     PayrollEntry.employee_id.isnot(None),
+                    PayrollEntry.deleted.is_(False),
                 )
                 .options(selectinload(PayrollEntry.employee))
                 .order_by(PayrollEntry.raw_name)
@@ -680,7 +682,7 @@ async def portal_employees_v2(
     latest_rows = (
         await db.execute(
             select(PayrollEntry.employee_id, PayrollEntry.income_type)
-            .where(PayrollEntry.employee_id.in_(ids))
+            .where(PayrollEntry.employee_id.in_(ids), PayrollEntry.deleted.is_(False))
             .order_by(PayrollEntry.employee_id, PayrollEntry.created_at.desc())
         )
     ).all()

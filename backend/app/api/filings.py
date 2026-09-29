@@ -250,7 +250,10 @@ async def confirm_with_client(
     entries = (
         await db.execute(
             select(PayrollEntry)
-            .where(PayrollEntry.collection_session_id == session_id)
+            .where(
+                PayrollEntry.collection_session_id == session_id,
+                PayrollEntry.deleted.is_(False),
+            )
             .order_by(PayrollEntry.id)
         )
     ).scalars().all()
@@ -594,7 +597,10 @@ async def get_dashboard(
         (
             await db.execute(
                 select(PayrollEntry.collection_session_id, func.count())
-                .where(PayrollEntry.monthly_filing_id == filing_id)
+                .where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.deleted.is_(False),
+                )
                 .group_by(PayrollEntry.collection_session_id)
             )
         ).all()
@@ -609,6 +615,7 @@ async def get_dashboard(
                 .where(
                     PayrollEntry.monthly_filing_id == filing_id,
                     PayrollEntry.anomaly_notes.isnot(None),
+                    PayrollEntry.deleted.is_(False),
                 )
                 .distinct()
             )
@@ -825,7 +832,8 @@ async def delete_entry(
     filing = await db.get(MonthlyFiling, filing_id)
     if filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN)
-    await db.delete(entry)
+    # 소프트 삭제 — 원천세관리 화면에서 빨간 취소선으로 남기고, 신고서 산출물·집계·매칭에서는 제외한다.
+    entry.deleted = True
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -897,6 +905,7 @@ async def download_wehago_excel(
                 PayrollEntry.monthly_filing_id == filing_id,
                 PayrollEntry.approved.is_(True),
                 PayrollEntry.employee_id.isnot(None),
+                PayrollEntry.deleted.is_(False),
             )
             .options(selectinload(PayrollEntry.employee))
         )
@@ -984,6 +993,7 @@ async def download_wage_statement(
                     PayrollEntry.monthly_filing_id == filing_id,
                     PayrollEntry.income_type == "WAGE",
                     PayrollEntry.employee_id.isnot(None),
+                    PayrollEntry.deleted.is_(False),
                 )
                 .options(selectinload(PayrollEntry.employee))
             )
@@ -1021,6 +1031,7 @@ async def download_business_statement(
                     PayrollEntry.monthly_filing_id == filing_id,
                     PayrollEntry.income_type == "BUSINESS",
                     PayrollEntry.employee_id.isnot(None),
+                    PayrollEntry.deleted.is_(False),
                 )
                 .options(selectinload(PayrollEntry.employee))
             )
@@ -1046,6 +1057,7 @@ async def _wage_entries_for_filing(
         PayrollEntry.monthly_filing_id == filing_id,
         PayrollEntry.income_type == "WAGE",
         PayrollEntry.employee_id.isnot(None),
+        PayrollEntry.deleted.is_(False),
     ]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
@@ -1069,6 +1081,7 @@ async def _business_entries_for_filing(
         PayrollEntry.monthly_filing_id == filing_id,
         PayrollEntry.income_type == "BUSINESS",
         PayrollEntry.employee_id.isnot(None),
+        PayrollEntry.deleted.is_(False),
     ]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
@@ -1100,6 +1113,7 @@ async def _unsupported_upload_entries_for_filing(
     filters = [
         PayrollEntry.monthly_filing_id == filing_id,
         PayrollEntry.income_type.in_(_UNSUPPORTED_UPLOAD_INCOME_TYPES),
+        PayrollEntry.deleted.is_(False),
     ]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
@@ -1125,7 +1139,7 @@ async def _payroll_entries_for_filing(
     filing_id: str, db: AsyncSession, client_id: str | None = None
 ) -> list[PayrollEntry]:
     """급여대장용 엔트리. 승인된 항목 우선, 없으면 전체로 fallback."""
-    filters = [PayrollEntry.monthly_filing_id == filing_id]
+    filters = [PayrollEntry.monthly_filing_id == filing_id, PayrollEntry.deleted.is_(False)]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
     all_entries = list(
@@ -1281,7 +1295,10 @@ async def download_unified(
             (
                 await db.execute(
                     select(PayrollEntry.client_id)
-                    .where(PayrollEntry.monthly_filing_id == filing_id)
+                    .where(
+                        PayrollEntry.monthly_filing_id == filing_id,
+                        PayrollEntry.deleted.is_(False),
+                    )
                     .distinct()
                 )
             )
@@ -1300,6 +1317,7 @@ async def download_unified(
                     PayrollEntry.monthly_filing_id == filing_id,
                     PayrollEntry.client_id.in_(requested),
                     PayrollEntry.approved.is_(False),
+                    PayrollEntry.deleted.is_(False),
                 )
                 .distinct()
             )
@@ -1327,6 +1345,7 @@ async def download_unified(
                 .where(
                     PayrollEntry.monthly_filing_id == filing_id,
                     PayrollEntry.client_id.in_(requested),
+                    PayrollEntry.deleted.is_(False),
                 )
                 .distinct()
             )
@@ -1473,6 +1492,7 @@ async def download_payslips(
                     PayrollEntry.monthly_filing_id == filing_id,
                     PayrollEntry.income_type == "WAGE",
                     PayrollEntry.employee_id.isnot(None),
+                    PayrollEntry.deleted.is_(False),
                 )
                 .options(
                     selectinload(PayrollEntry.employee),

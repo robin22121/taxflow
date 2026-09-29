@@ -346,6 +346,7 @@ export type PayrollEntry = {
   anomaly_notes: Record<string, unknown> | null;
   approved: boolean;
   edit_reason: string | null;
+  deleted: boolean;
   source_event: SourceEvent | null;
 };
 
