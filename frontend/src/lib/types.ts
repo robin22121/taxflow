@@ -344,6 +344,7 @@ export type PayrollEntry = {
   prev_amount: number | null;
   anomaly_notes: Record<string, unknown> | null;
   approved: boolean;
+  edit_reason: string | null;
   source_event: SourceEvent | null;
 };
 

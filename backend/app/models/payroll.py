@@ -86,6 +86,7 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
     prev_amount: Mapped[int | None] = mapped_column(Integer)
     anomaly_notes: Mapped[dict | None] = mapped_column(JSON)
     approved: Mapped[bool] = mapped_column(default=False)
+    edit_reason: Mapped[str | None] = mapped_column(String(500))  # 최근 수정 사유 (검토 화면 "수정" 저장 시 입력)
 
     monthly_filing: Mapped[MonthlyFiling] = relationship()
     collection_session: Mapped[CollectionSession] = relationship()
