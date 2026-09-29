@@ -306,6 +306,26 @@ class WehagoUploader:
             close_buttons.last.click(force=True)
             page.wait_for_timeout(400)
 
+    @staticmethod
+    def _dismiss_notice(page) -> None:
+        """SmartA 메뉴에 처음 들어갈 때 가끔 뜨는 1회성 공지(예: "국민연금 기준소득월액
+        상/하한액 변경 안내")를 닫는다 (2026-09-29 실측 — 신규 등록한 거래처의 급여자료입력
+        화면에서 처음 발견).
+
+        `_dismiss_splash`(로그인 splash, [닫기] 버튼)와 달리 이 공지는 [확인] 버튼을 쓰고
+        발생 맥락도 다르다. 진짜 공지인지 판별하려고 "다음부터 이 창을 띄우지 않음" 체크박스
+        문구가 있는 팝업만 대상으로 삼는다 — 마감 완료 등 업무상 중요한 확인 다이얼로그를
+        잘못 닫지 않기 위해서다.
+        """
+        # div:visible has_text는 조상 div까지 다 걸려(2026-09-29 실기: 22개) 어떤 게 실제
+        # 보이는 버튼인지 알 수 없다 — get_by_role은 접근성 이름으로 바로 유일한 버튼을 찾는다.
+        if page.locator("div:visible", has_text="다음부터 이 창을 띄우지 않음").count() == 0:
+            return
+        confirm = page.get_by_role("button", name="확인", exact=True)
+        if confirm.count() and confirm.first.is_visible():
+            confirm.first.click()
+            page.wait_for_timeout(300)
+
     def _open_smarta(self, business_number: str):
         """위하고 T 메인 담당 수임처 검색 → [급여] 클릭 → SmartA 새 탭(메인화면) 반환.
 
@@ -378,6 +398,7 @@ class WehagoUploader:
         menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
         menu.click()
+        self._dismiss_notice(smarta)
         return smarta, name, number
 
     def open_payroll_screen(self, business_number: str, period: str) -> tuple[str, str]:
@@ -756,6 +777,7 @@ class WehagoUploader:
         menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
         menu.click()
+        self._dismiss_notice(smarta)
         return smarta, name, number
 
     def _fill_closing_period(self, smarta, item, period: str) -> None:
