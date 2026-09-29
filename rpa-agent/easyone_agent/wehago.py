@@ -954,6 +954,73 @@ class WehagoUploader:
         result.get_by_role("button", name="확인", exact=True).click()
         return text
 
+    def close_local_tax_payment(self, business_number: str, period: str) -> str:
+        """지방소득세특별징수납부서(SWTA0112) 마감 (§4-4 ⑩-a).
+
+        ⚠️ 미실측 — 이 화면 자체를 아직 실제로 열어보지 못했다. SWTA0101과 같은
+        "세무신고관리 / 전자신고 / AI원천세" 카테고리로 추정만 하고 있고(§4-4 표 근거),
+        조회조건이 SWTA0101처럼 귀속기간 하나(연/월 4칸)인지, 마감 버튼 라벨이 정말
+        "마감(F3)"인지, 완료·오류 모달 문구도 전부 close_wht_return을 본떠 추정한 것이다.
+        처음 실행해서 어긋나면 화면을 캡처해 알려줘야 고칠 수 있다.
+
+        Returns:
+            완료 모달의 원문 텍스트.
+
+        Raises:
+            WehagoError: "마감 오류리스트"가 뜸 — §8-1 원칙대로 강제마감하지 않고 중단한다.
+        """
+        smarta, _name, _number = self._open_closing_menu(
+            business_number, self._LOCAL_TAX_PAYMENT_MENU_ID
+        )
+
+        self.step = "지방세 조회 조건 입력"
+        item = smarta.locator(_COND_BAR).locator("div.item").first
+        self._fill_closing_period(smarta, item, period)
+
+        think("wehago")
+        smarta.get_by_role("button", name="조회", exact=True).click()
+        self._wait_for_no_dimmed(smarta)
+
+        self.step = "지방세 마감"
+        think("wehago")
+        smarta.get_by_role("button", name=re.compile(r"^마감"), exact=False).click()
+
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        self.step = "지방세 마감 결과 확인"
+        error_dialog = smarta.locator("div._isDialog:visible", has_text="마감 오류리스트")
+        try:
+            error_dialog.wait_for(state="visible", timeout=5_000)
+        except PlaywrightTimeout:
+            error_dialog = None
+        if error_dialog is not None:
+            # §8-1 원칙: 데이터 정합성 오류는 강제마감 금지, 취소하고 실패로 회신한다.
+            rows = error_dialog.locator("table tr").all_inner_texts()
+            think("wehago")
+            cancel = error_dialog.get_by_role("button", name=re.compile("취소"))
+            cancel.click()
+            raise WehagoError(
+                "지방세 마감 오류 (강제마감 금지 — 원천세 마감 결과 재확인 필요): "
+                + " / ".join(r.strip() for r in rows if r.strip())
+            )
+
+        confirm = smarta.locator("div._isDialog:visible", has_text="원천징수 신고")
+        try:
+            confirm.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        except PlaywrightTimeout:
+            pass
+        else:
+            think("wehago")
+            confirm.get_by_role("button", name="확인(enter)", exact=True).click()
+
+        self.step = "지방세 마감 완료 대기"
+        result = smarta.locator("div._isDialog:visible", has_text="완료")
+        result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        text = result.inner_text().strip()
+        think("wehago")
+        result.get_by_role("button", name="확인", exact=True).click()
+        return text
+
     # ------------------------------------------------------------------
     # 소득자등록 (§4-4 확장 — 사업/기타/일용소득 자동화, 2026-09-29 실측 진행 중)
     #

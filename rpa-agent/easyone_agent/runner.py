@@ -8,13 +8,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from easyone_agent.api import IMPORT_ALL, IMPORT_CLIENT, MONTHLY_PRODUCTION, EasyoneApi, Job
-
-WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"
 from easyone_agent.company import company_matches
 from easyone_agent.import_runner import process_import
 from easyone_agent.logmask import mask_text
 from easyone_agent.pace import job_gap_sec
 from easyone_agent.wehago import CompanyMismatch, LoginFailed, WehagoError, WehagoUploader
+
+WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"
 
 logger = logging.getLogger(__name__)
 
@@ -86,16 +86,19 @@ def failure_message(e: Exception, uploader: object) -> str:
 
 
 def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, job: Job) -> bool:
-    """제작(게이트 2) — 현재는 위하고 마감(원천세·사업소득)까지만 자동화 (plan/16 §4-4 ⑨-a·⑨-b).
+    """제작(게이트 2) — 현재는 위하고 마감(원천세·사업소득·지방세)까지만 자동화
+    (plan/16 §4-4 ⑨-a·⑨-b·⑩-a).
 
     전자신고 파일 제작(F4, ⑨-c·⑩-b)은 Windows 전용 위하고 로컬 모듈이 필요해 이 macOS
-    에이전트에서는 못 한다. 지방세 마감(⑩-a)·홈택스(⑪)·위택스(⑫)는 아직 자동화가 없다.
-    이후 단계는 완료 메시지에서 수동 처리를 안내한다.
+    에이전트에서는 못 한다. 홈택스(⑪)·위택스(⑫)는 아직 자동화가 없다. 지방세 마감은
+    아직 실제 화면으로 실측하지 못한 최초 실행이라 실패할 수 있다(close_local_tax_payment
+    docstring 참고) — 이후 단계는 완료 메시지에서 수동 처리를 안내한다.
     """
     try:
         uploader.ensure_logged_in()
         wht_text = uploader.close_wht_return(job.business_number, job.period)
         biz_text = uploader.close_business_income_report(job.business_number, job.period)
+        local_text = uploader.close_local_tax_payment(job.business_number, job.period)
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
         raise
@@ -111,8 +114,8 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
             api,
             job.id,
             True,
-            f"위하고 마감 완료 — 원천세: {wht_text} / 사업소득: {biz_text}. "
-            "전자신고 파일 제작(F4)·지방세 마감·홈택스·위택스 신고는 아직 자동화되지 않아 "
+            f"위하고 마감 완료 — 원천세: {wht_text} / 사업소득: {biz_text} / 지방세: {local_text}. "
+            "전자신고 파일 제작(F4)·홈택스·위택스 신고는 아직 자동화되지 않아 "
             "Windows 노트북·수동으로 진행하세요.",
         )
     return True

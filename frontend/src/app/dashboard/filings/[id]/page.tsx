@@ -372,9 +372,9 @@ export default function FilingDetailPage({
           filingId={id}
           targets={sessions.map((s) => {
             const stage = productionStageOf(s.client_id);
+            // "failed"는 막지 않는다 — 재시도할 수 있어야 하고, 백엔드도 PENDING/RUNNING만 막는다.
             const reason =
-              stage === "input_done" ? null
-              : stage === "failed" ? "자동화 실패 — 확인 필요"
+              stage === "input_done" || stage === "failed" ? null
               : stage === "producing" || stage === "production_done" || stage === "published" ? "이미 제작 진행·완료"
               : "위하고 입력 미완료";
             return { clientId: s.client_id, clientName: s.client_name, blockedReason: reason };
