@@ -326,6 +326,17 @@ class WehagoUploader:
             confirm.first.click()
             page.wait_for_timeout(300)
 
+    def _click_dismissing_notice(self, page, locator) -> None:
+        """공지 팝업이 뜨는 타이밍이 애매해(사전 dismiss 이후에도 뜬 적 있음, 2026-09-29)
+        클릭이 막히면(타임아웃) 한 번 닫고 재시도한다."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        try:
+            locator.click(timeout=10_000)
+        except PlaywrightTimeout:
+            self._dismiss_notice(page)
+            locator.click(timeout=UPLOAD_WAIT_MS)
+
     def _open_smarta(self, business_number: str):
         """위하고 T 메인 담당 수임처 검색 → [급여] 클릭 → SmartA 새 탭(메인화면) 반환.
 
@@ -1160,7 +1171,7 @@ class WehagoUploader:
             # 귀속연월은 키보드 입력이 먹히지 않는 경우가 있어(2026.03 으로 들어감, 2026-09-27 실측)
             # 달력 아이콘 → 월 버튼으로 고른다. 달력의 연도는 SmartA 귀속 연도로 고정.
             think("wehago")
-            items.nth(0).locator("div.fakebutton").click()
+            self._click_dismissing_notice(page, items.nth(0).locator("div.fakebutton"))
             months = page.locator("div.date_tbl td.date_day button")
             months.first.wait_for(state="visible", timeout=5_000)
             think("wehago")
