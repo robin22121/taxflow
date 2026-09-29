@@ -711,6 +711,7 @@ class WehagoUploader:
         "SWER0101": "세무신고관리 / 전자신고 / AI원천세",
         "SWTA0112": "세무신고관리 / 전자신고 / AI원천세",
         "SWER0109": "세무신고관리 / 전자신고 / AI원천세",
+        "SWBU0101": "사업소득관리 / 기타(이자 / 배당)소득관리",  # 사업소득자등록
     }
     _ALL_MENU_BUTTON = "button#allmenu"  # "전체메뉴" 패널을 (다시) 여는 버튼 — 실측: 우측 상단 아이콘
 
@@ -885,6 +886,103 @@ class WehagoUploader:
         think("wehago")
         result.get_by_role("button", name="확인", exact=True).click()
         return text
+
+    # ------------------------------------------------------------------
+    # 소득자등록 (§4-4 확장 — 사업/기타/일용소득 자동화, 2026-09-29 실측 진행 중)
+    #
+    # 사업소득자료입력(SWBU0102, `upload_business_income`)은 이미 엑셀 업로드로 구현돼
+    # 있지만, 그 전에 위하고에 소득자(사업소득자) 자체가 등록돼 있어야 한다. 이 등록
+    # 화면(SWBU0101)은 왼쪽 RealGrid(목록)에서 이름·주민번호·소득구분만 빠르게 입력하면
+    # 저장 버튼 없이 바로 반영된다(2026-09-29 실측 확인 — 김태호/770728-1323914로 검증).
+    # RealGrid는 캔버스지만 편집 모드에 들어가면 실제 `<input id="Leftgird_line">` 오버레이가
+    # 뜨는 구조라 Playwright로 채울 수 있다.
+    #
+    # ⚠️ 아래 좌표(`position=`)는 실측 세션에서 딱 한 번 관찰된 값을 그대로 옮긴 것이라
+    # 화면 크기·스크롤·기존 행 수에 따라 깨질 수 있다 — 급여자료입력 그리드에 쓰는
+    # `_REALGRID_SET_CURRENT_JS`(`_gridView.setCurrent`) 방식으로 좌표 없이 셀을 지정하도록
+    # 나중에 반드시 바꿔야 한다(이 그리드의 컬럼 필드명을 아직 못 구함 — TODO).
+    # 소득구분 코드도움 팝업(`#IncomeGrid`)의 검색/선택 방식도 미확정 — 지금은 이름으로
+    # 텍스트 검색되는지, 코드로만 되는지 확인 못했다.
+    # ------------------------------------------------------------------
+
+    _BUSINESS_INCOME_REGISTER_MENU_ID = "SWBU0101"
+
+    def register_business_income_earner(
+        self, business_number: str, name: str, rrn: str, income_code_label: str,
+    ) -> None:
+        """사업소득자등록(SWBU0101) — 그리드에 이름·주민번호·소득구분만 입력, 저장 버튼 없음.
+
+        ⚠️ 스켈레톤 — 좌표 기반이라 미검증 상태다 (위 섹션 설명 참고). 실행 전 반드시
+        스크린샷으로 확인하고, 실패하면 `_REALGRID_SET_CURRENT_JS` 방식으로 재작성할 것.
+
+        Args:
+            income_code_label: 코드도움 팝업(`#IncomeGrid`)에서 찾을 텍스트 (예: "병의원").
+                코드(예: "851101")로도 검색되는지는 미확인.
+        """
+        smarta, _name, _number = self._open_closing_menu(
+            business_number, self._BUSINESS_INCOME_REGISTER_MENU_ID
+        )
+
+        self.step = "사업소득자 등록 — 이름"
+        grid_input = smarta.locator("#Leftgird_line")
+        think("wehago")
+        grid_input.dblclick(position={"x": 153, "y": 62})  # TODO 실측: 좌표 대신 셀 지정 방식으로
+        grid_input.fill(name)
+        grid_input.press("Enter")
+
+        self.step = "사업소득자 등록 — 주민번호"
+        think("wehago")
+        grid_input.dblclick(position={"x": 334, "y": 58})  # TODO 실측: 좌표 대신 셀 지정 방식으로
+        grid_input.fill(rrn.replace("-", ""))
+        grid_input.press("Enter")
+
+        self.step = "사업소득자 등록 — 소득구분"
+        think("wehago")
+        grid_input.click(position={"x": 469, "y": 69})  # TODO 실측: 좌표 대신 셀 지정 방식으로
+        popup = smarta.locator("#IncomeGrid")
+        popup.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        popup.get_by_text(income_code_label, exact=False).first.dblclick()
+
+    _OTHER_INCOME_REGISTER_MENU_ID = "SWEA0101"  # TODO 실측: 실제 메뉴 ID 확인 필요 (추정)
+
+    def register_other_income_earner(
+        self, business_number: str, name: str, rrn: str, income_type_label: str,
+    ) -> None:
+        """기타(이자/배당)소득자등록 — 그리드 id가 `Leftgrid`(오타 아님, 사업소득 화면의
+        `Leftgird`와 다름). 등록 결과(2026-09-29 실측, 김태호/770728-1323914)를 보면
+        "소득구분" 칸이 "[69]분리과세기타소득"처럼 코드+라벨로 표시되고 칸 옆에 작은
+        아이콘(📋)이 붙어 있어 — 사업소득 쪽(`#IncomeGrid` 코드도움 팝업)과 같은 방식일
+        가능성이 높다. `#Leftgrid_dropdown`을 단순 `<select>`로 가정한 아래 코드는
+        미검증 추정이다 — 실행 전 실제로 눌러서 팝업이 뜨는지 드롭다운이 열리는지
+        먼저 확인할 것.
+
+        ⚠️ 스켈레톤 — 좌표 기반, `_REALGRID_SET_CURRENT_JS` 방식으로 재작성 필요.
+        등록 중 `#CODEHELP-FTW_ETEMPCD` 코드도움 팝업이 한 번 더 떴는데(담당자 연결로
+        추정) 무슨 용도인지, 필수인지 아직 확인 못했다 — 지금은 건드리지 않는다.
+        """
+        smarta, _name, _number = self._open_closing_menu(
+            business_number, self._OTHER_INCOME_REGISTER_MENU_ID
+        )
+
+        self.step = "기타소득자 등록 — 이름"
+        grid_input = smarta.locator("#Leftgrid_line")
+        think("wehago")
+        grid_input.dblclick(position={"x": 178, "y": 51})  # TODO 실측: 좌표 대신 셀 지정 방식으로
+        grid_input.fill(name)
+        grid_input.press("Tab")
+
+        self.step = "기타소득자 등록 — 주민번호"
+        think("wehago")
+        grid_input.fill(rrn.replace("-", ""))
+        grid_input.press("Tab")
+
+        self.step = "기타소득자 등록 — 소득구분"
+        # TODO 실측 미확정: select_option은 추정이다. 실제로는 사업소득처럼 코드도움
+        # 팝업(#IncomeGrid류)이 뜰 가능성이 높다 — 그 경우 register_business_income_earner의
+        # popup.get_by_text(...).dblclick() 패턴으로 바꿔야 한다.
+        think("wehago")
+        smarta.locator("#Leftgrid_dropdown").select_option(label=income_type_label)
 
     # ---- 내부 헬퍼 ----
 
