@@ -1150,6 +1150,9 @@ class WehagoUploader:
         Esc는 쓰지 않는다 — 조회조건 칸에서 Esc를 누르면 값이 지워지고,
         지급일자 팝업에서는 Esc가 [추가입력]이다.
         """
+        # 화면 진입 직후 바로 닫아도(_open_smarta_menu) 이 공지 팝업이 그 다음에 뜨는 경우가
+        # 있어(2026-09-29 실기: 첫 시도 실패) 실제로 클릭하기 직전에 한 번 더 확인한다.
+        self._dismiss_notice(page)
         year, month = period.split("-")
         want_period, want_date = f"{year}.{month}", pay_date.strftime("%Y.%m.%d")
         items = page.locator(_COND_BAR).locator("div.item")
