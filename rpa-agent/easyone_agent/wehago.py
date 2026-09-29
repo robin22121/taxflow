@@ -201,6 +201,10 @@ class WehagoUploader:
                     pass
         self._page = keep
         self._page.bring_to_front()
+        # 재사용한 탭은 해시 라우팅 SPA라 URL이 같으면 goto만으로는 리액트 상태(검색창에
+        # 남은 이전 사업자번호 등)가 안 지워진다 — 강제로 새로고침해 완전히 초기화한다.
+        if main_page is not None:
+            self._page.reload(wait_until="load")
         # Playwright 는 붙을 때 크롬 다운로드를 가로채(임시 폴더·무작위 이름·확장자 없음) 사람이
         # 위하고에서 내려받은 엑셀을 못 쓰게 된다 (2026-09-27). 에이전트는 이 기능을 쓰지 않으므로
         # 크롬 기본 다운로드(다운로드 폴더·원래 이름)로 되돌린다.
