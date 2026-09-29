@@ -848,6 +848,23 @@ class WehagoUploader:
         """
         smarta, _name, _number = self._open_closing_menu(business_number, self._WHT_RETURN_MENU_ID)
 
+        # "저장된 데이터를 불러오시겠습니까?" — 화면에 들어가자마자, [조회] 클릭 전부터 이미
+        # 떠 있다(2026-09-30 사용자 스크린샷 실측: [조회] 클릭이 이 다이얼로그에 막혀 타임아웃).
+        # 이전에 이 신고서를 열었던 임시저장이 있으면 뜬다 — 항상 최신 급여자료를 반영해야
+        # 하므로 [취소](새로불러오기)를 누른다.
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        self.step = "원천세 저장된 데이터 확인"
+        saved_prompt = smarta.locator("div._isDialog:visible", has_text="저장된 데이터를 불러오시겠습니까")
+        try:
+            saved_prompt.wait_for(state="visible", timeout=5_000)
+        except PlaywrightTimeout:
+            pass
+        else:
+            think("wehago")
+            saved_prompt.get_by_role("button", name="취소", exact=True).click()
+            self._wait_for_no_dimmed(smarta)
+
         self.step = "원천세 조회 조건 입력"
         items = smarta.locator(_COND_BAR).locator("div.item")
         self._fill_closing_period(smarta, items.nth(0), period)  # 귀속기간
@@ -870,22 +887,6 @@ class WehagoUploader:
 
         think("wehago")
         smarta.get_by_role("button", name="조회", exact=True).click()
-
-        # "저장된 데이터를 불러오시겠습니까?" — 이전에 이 신고서를 열었던 임시저장이 있으면
-        # 뜬다. 항상 최신 급여자료를 반영해야 하므로 [취소](새로불러오기)를 누른다
-        # (2026-09-30 사용자 스크린샷 실측).
-        from playwright.sync_api import TimeoutError as PlaywrightTimeout
-
-        self.step = "원천세 저장된 데이터 확인"
-        saved_prompt = smarta.locator("div._isDialog:visible", has_text="저장된 데이터를 불러오시겠습니까")
-        try:
-            saved_prompt.wait_for(state="visible", timeout=5_000)
-        except PlaywrightTimeout:
-            pass
-        else:
-            think("wehago")
-            saved_prompt.get_by_role("button", name="취소", exact=True).click()
-
         self._wait_for_no_dimmed(smarta)
 
         # 조회 조건이 누락되면 알럿이 뜬다 — 있으면 즉시 실패로 간주 (재입력 로직은 아직 없음)
