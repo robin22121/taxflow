@@ -10,23 +10,38 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Employee
+from app.models.income_type import IncomeType
 
 
-async def next_employee_code(db: AsyncSession, client_id: str) -> str:
-    """거래처 직원 중 숫자 사원코드의 최댓값 + 1 (없으면 "1")."""
+async def next_employee_code(db: AsyncSession, client_id: str, income_type: IncomeType) -> str:
+    """거래처의 같은 소득구분 안에서 숫자 사원코드의 최댓값 + 1 (없으면 "1").
+
+    소득구분(근로/사업/기타/일용)마다 번호가 독립적이라 근로1·사업1·기타1처럼
+    같은 번호를 소득구분별로 각각 쓸 수 있다.
+    """
     codes = (
-        await db.execute(select(Employee.employee_code).where(Employee.client_id == client_id))
+        await db.execute(
+            select(Employee.employee_code).where(
+                Employee.client_id == client_id, Employee.income_type == income_type
+            )
+        )
     ).scalars().all()
     numbers = [int(c.strip()) for c in codes if c and c.strip().isdigit()]
     return str(max(numbers, default=0) + 1)
 
 
 async def employee_code_taken(
-    db: AsyncSession, client_id: str, code: str, exclude_employee_id: str | None = None
+    db: AsyncSession,
+    client_id: str,
+    income_type: IncomeType,
+    code: str,
+    exclude_employee_id: str | None = None,
 ) -> bool:
-    """같은 거래처에 이 사원코드를 쓰는 다른 직원이 있는가."""
+    """같은 거래처·같은 소득구분에 이 사원코드를 쓰는 다른 직원이 있는가."""
     query = select(Employee.id).where(
-        Employee.client_id == client_id, Employee.employee_code == code
+        Employee.client_id == client_id,
+        Employee.income_type == income_type,
+        Employee.employee_code == code,
     )
     if exclude_employee_id:
         query = query.where(Employee.id != exclude_employee_id)

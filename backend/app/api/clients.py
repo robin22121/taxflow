@@ -775,9 +775,6 @@ async def create_employee(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     rrn_encrypted = encrypt_rrn(payload.rrn) if payload.rrn else None
     rrn_last4 = _rrn_last4(payload.rrn) if payload.rrn else None
-    code = (payload.employee_code or "").strip() or await next_employee_code(db, client_id)
-    if await employee_code_taken(db, client_id, code):
-        raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 다른 직원이 쓰고 있습니다")
     if payload.income_type is not None:
         try:
             income_type = IncomeType(payload.income_type)
@@ -785,6 +782,9 @@ async def create_employee(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "잘못된 소득구분입니다") from None
     else:
         income_type = IncomeType.WAGE
+    code = (payload.employee_code or "").strip() or await next_employee_code(db, client_id, income_type)
+    if await employee_code_taken(db, client_id, income_type, code):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 같은 소득구분에서 쓰고 있습니다")
     emp = Employee(
         client_id=client_id,
         name=payload.name,
@@ -821,11 +821,6 @@ async def update_employee(
     if not emp or emp.client_id != client_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
     patch = payload.model_dump(exclude_unset=True)
-    if "employee_code" in patch:
-        code = (patch["employee_code"] or "").strip() or await next_employee_code(db, client_id)
-        if await employee_code_taken(db, client_id, code, exclude_employee_id=emp.id):
-            raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 다른 직원이 쓰고 있습니다")
-        patch["employee_code"] = code
     if "income_type" in patch:
         # IncomeType은 str 서브클래스라 아래 제네릭 루프의 .strip()을 거치면 평범한 str로
         # 바뀌어버린다 — 미리 꺼내 별도로 설정한다.
@@ -833,6 +828,14 @@ async def update_employee(
             emp.income_type = IncomeType(patch.pop("income_type"))
         except ValueError:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "잘못된 소득구분입니다") from None
+    if "employee_code" in patch:
+        code = (
+            (patch["employee_code"] or "").strip()
+            or await next_employee_code(db, client_id, emp.income_type)
+        )
+        if await employee_code_taken(db, client_id, emp.income_type, code, exclude_employee_id=emp.id):
+            raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 같은 소득구분에서 쓰고 있습니다")
+        patch["employee_code"] = code
     for key, value in patch.items():
         setattr(emp, key, value.strip() if isinstance(value, str) else value)
     await db.commit()

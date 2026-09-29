@@ -30,4 +30,30 @@ async def test_blank_code_gets_next_number_and_employee_can_be_edited(http: Asyn
 
     dup = await http.patch(f"{base}/{other['id']}", json={"employee_code": "900"}, headers=auth_headers)
     assert dup.status_code == 409
-    assert "이미 다른 직원" in dup.json()["detail"]
+    assert "이미 같은 소득구분" in dup.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_same_number_allowed_across_different_income_types(http: AsyncClient, auth_headers: dict):
+    """근로1·사업1·기타1처럼 소득구분이 다르면 같은 사원코드 번호를 써도 된다."""
+    cid = await _client_id(http, auth_headers)
+    base = f"/api/v1/clients/{cid}/employees"
+
+    # 다른 테스트가 이미 써버렸을 수 있는 숫자와 겹치지 않도록, 전 소득구분에서 비어 있는
+    # 번호를 하나 골라 근로/사업/기타 세 소득구분에 동시에 쓴다.
+    existing = (await http.get(base, headers=auth_headers)).json()
+    used = {int(e["employee_code"]) for e in existing if (e["employee_code"] or "").isdigit()}
+    code = str(max(used, default=0) + 1)
+
+    for income_type, name in (("WAGE", "근로"), ("BUSINESS", "사업"), ("OTHER", "기타")):
+        r = await http.post(
+            base, json={"name": name, "employee_code": code, "income_type": income_type}, headers=auth_headers
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["employee_code"] == code
+
+    # 같은 소득구분(WAGE) 안에서는 여전히 중복이 막힌다.
+    dup_wage = await http.post(
+        base, json={"name": "근로-중복", "employee_code": code, "income_type": "WAGE"}, headers=auth_headers
+    )
+    assert dup_wage.status_code == 409
