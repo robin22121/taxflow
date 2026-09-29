@@ -54,7 +54,10 @@ export function jobStage(job: Pick<RpaJob, "kind" | "status" | "step_progress">)
       return { text: `${current?.label ?? "원천세 신고"}중`, tone: "run" };
     }
     if (job.status === "SUCCEEDED") return { text: "원천세 신고완료", tone: "done" };
-    if (job.status === "FAILED") return { text: "원천세 신고 실패", tone: "fail" };
+    if (job.status === "FAILED") {
+      const failedStep = PRODUCTION_STEPS.find((s) => steps[s.key] === "failed");
+      return { text: failedStep ? `${failedStep.label} 실패` : "원천세 신고 실패", tone: "fail" };
+    }
     return { text: "원천세 신고 취소", tone: "wait" };
   }
   if (job.kind === "CERTIFICATE_ISSUE" && steps.delivered === "done") return { text: "고객발송 완료", tone: "done" };
@@ -70,6 +73,26 @@ export function jobStage(job: Pick<RpaJob, "kind" | "status" | "step_progress">)
     case "FAILED": return { text: `${kind} 실패`, tone: "fail" };
     default: return { text: `${kind} 취소`, tone: "wait" };
   }
+}
+
+/** 진행 중(run) 라벨 — 글자가 한 자씩 순서대로 천천히 깜빡인다. */
+function WaveText({ text }: { text: string }) {
+  return (
+    <span className="inline-flex">
+      {[...text].map((ch, i) => (
+        <span key={i} className="animate-text-wave" style={{ animationDelay: `${i * 0.06}s` }}>
+          {ch === " " ? " " : ch}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** 상태 라벨 — run은 순차 깜빡임, done은 체크 아이콘과 함께 강조. */
+function StageLabel({ stage }: { stage: { text: string; tone: Tone } }) {
+  if (stage.tone === "run") return <WaveText text={stage.text} />;
+  if (stage.tone === "done") return <span className="font-bold">✓ {stage.text}</span>;
+  return <span className="font-normal">{stage.text}</span>;
 }
 
 const TONE_CLASS: Record<Tone, string> = {
@@ -131,7 +154,7 @@ export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } =
               >
                 <span className={"w-1.5 h-1.5 rounded-full " + DOT_CLASS[stage.tone]} />
                 <span>{jobOwner(job)}</span>
-                <span className="font-normal">{stage.text}</span>
+                <StageLabel stage={stage} />
               </button>
             );
           })}
@@ -214,7 +237,7 @@ function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
       <div className="space-y-3 text-[12.5px]">
         <div className={"inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-medium " + TONE_CLASS[stage.tone]}>
           <span className={"w-1.5 h-1.5 rounded-full " + DOT_CLASS[stage.tone]} />
-          {stage.text}
+          <StageLabel stage={stage} />
         </div>
         <dl className="grid grid-cols-[84px_1fr] gap-y-1.5 text-gray-700">
           {job.is_mine ? (
@@ -310,7 +333,7 @@ function JobsModal({ scope, onClose, onPick }: {
                     <td className="px-2 py-1.5 text-gray-500">{job.period ?? KIND_LABEL[job.kind] ?? ""}</td>
                     <td className="px-2 py-1.5">
                       <span className={"inline-flex items-center gap-1 px-2 py-0.5 rounded-full border " + TONE_CLASS[stage.tone]}>
-                        <span className={"w-1.5 h-1.5 rounded-full " + DOT_CLASS[stage.tone]} />{stage.text}
+                        <span className={"w-1.5 h-1.5 rounded-full " + DOT_CLASS[stage.tone]} /><StageLabel stage={stage} />
                       </span>
                     </td>
                   </tr>
