@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 import { Button, Modal } from "@/components/ui";
-import { type ActivityScope, type RpaActivityJob, type RpaJob, acknowledgeJob, importProgress, listActivity } from "@/lib/rpa-api";
+import { type ActivityScope, type RpaActivityJob, type RpaJob, acknowledgeJob, cancelJob, importProgress, listActivity } from "@/lib/rpa-api";
 
 type Tone = "wait" | "run" | "done" | "fail";
 
@@ -175,10 +175,23 @@ export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } =
 function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
   job: RpaActivityJob; onClose: () => void; onAck: () => void; acking: boolean; onOpenCertificate: () => void;
 }) {
+  const qc = useQueryClient();
   const stage = jobStage(job);
   const steps = job.step_progress ?? {};
   const shownSteps = PRODUCTION_STEPS.filter((s) => s.key in steps);
   const canAck = job.is_mine && isFinished(job) && !job.acknowledged_at;
+  // 대기 중(에이전트가 아직 안 가져감)인 작업만 취소 가능 — 위하고에서 이미 작업 중이면
+  // 중간에 멈출 수 없다 (plan/16-wehago-rpa.md §7).
+  const canCancel = job.is_mine && job.status === "PENDING";
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const cancel = useMutation({
+    mutationFn: () => cancelJob(job.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rpa", "jobs"] });
+      onClose();
+    },
+    onError: (e) => setCancelError((e as Error).message),
+  });
 
   return (
     <Modal
@@ -187,6 +200,11 @@ function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
       title={`${jobOwner(job)} · ${KIND_LABEL[job.kind] ?? job.kind}`}
       footer={<>
         <Button variant="ghost" onClick={onClose}>닫기</Button>
+        {canCancel && (
+          <Button variant="danger" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+            {cancel.isPending ? "취소 중..." : "취소"}
+          </Button>
+        )}
         {job.is_mine && job.kind === "CERTIFICATE_ISSUE" && (
           <Button variant="secondary" onClick={onOpenCertificate}>{isFinished(job) ? "다음 작업" : "진행 보기"}</Button>
         )}
@@ -222,7 +240,13 @@ function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
         {job.result_message && (
           <p className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-gray-600 whitespace-pre-wrap">{job.result_message}</p>
         )}
-        {job.is_mine && !isFinished(job) && <p className="text-[11.5px] text-gray-400">진행 중인 작업은 끝난 뒤에 확인 처리할 수 있습니다.</p>}
+        {cancelError && <p className="text-[11.5px] text-red-600">{cancelError}</p>}
+        {job.is_mine && job.status === "RUNNING" && (
+          <p className="text-[11.5px] text-gray-400">위하고에서 이미 작업 중이라 취소할 수 없습니다. 15분 넘게 멈추면 자동으로 실패 처리됩니다.</p>
+        )}
+        {job.is_mine && job.status === "PENDING" && (
+          <p className="text-[11.5px] text-gray-400">진행 중인 작업은 끝난 뒤에 확인 처리할 수 있습니다.</p>
+        )}
       </div>
     </Modal>
   );
