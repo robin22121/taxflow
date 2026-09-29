@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useClients, useCreateFiling, useFilings } from "@/lib/queries";
 import { Badge, Button } from "@/components/ui";
-import { koreanPeriod, previousPeriod } from "@/lib/format";
+import { koreanPeriod, currentPeriod, previousPeriod } from "@/lib/format";
 
 export default function DashboardHomePage() {
   const router = useRouter();
@@ -35,12 +35,14 @@ export default function DashboardHomePage() {
   }, [clients, search]);
 
   const selectedClient = clients?.find((c) => c.id === selectedClientId) ?? null;
-  const nextPeriod = previousPeriod();
-  const alreadyExists = sortedFilings.some((f) => f.period === nextPeriod);
+  // 업체마다 급여일정이 달라 귀속월이 항상 "직전 달"만은 아니다 — 직전 달·이번 달 중
+  // 아직 만들지 않은 신고 기간을 모두 후보로 제시한다.
+  const candidatePeriods = [previousPeriod(), currentPeriod()].filter(
+    (p) => !sortedFilings.some((f) => f.period === p),
+  );
 
-  function addNext() {
-    if (alreadyExists) return;
-    createFiling.mutate(nextPeriod, {
+  function addPeriod(period: string) {
+    createFiling.mutate(period, {
       onError: (e) => alert((e as Error).message),
     });
   }
@@ -118,36 +120,38 @@ export default function DashboardHomePage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-[14px] overflow-hidden">
-              {/* 맨 상단: 새로운 신고추가 */}
-              <button
-                onClick={addNext}
-                disabled={createFiling.isPending || alreadyExists}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 text-left transition-colors ${
-                  alreadyExists
-                    ? "bg-gray-50 cursor-not-allowed text-gray-400"
-                    : "hover:bg-blue-50/40 text-blue-700"
-                }`}
-              >
-                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-[15px] font-bold shrink-0 ${
-                  alreadyExists ? "bg-gray-200 text-gray-400" : "bg-blue-100 text-blue-600"
-                }`}>
-                  +
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[14px] font-semibold">
-                    {alreadyExists
-                      ? `${koreanPeriod(nextPeriod)} 신고는 이미 생성됨`
-                      : createFiling.isPending
-                        ? "생성 중..."
-                        : `새로운 신고 추가 (${koreanPeriod(nextPeriod)} 신고)`}
+              {/* 맨 상단: 새로운 신고추가 — 직전 달·이번 달 중 아직 없는 것만 후보로 표시 */}
+              {candidatePeriods.length === 0 ? (
+                <div className="w-full flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 bg-gray-50 text-gray-400">
+                  <span className="w-7 h-7 rounded-full flex items-center justify-center text-[15px] font-bold shrink-0 bg-gray-200 text-gray-400">
+                    +
                   </span>
-                  {!alreadyExists && (
-                    <span className="block text-[11.5px] text-gray-500 font-normal mt-0.5">
-                      클릭하면 {koreanPeriod(nextPeriod)} 신고 기간을 새로 만듭니다
+                  <span className="text-[14px] font-semibold">
+                    {koreanPeriod(previousPeriod())}·{koreanPeriod(currentPeriod())} 신고 모두 생성됨
+                  </span>
+                </div>
+              ) : (
+                candidatePeriods.map((period) => (
+                  <button
+                    key={period}
+                    onClick={() => addPeriod(period)}
+                    disabled={createFiling.isPending}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 text-left transition-colors hover:bg-blue-50/40 text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span className="w-7 h-7 rounded-full flex items-center justify-center text-[15px] font-bold shrink-0 bg-blue-100 text-blue-600">
+                      +
                     </span>
-                  )}
-                </span>
-              </button>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[14px] font-semibold">
+                        {createFiling.isPending ? "생성 중..." : `새로운 신고 추가 (${koreanPeriod(period)} 신고)`}
+                      </span>
+                      <span className="block text-[11.5px] text-gray-500 font-normal mt-0.5">
+                        클릭하면 {koreanPeriod(period)} 신고 기간을 새로 만듭니다
+                      </span>
+                    </span>
+                  </button>
+                ))
+              )}
 
               {/* Existing filings */}
               {filingsLoading && (

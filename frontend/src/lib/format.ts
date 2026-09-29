@@ -33,6 +33,12 @@ export function previousPeriod(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** 이번 달 — "2026-09". 업체마다 급여일정이 달라 당월분 신고서가 필요할 수 있다. */
+export function currentPeriod(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 /** 주어진 귀속월의 직전 월 — 백엔드 _prev_period와 같은 규칙 */
 export function priorPeriod(period: string): string {
   const [y, m] = period.split("-").map(Number);
