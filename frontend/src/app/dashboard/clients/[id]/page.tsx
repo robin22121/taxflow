@@ -22,7 +22,7 @@ import {
   useUploadFilingDocument,
   useUpsertFilingResult,
 } from "@/lib/queries";
-import { Badge, Button, Card, Input, Modal } from "@/components/ui";
+import { Badge, Button, Card, Chip, Input, Modal } from "@/components/ui";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
 import { useConfirm } from "@/components/confirm-dialog";
 import {
@@ -50,6 +50,9 @@ const VAT_TYPE_KO: Record<VatType, string> = {
   EXEMPT: "면세",
 };
 
+// 소득지급자 목록 탭 — 원천세 신고서에 합산되는 순서와 맞춤 (퇴직소득은 아직 별도 처리, 탭 미포함)
+const INCOME_TYPE_TABS = ["WAGE", "BUSINESS", "OTHER", "DAILY"] as const;
+
 export default function ClientDetailPage({
   params,
 }: {
@@ -75,6 +78,7 @@ export default function ClientDetailPage({
   const [editOpen, setEditOpen] = useState(false);
   const [wehagoOpen, setWehagoOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [incomeTab, setIncomeTab] = useState<string>("WAGE");
 
   if (isLoading || !client) return <p className="p-6 text-gray-900">로딩 중...</p>;
 
@@ -305,64 +309,84 @@ export default function ClientDetailPage({
       {/* Payroll Defaults — 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) */}
       <PayrollDefaultSection clientId={id} />
 
-      {/* Employee List */}
+      {/* Employee List — 소득지급자 목록 (근로/사업/기타/일용 탭) */}
       <Card>
         <div className="flex items-baseline justify-between mb-3">
           <h2 className="text-lg font-semibold text-gray-900">
-            직원 목록 ({employees?.length ?? 0}명)
+            소득지급자 목록 ({employees?.length ?? 0}명)
           </h2>
         </div>
-        {employees && employees.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-gray-500 border-b border-gray-300">
-                <tr>
-                  <th className="text-left py-2 pr-3">이름</th>
-                  <th className="text-left py-2 pr-3">사번</th>
-                  <th className="text-left py-2 pr-3">주민번호</th>
-                  <th className="text-left py-2 pr-3">입사일</th>
-                  <th className="text-left py-2 pr-3">퇴사일</th>
-                  <th className="text-left py-2 pr-3">상태</th>
-                  <th className="text-right py-2">관리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((e) => (
-                  <tr
-                    key={e.id}
-                    className="border-b border-gray-100"
-                  >
-                    <td className="py-2 pr-3 font-medium text-gray-900">{e.name}</td>
-                    <td className="py-2 pr-3 text-gray-500">
-                      {e.employee_code || "—"}
-                    </td>
-                    <td className="py-2 pr-3 text-gray-500">
-                      {e.rrn_last4 ? `******-*${e.rrn_last4}` : "—"}
-                    </td>
-                    <td className="py-2 pr-3 text-gray-500">
-                      {e.hired_at || "—"}
-                    </td>
-                    <td className="py-2 pr-3 text-gray-500">
-                      {e.resigned_at || "—"}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <StatusBadge status={e.status} />
-                    </td>
-                    <td className="py-2 text-right">
-                      <Button variant="ghost" className="!text-[12px] !px-2 !py-0.5" onClick={() => setEditingEmployee(e)}>
-                        수정
-                      </Button>
-                    </td>
+        <div className="flex gap-1.5 mb-3">
+          {INCOME_TYPE_TABS.map((t) => {
+            const count = employees?.filter((e) => e.income_type === t).length ?? 0;
+            return (
+              <Chip
+                key={t}
+                active={incomeTab === t}
+                className="cursor-pointer select-none"
+                onClick={() => setIncomeTab(t)}
+              >
+                {incomeTypeKo(t)} {count}
+              </Chip>
+            );
+          })}
+        </div>
+        {(() => {
+          const filtered = employees?.filter((e) => e.income_type === incomeTab) ?? [];
+          return filtered.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs text-gray-500 border-b border-gray-300">
+                  <tr>
+                    <th className="text-left py-2 pr-3">이름</th>
+                    <th className="text-left py-2 pr-3">사번</th>
+                    <th className="text-left py-2 pr-3">주민번호</th>
+                    <th className="text-left py-2 pr-3">입사일</th>
+                    <th className="text-left py-2 pr-3">퇴사일</th>
+                    <th className="text-left py-2 pr-3">상태</th>
+                    <th className="text-right py-2">관리</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">
-            등록된 직원이 없습니다. 위에서 직원 마스터를 업로드하세요.
-          </p>
-        )}
+                </thead>
+                <tbody>
+                  {filtered.map((e) => (
+                    <tr
+                      key={e.id}
+                      className="border-b border-gray-100"
+                    >
+                      <td className="py-2 pr-3 font-medium text-gray-900">{e.name}</td>
+                      <td className="py-2 pr-3 text-gray-500">
+                        {e.employee_code || "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-gray-500">
+                        {e.rrn_last4 ? `******-*${e.rrn_last4}` : "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-gray-500">
+                        {e.hired_at || "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-gray-500">
+                        {e.resigned_at || "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <StatusBadge status={e.status} />
+                      </td>
+                      <td className="py-2 text-right">
+                        <Button variant="ghost" className="!text-[12px] !px-2 !py-0.5" onClick={() => setEditingEmployee(e)}>
+                          수정
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">
+              {employees && employees.length > 0
+                ? `${incomeTypeKo(incomeTab)}소득 지급자가 없습니다.`
+                : "등록된 직원이 없습니다. 위에서 직원 마스터를 업로드하세요."}
+            </p>
+          );
+        })()}
       </Card>
 
       {editingEmployee && (
@@ -390,6 +414,7 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
     job_type: employee.job_type ?? "",
     hired_at: employee.hired_at ?? "",
     resigned_at: employee.resigned_at ?? "",
+    income_type: employee.income_type,
     dependents_count: String(employee.dependents_count),
     children_count: String(employee.children_count),
     withholding_rate_adjust: String(employee.withholding_rate_adjust),
@@ -414,6 +439,7 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
           job_type: form.job_type.trim() || null,
           hired_at: form.hired_at || null,
           resigned_at: form.resigned_at || null,
+          income_type: form.income_type,
           dependents_count: Math.max(1, Number(form.dependents_count) || 1),
           children_count: Math.max(0, Number(form.children_count) || 0),
           withholding_rate_adjust: Number(form.withholding_rate_adjust) || 100,
@@ -436,6 +462,14 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
         <label className="space-y-1">이름<input className={field} value={form.name} onChange={set("name")} /></label>
         <label className="space-y-1">사원코드 (위하고와 같게)
           <input className={field} value={form.employee_code} onChange={set("employee_code")} placeholder="비우면 다음 번호" inputMode="numeric" />
+        </label>
+        <label className="space-y-1">소득구분
+          <select className={field} value={form.income_type} onChange={set("income_type")}>
+            {INCOME_TYPE_TABS.map((t) => (
+              <option key={t} value={t}>{incomeTypeKo(t)}</option>
+            ))}
+            <option value="RETIREMENT">퇴직</option>
+          </select>
         </label>
         <label className="space-y-1">부서<input className={field} value={form.department} onChange={set("department")} /></label>
         <label className="space-y-1">직급<input className={field} value={form.position} onChange={set("position")} /></label>

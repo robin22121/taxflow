@@ -245,6 +245,7 @@ export type EmployeePatch = Partial<{
   job_type: string | null;
   hired_at: string | null;
   resigned_at: string | null;
+  income_type: string; // WAGE/BUSINESS/OTHER/DAILY/RETIREMENT
   dependents_count: number;
   children_count: number;
   withholding_rate_adjust: number;

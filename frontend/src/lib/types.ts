@@ -245,6 +245,7 @@ export type Employee = {
   rrn_last4: string | null;
   status: string;
   business_type_code: string | null;
+  income_type: string; // WAGE/BUSINESS/OTHER/DAILY/RETIREMENT
   dependents_count: number;
   children_count: number;
   withholding_rate_adjust: number;

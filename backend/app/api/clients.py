@@ -18,6 +18,7 @@ from app.models import (
     ClientPayrollDefault,
     Employee,
     EmploymentStatus,
+    IncomeType,
     MonthlyFiling,
     MonthlyFilingStatus,
     PayrollEntry,
@@ -719,6 +720,13 @@ async def create_employee(
     code = (payload.employee_code or "").strip() or await next_employee_code(db, client_id)
     if await employee_code_taken(db, client_id, code):
         raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 다른 직원이 쓰고 있습니다")
+    if payload.income_type is not None:
+        try:
+            income_type = IncomeType(payload.income_type)
+        except ValueError:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "잘못된 소득구분입니다") from None
+    else:
+        income_type = IncomeType.WAGE
     emp = Employee(
         client_id=client_id,
         name=payload.name,
@@ -729,6 +737,7 @@ async def create_employee(
         position=payload.position,
         job_type=payload.job_type,
         hired_at=payload.hired_at,
+        income_type=income_type,
         dependents_count=payload.dependents_count,
         children_count=payload.children_count,
         withholding_rate_adjust=payload.withholding_rate_adjust,
@@ -759,6 +768,13 @@ async def update_employee(
         if await employee_code_taken(db, client_id, code, exclude_employee_id=emp.id):
             raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 다른 직원이 쓰고 있습니다")
         patch["employee_code"] = code
+    if "income_type" in patch:
+        # IncomeType은 str 서브클래스라 아래 제네릭 루프의 .strip()을 거치면 평범한 str로
+        # 바뀌어버린다 — 미리 꺼내 별도로 설정한다.
+        try:
+            emp.income_type = IncomeType(patch.pop("income_type"))
+        except ValueError:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "잘못된 소득구분입니다") from None
     for key, value in patch.items():
         setattr(emp, key, value.strip() if isinstance(value, str) else value)
     await db.commit()
