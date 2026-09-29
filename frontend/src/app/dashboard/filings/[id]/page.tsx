@@ -2598,10 +2598,11 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
               <button onClick={onApprove} className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 disabled:opacity-50" disabled={update.isPending}>승인</button>
               <button onClick={onToggleEdit} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{editing ? "접기" : "수정"}</button>
               <button onClick={onDelete} className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
-            </>) : (
-              // 승인된 항목은 승인취소 전까지 수정·삭제 불가 — 승인취소하면 pending으로 돌아가 다시 가능
+            </>) : (<>
+              {/* 승인된 항목은 [수정]을 눌러도 편집모드로 안 들어가고 안내만 뜬다 — 승인취소 후에만 실제 수정 가능 */}
+              <button onClick={() => alert("승인된 항목입니다. 수정하려면 먼저 [승인취소]를 눌러주세요.")} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">수정</button>
               <button onClick={() => update.mutate({ id: e.id, patch: { approved: false } })} className="px-2 py-1 text-[11px] text-amber-600 border border-amber-200 rounded-full hover:bg-amber-50">승인취소</button>
-            )}
+            </>)}
           </div>
         </td>
       </tr>
