@@ -32,6 +32,8 @@ from app.schemas.filings import (
     MonthlyFilingOut,
     PayrollEntryOut,
     PayrollEntryUpdate,
+    RecalculateDeductionsIn,
+    RecalculateDeductionsOut,
     ResignIn,
     ResignResult,
 )
@@ -747,6 +749,67 @@ async def update_entry(
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+@router.post("/{filing_id}/entries/{entry_id}/recalculate", response_model=RecalculateDeductionsOut)
+async def recalculate_entry_deductions(
+    filing_id: str,
+    entry_id: str,
+    payload: RecalculateDeductionsIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RecalculateDeductionsOut:
+    """편집 중인(아직 저장 안 한) 총지급액 기준으로 4대보험·원천세를 미리 계산.
+
+    DB에는 쓰지 않는다 — update_entry의 자동 재계산(714-745행)과 동일한 규칙을
+    저장 전 미리보기용으로 재사용한 것.
+    """
+    entry = await db.get(PayrollEntry, entry_id)
+    if not entry or entry.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    filing = await db.get(MonthlyFiling, filing_id)
+    if filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN)
+
+    from app.models.payroll import IncomeType as _IncomeType
+    income_type = _IncomeType(payload.income_type) if payload.income_type else entry.income_type
+    total_amount = payload.total_amount if payload.total_amount is not None else entry.total_amount
+
+    if income_type != _IncomeType.WAGE:
+        non_taxable = 0
+    elif payload.non_taxable is not None:
+        non_taxable = payload.non_taxable
+    elif any(v is not None for v in (payload.meal_amount, payload.car_amount, payload.childcare_amount)):
+        meal = payload.meal_amount if payload.meal_amount is not None else entry.meal_amount
+        car = payload.car_amount if payload.car_amount is not None else entry.car_amount
+        childcare = payload.childcare_amount if payload.childcare_amount is not None else entry.childcare_amount
+        non_taxable = meal + car + childcare
+    else:
+        non_taxable = entry.non_taxable
+    non_taxable = min(non_taxable, total_amount)
+
+    taxable = max(0, total_amount - non_taxable)
+
+    from app.services.tax_calc import calculate_withholding_tax
+    tax = calculate_withholding_tax(
+        income_type, taxable,
+        dependents=entry.dependents or 1,
+        children=entry.children or 0,
+        rate_adjust=entry.rate_adjust or 100,
+    )
+    from app.services.payroll_defaults import load_payroll_defaults
+    defaults = await load_payroll_defaults(db, entry.client_id)
+    si = defaults.social_insurance(taxable, income_type)
+
+    return RecalculateDeductionsOut(
+        taxable=taxable,
+        national_pension=si.national_pension,
+        health_insurance=si.health_insurance,
+        employment_insurance=si.employment_insurance,
+        longterm_care=si.longterm_care,
+        income_tax=tax.income_tax,
+        local_tax=tax.local_tax,
+    )
 
 
 @router.delete("/{filing_id}/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)

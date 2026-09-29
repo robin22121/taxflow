@@ -33,7 +33,7 @@ from playwright.sync_api import Page, sync_playwright
 
 OUT_ROOT = Path.home() / ".easyone-agent" / "explore"
 
-WEHAGO_URL = "https://www.wehago.com"
+WEHAGO_URL = "https://www.wehagot.com"
 SIDEBAR_WAIT_MS = 30_000
 UPLOAD_WAIT_MS = 30_000
 
@@ -177,6 +177,12 @@ def open_smarta_new_tab(context, business_number: str, cdp_url: str):
     page.goto(f"{WEHAGO_URL}/#/main")
     _dismiss_splash(page)
     _wait_for_no_dimmed(page)
+    # 담당 수임처 목록은 탭(전체/T edge 사용/T edge 미사용/개인고객/대시보드)으로 필터링된다.
+    # "T edge 사용"이 기본 탭이라 T edge 미가입 수임처는 검색에 안 잡힌다 — "전체"로 전환.
+    all_tab = page.locator("button.btn_tab", has_text="전체").first
+    if all_tab.count():
+        all_tab.click()
+        page.wait_for_timeout(500)
     search = page.locator("input[placeholder*='사업자등록번호']").first
     search.wait_for(state="visible", timeout=SIDEBAR_WAIT_MS)
     target = _clean_business_number(business_number)

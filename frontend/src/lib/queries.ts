@@ -390,6 +390,37 @@ export function useUpdateEntry(filingId: string) {
   });
 }
 
+export function useRecalculateDeductions(filingId: string) {
+  return useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: {
+        total_amount?: number;
+        non_taxable?: number;
+        meal_amount?: number;
+        car_amount?: number;
+        childcare_amount?: number;
+        income_type?: string;
+      };
+    }) =>
+      api<{
+        taxable: number;
+        national_pension: number;
+        health_insurance: number;
+        employment_insurance: number;
+        longterm_care: number;
+        income_tax: number;
+        local_tax: number;
+      }>(`/api/v1/filings/${filingId}/entries/${id}/recalculate`, {
+        method: "POST",
+        json: patch,
+      }),
+  });
+}
+
 export function useDeleteEntry(filingId: string) {
   const qc = useQueryClient();
   return useMutation({

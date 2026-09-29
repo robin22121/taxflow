@@ -17,6 +17,7 @@ import {
   usePreviewCarryForward,
   usePreviewText,
   usePreviewUpload,
+  useRecalculateDeductions,
   useRequestCollection,
   useResignEmployees,
   useSendInvite,
@@ -1634,6 +1635,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
+  const recalc = useRecalculateDeductions(filingId);
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
@@ -1696,6 +1698,38 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       onSuccess: () => setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }),
       onError: (err) => alert((err as Error).message),
     });
+  }
+
+  // 총지급액/식대/자가운전/육아 수정 시 4대보험·소득세를 새 금액 기준으로 재계산할지 확인 후 반영.
+  async function recalcAfterAmountChange(e: PayrollEntry) {
+    const d = getDraft(e);
+    if (!(await confirm("금액이 변경되었습니다. 국민연금·건강보험·고용보험·소득세를 새 금액 기준으로 다시 계산할까요?"))) return;
+    recalc.mutate(
+      {
+        id: e.id,
+        patch: {
+          total_amount: d.total_amount,
+          meal_amount: d.meal_amount,
+          car_amount: d.car_amount,
+          childcare_amount: d.childcare_amount,
+          income_type: d.income_type,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          setDraftFor(e.id, {
+            ...getDraft(e),
+            national_pension: result.national_pension,
+            health_insurance: result.health_insurance,
+            employment_insurance: result.employment_insurance,
+            longterm_care: result.longterm_care,
+            income_tax: result.income_tax,
+            local_tax: result.local_tax,
+          });
+        },
+        onError: (err) => alert((err as Error).message),
+      },
+    );
   }
 
   function saveApprovedEdit(e: PayrollEntry) {
@@ -1789,14 +1823,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                       검토 대상 ({pendingEntries.length}명)
                     </td></tr>
                   )}
-                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
                   {/* ── 승인 완료 섹션 ── */}
                   {approvedEntries.length > 0 && (
                     <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
                       승인 완료 ({approvedEntries.length}명)
                     </td></tr>
                   )}
-                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => {}} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveApprovedEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
                 </tbody>
               </table>
             ) : (
@@ -2446,13 +2480,14 @@ type EntryRowProps = {
   onApprove: () => void;
   onDelete: () => void;
   onSave: () => void;
+  onRecalc: () => void;
   onToggleExpand: () => void;
   expanded: boolean;
   update: ReturnType<typeof useUpdateEntry>;
   remove: ReturnType<typeof useDeleteEntry>;
 };
 
-function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onToggleExpand, expanded, update, remove }: EntryRowProps) {
+function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onRecalc, onToggleExpand, expanded, update, remove }: EntryRowProps) {
   // 메모(anomaly_notes.memo)만 있는 행은 이상치가 아니다 — 분석 사유 기준으로 판정
   const reasons = anomalyReasons(e);
   const hasFlag = reasons.length > 0 && !e.approved;
@@ -2546,6 +2581,7 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
               mode={mode}
               onSave={onSave}
               onCancel={onToggleExpand}
+              onRecalc={onRecalc}
               saving={update.isPending}
             />
           </td>
@@ -2567,6 +2603,7 @@ function V3Spreadsheet({
   mode,
   onSave,
   onCancel,
+  onRecalc,
   saving,
 }: {
   draft: Partial<PayrollEntry>;
@@ -2576,6 +2613,7 @@ function V3Spreadsheet({
   mode: "pending" | "approved";
   onSave: () => void;
   onCancel: () => void;
+  onRecalc: () => void;
   saving: boolean;
 }) {
   // v3 의도: 펼친 상태 = 편집 모드. pending/approved 모두 인라인 편집 가능.
@@ -2584,6 +2622,8 @@ function V3Spreadsheet({
   const reviewed = mode === "approved";
   const v = (k: keyof PayrollEntry): number => Number(draft[k] ?? 0) || 0;
   const set = (k: keyof PayrollEntry, val: number) => setDraft({ ...draft, [k]: val });
+  // 총지급액/비과세 수당 편집 시작값을 붙잡아뒀다가, blur 시점에 실제로 바뀌었으면 재계산 확인을 띄운다.
+  const recalcBaseline = useRef<Partial<Record<keyof PayrollEntry, number>>>({});
 
   // 비과세 수당(식대·자가운전·육아)과 상여 구분은 상용근로(WAGE)에만 존재한다.
   // 일용·사업·기타·퇴직소득은 지급액 전액이 과세 대상.
@@ -2629,7 +2669,7 @@ function V3Spreadsheet({
     );
   }
 
-  function v3Num(field: keyof PayrollEntry, value: number, fieldChanged?: boolean) {
+  function v3Num(field: keyof PayrollEntry, value: number, fieldChanged?: boolean, recalcOnBlur?: boolean) {
     // 전월 대비 변동 또는 불러온 값이 자체 계산값과 다른 칸은 빨간색
     const calc = calcDiffs?.[field];
     const anomaly = fieldChanged || !!calc;
@@ -2643,6 +2683,14 @@ function V3Spreadsheet({
           onChange={(e) => {
             const digits = e.target.value.replace(/[^\d-]/g, "");
             set(field, Number(digits) || 0);
+          }}
+          onFocus={() => {
+            if (recalcOnBlur) recalcBaseline.current[field] = value;
+          }}
+          onBlur={() => {
+            if (!recalcOnBlur) return;
+            const before = recalcBaseline.current[field];
+            if (before !== undefined && before !== v(field)) onRecalc();
           }}
           className={`w-full font-mono tabular-nums text-right text-[13.5px] font-semibold py-0.5 px-1 rounded outline-none ${
             anomaly
@@ -2689,7 +2737,7 @@ function V3Spreadsheet({
         <div className="px-3.5 py-2.5 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
           <span className="text-[11px] text-gray-500">총지급액 · {incomeLabel(incomeType)}</span>
           <span className="font-mono tabular-nums text-[13.5px] font-semibold text-gray-900">
-            ₩ {editing ? v3Num("total_amount", basic) : basic.toLocaleString("ko-KR")}
+            ₩ {editing ? v3Num("total_amount", basic, undefined, true) : basic.toLocaleString("ko-KR")}
           </span>
         </div>
 
@@ -2701,9 +2749,9 @@ function V3Spreadsheet({
             rows={[
               ["기본급", v3Derived(basicPay)],
               ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount)],
-              ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount)],
-              ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount)],
-              ["육아", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount)],
+              ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount, true)],
+              ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount, true)],
+              ["육아", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount, true)],
             ]}
           />
         ) : (

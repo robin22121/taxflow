@@ -104,6 +104,27 @@ class PayrollEntryUpdate(BaseModel):
     approved: bool | None = None
 
 
+class RecalculateDeductionsIn(BaseModel):
+    """총지급액 등이 편집 중 바뀌었을 때, 저장 전에 4대보험·원천세를 미리 계산해보기 위한 입력."""
+
+    total_amount: int | None = None
+    non_taxable: int | None = None
+    meal_amount: int | None = None
+    car_amount: int | None = None
+    childcare_amount: int | None = None
+    income_type: str | None = None
+
+
+class RecalculateDeductionsOut(BaseModel):
+    taxable: int
+    national_pension: int
+    health_insurance: int
+    employment_insurance: int
+    longterm_care: int
+    income_tax: int
+    local_tax: int
+
+
 class CollectMessageIn(BaseModel):
     text: str
     channel: str = "manual"  # 'kakao' | 'email' | 'voice' | 'manual'
