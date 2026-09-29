@@ -510,9 +510,15 @@ class WehagoUploader:
         # 변환 후에도 화면 상단 [완료] 버튼을 눌러야 확정된다 — 안 누르면 그리드 자체에는
         # 보여도 다른 메뉴(원천세 마감 조회 등)에서 이 급여자료를 찾지 못한다
         # (2026-09-30, 사용자가 위하고 화면에서 직접 확인해 알려준 버튼 — WSC_LUXButton, "완료").
+        # [완료] 클릭 뒤 "현재 입력하는 급여등을 완료하시겠습니까?" 확인 다이얼로그가 한 번 더
+        # 뜬다(2026-09-30 사용자 스크린샷 실측) — [확인]까지 눌러야 실제로 완료 처리된다.
         self.step = "급여자료 완료 처리"
         think("wehago")
         page.get_by_role("button", name="완료", exact=True).click()
+        confirm = page.locator("div._isDialog:visible", has_text="현재 입력하는 급여등을 완료하시겠습니까?")
+        confirm.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        confirm.get_by_role("button", name="확인", exact=True).click()
         self._wait_for_no_dimmed(page)
 
         self.step = "저장 후 대조"
@@ -857,9 +863,17 @@ class WehagoUploader:
             alert.get_by_role("button", name="확인", exact=True).click()
             raise WehagoError("원천세 조회 조건이 올바르지 않습니다 (귀속기간/지급기간 확인 필요)")
 
+        self.step = "원천세 마감 여부 확인"
+        # 이미 마감된 신고서는 [마감] 대신 [마감해제] 버튼으로 바뀐다(2026-09-29 문서화,
+        # 2026-09-30 실측 재현) — exact 매치라 그대로 두면 [마감] 버튼을 못 찾고 타임아웃난다.
+        close_btn = smarta.get_by_role("button", name="마감", exact=True)
+        reopen_btn = smarta.get_by_role("button", name="마감해제", exact=True)
+        if reopen_btn.count() and not close_btn.count():
+            return "이미 마감되어 있습니다 (건너뜀 — 다시 마감하려면 위하고에서 [마감해제] 후 재시도)"
+
         self.step = "원천세 마감"
         think("wehago")
-        smarta.get_by_role("button", name="마감", exact=True).click()
+        close_btn.click()
 
         self.step = "원천세 마감 확인 모달"
         confirm = smarta.locator("div._isDialog:visible", has_text="원천징수 신고")
