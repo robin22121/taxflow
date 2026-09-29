@@ -864,7 +864,9 @@ class WehagoUploader:
             report_type.locator("span.fakeinput").click()
             smarta.keyboard.type(code)
             think("wehago")
-            smarta.keyboard.press("Tab")
+            # Tab을 누르면 선택이 확정되지 않고 정기신고로 되돌아간다 — Enter로 확정해야 한다
+            # (2026-09-30 사용자 실측). 구분 칸(_payroll_select_period)의 Tab과는 다른 위젯.
+            smarta.keyboard.press("Enter")
 
         think("wehago")
         smarta.get_by_role("button", name="조회", exact=True).click()
