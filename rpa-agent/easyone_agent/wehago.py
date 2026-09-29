@@ -848,9 +848,28 @@ class WehagoUploader:
         """
         smarta, _name, _number = self._open_closing_menu(business_number, self._WHT_RETURN_MENU_ID)
 
-        # "저장된 데이터를 불러오시겠습니까?" — 화면에 들어가자마자, [조회] 클릭 전부터 이미
-        # 떠 있다(2026-09-30 사용자 스크린샷 실측: [조회] 클릭이 이 다이얼로그에 막혀 타임아웃).
-        # 이전에 이 신고서를 열었던 임시저장이 있으면 뜬다 — 항상 최신 급여자료를 반영해야
+        self.step = "원천세 조회 조건 입력"
+        items = smarta.locator(_COND_BAR).locator("div.item")
+        self._fill_closing_period(smarta, items.nth(0), period)  # 귀속기간
+        self._fill_closing_period(smarta, items.nth(1), period)  # 지급기간
+
+        # 신고구분(정기/기한후) — 기한(다음달 10일) 지나서 신고하면 기한후신고로 조회해야
+        # 소득세 등 계산값이 나온다(정기신고로 조회하면 지급액만 보이고 소득세가 빈칸).
+        # items.nth(2) — 귀속기간(0)·지급기간(1) 다음 칸. 이 칸에서 Enter를 누르면 그 자체가
+        # [조회]를 겸한다(2026-09-30 사용자 실측) — 그래서 별도로 [조회] 버튼을 누르지 않는다.
+        # Tab으로는 선택이 확정되지 않고 정기신고로 되돌아간다 — 반드시 Enter.
+        self.step = "원천세 신고구분 확인"
+        report_type = items.nth(2)
+        code = _report_type_code(period)
+        think("wehago")
+        report_type.locator("span.fakeinput").click()
+        if _fake_text(report_type).split(".", 1)[0].strip() != code:
+            smarta.keyboard.type(code)
+        think("wehago")
+        smarta.keyboard.press("Enter")
+
+        # 위 Enter가 조회를 겸하면서 "저장된 데이터를 불러오시겠습니까?" 확인창이 뜬다
+        # (이전에 이 신고서를 열었던 임시저장이 있을 때) — 항상 최신 급여자료를 반영해야
         # 하므로 [취소](새로불러오기)를 누른다.
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
@@ -863,30 +882,7 @@ class WehagoUploader:
         else:
             think("wehago")
             saved_prompt.get_by_role("button", name="취소", exact=True).click()
-            self._wait_for_no_dimmed(smarta)
 
-        self.step = "원천세 조회 조건 입력"
-        items = smarta.locator(_COND_BAR).locator("div.item")
-        self._fill_closing_period(smarta, items.nth(0), period)  # 귀속기간
-        self._fill_closing_period(smarta, items.nth(1), period)  # 지급기간
-
-        # 신고구분(정기/기한후) — 기한(다음달 10일) 지나서 신고하면 기한후신고로 조회해야
-        # 소득세 등 계산값이 나온다(2026-09-30 사용자 실측: 정기신고로 조회하면 지급액만
-        # 보이고 소득세가 빈칸). items.nth(2) — 귀속기간(0)·지급기간(1) 다음 칸.
-        self.step = "원천세 신고구분 확인"
-        report_type = items.nth(2)
-        code = _report_type_code(period)
-        if _fake_text(report_type).split(".", 1)[0].strip() != code:
-            think("wehago")
-            report_type.locator("span.fakeinput").click()
-            smarta.keyboard.type(code)
-            think("wehago")
-            # Tab을 누르면 선택이 확정되지 않고 정기신고로 되돌아간다 — Enter로 확정해야 한다
-            # (2026-09-30 사용자 실측). 구분 칸(_payroll_select_period)의 Tab과는 다른 위젯.
-            smarta.keyboard.press("Enter")
-
-        think("wehago")
-        smarta.get_by_role("button", name="조회", exact=True).click()
         self._wait_for_no_dimmed(smarta)
 
         # 조회 조건이 누락되면 알럿이 뜬다 — 있으면 즉시 실패로 간주 (재입력 로직은 아직 없음)

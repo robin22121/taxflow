@@ -24,3 +24,14 @@ body {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
 }
+
+/* 진행 중인 자동화 작업 라벨 — 글자가 순서대로 천천히 깜빡이는 효과 */
+@keyframes text-wave {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.animate-text-wave {
+  display: inline-block;
+  animation: text-wave 1.4s ease-in-out infinite;
+}
