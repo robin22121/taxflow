@@ -11,6 +11,7 @@ import httpx
 # 위하고 → 이지원천 가져오기 (plan/16 §12)
 IMPORT_ALL = "WEHAGO_MASTER_IMPORT_ALL"
 IMPORT_CLIENT = "WEHAGO_CLIENT_IMPORT"
+MONTHLY_PRODUCTION = "MONTHLY_PRODUCTION"
 
 
 @dataclass(frozen=True, slots=True)

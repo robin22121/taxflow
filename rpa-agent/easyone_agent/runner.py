@@ -7,7 +7,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from easyone_agent.api import IMPORT_ALL, IMPORT_CLIENT, EasyoneApi, Job
+from easyone_agent.api import IMPORT_ALL, IMPORT_CLIENT, MONTHLY_PRODUCTION, EasyoneApi, Job
+
+WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"
 from easyone_agent.company import company_matches
 from easyone_agent.import_runner import process_import
 from easyone_agent.logmask import mask_text
@@ -30,6 +32,11 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
     logger.info("작업 시작 %s %s %s", job.id, job.business_name, job.period)
     if job.kind in (IMPORT_ALL, IMPORT_CLIENT):
         return _process_import_job(api, uploader, job, workdir)
+    if job.kind == MONTHLY_PRODUCTION:
+        return _process_monthly_production_job(api, uploader, job)
+    if job.kind != WEHAGO_PAYROLL_INPUT:
+        _report(api, job.id, False, f"[미구현] '{job.kind}' 작업은 아직 자동화가 없습니다 — 수동으로 처리하세요.")
+        return True
     xlsx_path = workdir / f"{job.id}.xlsx"
     try:
         if job.pay_date is None:
@@ -76,6 +83,39 @@ def failure_message(e: Exception, uploader: object) -> str:
     else:
         saved = "위하고에는 저장되지 않았습니다. 잠시 후 다시 전송하고, 반복되면 담당자에게 알려 주세요."
     return f"{where}위하고 화면이 예상과 달라 멈췄습니다 (응답 지연 또는 화면 변경). {saved} (기술 정보: {type(e).__name__})"
+
+
+def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, job: Job) -> bool:
+    """제작(게이트 2) — 현재는 위하고 마감(원천세·사업소득)까지만 자동화 (plan/16 §4-4 ⑨-a·⑨-b).
+
+    전자신고 파일 제작(F4, ⑨-c·⑩-b)은 Windows 전용 위하고 로컬 모듈이 필요해 이 macOS
+    에이전트에서는 못 한다. 지방세 마감(⑩-a)·홈택스(⑪)·위택스(⑫)는 아직 자동화가 없다.
+    이후 단계는 완료 메시지에서 수동 처리를 안내한다.
+    """
+    try:
+        uploader.ensure_logged_in()
+        wht_text = uploader.close_wht_return(job.business_number, job.period)
+        biz_text = uploader.close_business_income_report(job.business_number, job.period)
+    except LoginFailed as e:
+        _report(api, job.id, False, f"위하고 로그인 실패: {e}")
+        raise
+    except Exception as e:
+        logger.exception("제작(마감) 실패 %s", job.id)
+        if not isinstance(e, WehagoError):
+            capture = getattr(uploader, "save_failure_screenshot", None)
+            if capture:
+                capture(f"failed-{job.id}")
+        _report(api, job.id, False, failure_message(e, uploader))
+    else:
+        _report(
+            api,
+            job.id,
+            True,
+            f"위하고 마감 완료 — 원천세: {wht_text} / 사업소득: {biz_text}. "
+            "전자신고 파일 제작(F4)·지방세 마감·홈택스·위택스 신고는 아직 자동화되지 않아 "
+            "Windows 노트북·수동으로 진행하세요.",
+        )
+    return True
 
 
 def _process_import_job(api: EasyoneApi, uploader: WehagoUploader, job: Job, workdir: Path) -> bool:

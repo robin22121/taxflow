@@ -906,6 +906,23 @@ class WehagoUploader:
         think("wehago")
         smarta.get_by_role("button", name="마감", exact=True).click()
 
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        # 사업소득자료입력에 데이터가 없는 거래처(대부분 — 근로소득만 자동화 대상) — 실패 아님, 건너뛴다.
+        # (§4-4 ⑨-b, 문구는 계획 문서 기준으로 2026-09-30 추가 — 실제 위하고 화면으로 아직 검증 못함)
+        no_data = smarta.locator("div:visible", has_text="마감할 데이터가 존재하지 않습니다")
+        try:
+            no_data.wait_for(state="visible", timeout=5_000)
+        except PlaywrightTimeout:
+            pass
+        else:
+            ok = no_data.get_by_role("button", name="확인", exact=True)
+            if ok.count() == 0:
+                ok = smarta.get_by_role("button", name="확인", exact=True)
+            think("wehago")
+            ok.click()
+            return "마감할 데이터가 존재하지 않습니다 (건너뜀)"
+
         self.step = "사업소득 마감 확인 모달"
         confirm = smarta.get_by_role("button", name="확인(enter)", exact=True)
         confirm.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
@@ -913,8 +930,6 @@ class WehagoUploader:
         confirm.click()
 
         self.step = "사업소득 마감 결과 확인"
-        from playwright.sync_api import TimeoutError as PlaywrightTimeout
-
         error_dialog = smarta.locator("div._isDialog:visible", has_text="오류항목")
         try:
             error_dialog.wait_for(state="visible", timeout=5_000)

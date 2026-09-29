@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from easyone_agent.api import Job
+from easyone_agent.api import MONTHLY_PRODUCTION, Job
 from easyone_agent.runner import login_test_one, process_one, run_forever, run_login_test
-from easyone_agent.wehago import LoginFailed
+from easyone_agent.wehago import LoginFailed, WehagoError
 
 JOB = Job(
     id="job1",
@@ -44,11 +44,16 @@ class FakeUploader:
         company: tuple[str, str] = ("주식회사 하늘식품", "1234567890"),
         login_error: Exception | None = None,
         upload_error: Exception | None = None,
+        close_wht_error: Exception | None = None,
+        close_business_error: Exception | None = None,
     ) -> None:
         self.company = company
         self.login_error = login_error
         self.upload_error = upload_error
+        self.close_wht_error = close_wht_error
+        self.close_business_error = close_business_error
         self.uploaded: list[tuple[Path, str, date]] = []
+        self.closed: list[tuple[str, str]] = []
 
     def ensure_logged_in(self) -> None:
         if self.login_error:
@@ -63,6 +68,18 @@ class FakeUploader:
             raise self.upload_error
         self.uploaded.append((xlsx_path, period, pay_date))
         return "3명 업로드 완료"
+
+    def close_wht_return(self, business_number: str, period: str) -> str:
+        if self.close_wht_error:
+            raise self.close_wht_error
+        self.closed.append(("wht", period))
+        return "마감 완료!"
+
+    def close_business_income_report(self, business_number: str, period: str) -> str:
+        if self.close_business_error:
+            raise self.close_business_error
+        self.closed.append(("business", period))
+        return "마감할 데이터가 존재하지 않습니다 (건너뜀)"
 
 
 def test_no_job_does_nothing(tmp_path: Path):
@@ -85,6 +102,37 @@ def test_missing_pay_date_is_reported_without_upload(tmp_path: Path):
     assert uploader.uploaded == []
     assert api.reports[0][1] is False
     assert "지급일이 없어" in api.reports[0][2]
+
+
+def test_monthly_production_closes_wht_and_business_income(tmp_path: Path):
+    job = replace(JOB, kind=MONTHLY_PRODUCTION)
+    api, uploader = FakeApi([job]), FakeUploader()
+    assert process_one(api, uploader, tmp_path) is True
+    assert uploader.closed == [("wht", "2026-08"), ("business", "2026-08")]
+    job_id, succeeded, message = api.reports[0]
+    assert (job_id, succeeded) == ("job1", True)
+    assert "마감 완료" in message and "제작(F4)" in message
+
+
+def test_monthly_production_wht_failure_skips_business_income(tmp_path: Path):
+    job = replace(JOB, kind=MONTHLY_PRODUCTION)
+    uploader = FakeUploader(close_wht_error=WehagoError("원천세 마감 실패"))
+    api = FakeApi([job])
+    assert process_one(api, uploader, tmp_path) is True
+    assert uploader.closed == []
+    job_id, succeeded, message = api.reports[0]
+    assert (job_id, succeeded) == ("job1", False)
+    assert "원천세 마감 실패" in message
+
+
+def test_unimplemented_job_kind_is_reported_without_touching_uploader(tmp_path: Path):
+    job = replace(JOB, kind="CERTIFICATE_ISSUE")
+    api, uploader = FakeApi([job]), FakeUploader()
+    assert process_one(api, uploader, tmp_path) is True
+    assert uploader.uploaded == [] and uploader.closed == []
+    job_id, succeeded, message = api.reports[0]
+    assert (job_id, succeeded) == ("job1", False)
+    assert "미구현" in message
 
 
 def test_company_mismatch_is_not_uploaded(tmp_path: Path):
