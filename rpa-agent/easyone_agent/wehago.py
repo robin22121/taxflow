@@ -506,6 +506,15 @@ class WehagoUploader:
         dialog.get_by_role("button", name="확인", exact=True).click()
         self.step = "사원코드 연결·저장"
         self._payroll_convert(page)
+
+        # 변환 후에도 화면 상단 [완료] 버튼을 눌러야 확정된다 — 안 누르면 그리드 자체에는
+        # 보여도 다른 메뉴(원천세 마감 조회 등)에서 이 급여자료를 찾지 못한다
+        # (2026-09-30, 사용자가 위하고 화면에서 직접 확인해 알려준 버튼 — WSC_LUXButton, "완료").
+        self.step = "급여자료 완료 처리"
+        think("wehago")
+        page.get_by_role("button", name="완료", exact=True).click()
+        self._wait_for_no_dimmed(page)
+
         self.step = "저장 후 대조"
 
         think("wehago")
