@@ -115,25 +115,25 @@ export function Modal({
     >
       <div
         className={clsx(
-          "w-full rounded-[14px] bg-white border border-gray-300 shadow-[0_2px_0_rgba(28,25,23,0.04),0_32px_64px_-28px_rgba(28,25,23,0.18)]",
+          "w-full rounded-[18px] bg-white border border-gray-300 shadow-[0_2px_0_rgba(28,25,23,0.04),0_32px_64px_-28px_rgba(28,25,23,0.2)]",
           size === "lg" ? "max-w-3xl" : "max-w-md",
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-gray-300 px-5 py-3.5">
-          <h2 className="text-[15px] font-semibold tracking-tight text-gray-900">{title}</h2>
+        <div className="flex items-center justify-between border-b border-gray-300 px-6 py-4">
+          <h2 className="text-[15px] font-bold tracking-tight text-gray-900">{title}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-900 transition-colors"
+            className="w-8 h-8 -mr-1.5 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors"
             aria-label="닫기"
           >
-            ✕
+            ×
           </button>
         </div>
-        <div className="px-5 py-4">{children}</div>
+        <div className="px-6 py-4">{children}</div>
         {footer && (
-          <div className="flex justify-end gap-2 border-t border-gray-300 px-5 py-3">
+          <div className="flex justify-end gap-2 border-t border-gray-300 px-6 py-3.5">
             {footer}
           </div>
         )}
