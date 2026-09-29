@@ -1826,6 +1826,10 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
         </div>
       )}
 
+      {tab !== "insurance" && summaryMode && whtSubTab !== "PREVIEW" && displayEntries.length > 0 && (
+        <EntriesSummaryBar mode={summaryMode} entries={activeDisplayEntries} />
+      )}
+
       <div className="flex-1 overflow-auto">
         {tab === "insurance" ? (
           <InsuranceTab filingId={filingId} session={session} />
@@ -1877,7 +1881,6 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                   : "아직 파싱된 항목이 없습니다"}
               </div>
             )}
-            {summaryMode && whtSubTab !== "PREVIEW" && displayEntries.length > 0 && <EntriesFooter mode={summaryMode} entries={activeDisplayEntries} />}
           </>
         )}
       </div>
@@ -2193,18 +2196,25 @@ function WhtFormPreview({ entries }: { entries: PayrollEntry[] }) {
   );
 }
 
-/* ═══ Entries Footer (직원수 · 총지급액 합계) ═══ */
+/* ═══ Entries Summary Bar (직원수 · 총지급액 · 4대보험 · 원천세 합계) ═══ */
 
-function EntriesFooter({ mode, entries }: { mode: "received" | "wht"; entries: PayrollEntry[] }) {
+function EntriesSummaryBar({ mode, entries }: { mode: "received" | "wht"; entries: PayrollEntry[] }) {
   const grossTotal = entries.reduce((acc, e) => acc + (e.total_amount ?? 0), 0);
   const incomeTaxTotal = entries.reduce((acc, e) => acc + (e.income_tax ?? 0), 0);
   const localTaxTotal = entries.reduce((acc, e) => acc + (e.local_tax ?? 0), 0);
+  const insuranceTotal = entries.reduce(
+    (acc, e) => acc + (e.national_pension ?? 0) + (e.health_insurance ?? 0) + (e.employment_insurance ?? 0) + (e.longterm_care ?? 0),
+    0,
+  );
   return (
-    <div className="flex items-center justify-end gap-5 px-4 py-3 border-t-2 border-gray-300 bg-gray-50/60 text-[12px] sticky bottom-0">
+    <div className="flex items-center justify-end gap-5 px-4 py-3 border-b-2 border-gray-200 bg-gray-50/60 text-[12px]">
       <span className="text-gray-500">직원 <strong className="ml-1 text-gray-900 tabular-nums">{entries.length}명</strong></span>
       <span className="text-gray-500">총지급액 합계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(grossTotal)}</strong></span>
       {mode === "wht" && (
-        <span className="text-gray-500">납부세액 합계 <strong className="ml-1 text-blue-700 font-mono tabular-nums">{formatKrw(incomeTaxTotal + localTaxTotal)}</strong></span>
+        <>
+          <span className="text-gray-500">4대보험 합계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(insuranceTotal)}</strong></span>
+          <span className="text-gray-500">원천세 합계 <strong className="ml-1 text-blue-700 font-mono tabular-nums">{formatKrw(incomeTaxTotal + localTaxTotal)}</strong></span>
+        </>
       )}
     </div>
   );
