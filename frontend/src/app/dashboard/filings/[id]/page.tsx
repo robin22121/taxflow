@@ -1644,6 +1644,8 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const recalc = useRecalculateDeductions(filingId);
   const [drafts, setDrafts] = useState<Record<string, Partial<PayrollEntry>>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 펼치기(행 클릭)는 조회만 — 편집 모드는 "수정" 버튼을 눌렀을 때만 별도로 켠다.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
   const [confirm, confirmDialog] = useConfirm();
   const [whtSubTab, setWhtSubTab] = useState<WhtSubTab>("WAGE");
@@ -1739,7 +1741,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       if (d[f] !== undefined && d[f] !== e[f]) (patch as Record<string, unknown>)[f] = d[f];
     }
     update.mutate({ id: e.id, patch }, {
-      onSuccess: () => { setExpandedId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
+      onSuccess: () => { setExpandedId(null); setEditingId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
       onError: (err) => alert((err as Error).message),
     });
   }
@@ -1751,11 +1753,28 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
     for (const f of DETAIL_FIELDS) {
       if (d[f] !== undefined && d[f] !== e[f]) (patch as Record<string, unknown>)[f] = d[f];
     }
-    if (Object.keys(patch).length === 0) { setExpandedId(null); return; }
+    if (Object.keys(patch).length === 0) { setExpandedId(null); setEditingId(null); return; }
     update.mutate({ id: e.id, patch }, {
-      onSuccess: () => { setExpandedId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
+      onSuccess: () => { setExpandedId(null); setEditingId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
       onError: (err) => alert((err as Error).message),
     });
+  }
+
+  // 펼치기(행 클릭) — 조회만. 편집 모드는 함께 켜지 않으며, 접을 때는 편집 모드도 함께 닫는다.
+  function toggleExpand(id: string) {
+    setExpandedId((prev) => (prev === id ? null : id));
+    setEditingId(null);
+  }
+
+  // "수정" 버튼 — 이때만 편집 모드(노란 칸 + 안내 문구)를 켠다. 다시 누르면(=접기) 편집 모드까지 닫는다.
+  function toggleEdit(id: string) {
+    if (editingId === id) {
+      setExpandedId(null);
+      setEditingId(null);
+    } else {
+      setExpandedId(id);
+      setEditingId(id);
+    }
   }
 
   return (
@@ -1841,14 +1860,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                       검토 대상 ({pendingEntries.length}명)
                     </td></tr>
                   )}
-                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
                   {/* ── 승인 완료 섹션 ── */}
                   {approvedEntries.length > 0 && (
                     <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
                       승인 완료 ({approvedEntries.length}명)
                     </td></tr>
                   )}
-                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
                 </tbody>
               </table>
             ) : (
@@ -2502,11 +2521,13 @@ type EntryRowProps = {
   onRecalc: () => void;
   onToggleExpand: () => void;
   expanded: boolean;
+  onToggleEdit: () => void;
+  editing: boolean;
   update: ReturnType<typeof useUpdateEntry>;
   remove: ReturnType<typeof useDeleteEntry>;
 };
 
-function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onRecalc, onToggleExpand, expanded, update, remove }: EntryRowProps) {
+function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onRecalc, onToggleExpand, expanded, onToggleEdit, editing, update, remove }: EntryRowProps) {
   // 메모(anomaly_notes.memo)만 있는 행은 이상치가 아니다 — 분석 사유 기준으로 판정
   const reasons = anomalyReasons(e);
   const hasFlag = reasons.length > 0 && !e.approved;
@@ -2575,10 +2596,10 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
               <button onClick={() => update.mutate({ id: e.id, patch: { deleted: false } })} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50" disabled={update.isPending}>복구</button>
             ) : mode === "pending" ? (<>
               <button onClick={onApprove} className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 disabled:opacity-50" disabled={update.isPending}>승인</button>
-              <button onClick={onToggleExpand} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{expanded ? "접기" : "수정"}</button>
+              <button onClick={onToggleEdit} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{editing ? "접기" : "수정"}</button>
               <button onClick={onDelete} className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
             </>) : (<>
-              <button onClick={onToggleExpand} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{expanded ? "접기" : "수정"}</button>
+              <button onClick={onToggleEdit} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{editing ? "접기" : "수정"}</button>
               <button onClick={() => update.mutate({ id: e.id, patch: { approved: false } })} className="px-2 py-1 text-[11px] text-amber-600 border border-amber-200 rounded-full hover:bg-amber-50">승인취소</button>
             </>)}
           </div>
@@ -2597,7 +2618,7 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
               fieldChanges={fieldChanges}
               calcDiffs={calcDiffs}
               mode={mode}
-              readOnly={readOnly || e.deleted}
+              readOnly={readOnly || e.deleted || !editing}
               onSave={onSave}
               onCancel={onToggleExpand}
               onRecalc={onRecalc}
