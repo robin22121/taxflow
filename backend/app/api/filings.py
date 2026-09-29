@@ -1085,6 +1085,29 @@ async def _business_entries_for_filing(
     )
 
 
+# 위하고T 업로드 서식이 아직 실측되지 않은 소득구분 — 통합 다운로드에서 안내만 하고 파일은 만들지 않는다.
+_UNSUPPORTED_UPLOAD_INCOME_TYPES = ["DAILY", "OTHER", "RETIREMENT"]
+_UNSUPPORTED_UPLOAD_INCOME_LABELS = {
+    "DAILY": "일용근로소득",
+    "OTHER": "기타소득",
+    "RETIREMENT": "퇴직소득",
+}
+
+
+async def _unsupported_upload_entries_for_filing(
+    filing_id: str, db: AsyncSession, client_id: str | None = None
+) -> list[PayrollEntry]:
+    filters = [
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.income_type.in_(_UNSUPPORTED_UPLOAD_INCOME_TYPES),
+    ]
+    if client_id:
+        filters.append(PayrollEntry.client_id == client_id)
+    return list(
+        (await db.execute(select(PayrollEntry).where(*filters))).scalars().all()
+    )
+
+
 def _unique_folder(business_name: str, used: set[str]) -> str:
     """ZIP 내부 폴더명. 경로 구분자·제어문자를 걷어내고 중복은 접미사로 구분한다."""
     base = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", business_name or "").strip() or "거래처"
@@ -1228,10 +1251,14 @@ async def download_unified(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    """통합 다운로드 — 거래처별 폴더로 급여대장을 ZIP으로 묶는다 (4대보험·사업소득은 당분간 제외).
+    """통합 다운로드 — 거래처별 폴더로, 소득구분별 위하고T 업로드 서식을 ZIP으로 묶는다.
 
     거래처를 한 파일에 섞으면 SmartA·위하고T 업로드 시 다른 회사 직원이 함께
-    등록되므로 항상 거래처 단위로 파일을 분리한다.
+    등록되므로 항상 거래처 단위로 파일을 분리한다. 같은 이유로 소득구분도 섞지
+    않는다 — 근로소득은 급여대장 22컬럼(위하고T 급여자료입력용), 사업소득은
+    14컬럼 사업소득 서식(사업소득자료입력용)으로 각각 별도 파일에 담는다.
+    일용·기타·퇴직소득은 위하고T 업로드 서식이 아직 실측되지 않아 파일 대신
+    안내 텍스트만 포함한다 (4대보험은 당분간 제외).
 
     Args:
         client_id: 단일 거래처.
@@ -1330,34 +1357,61 @@ async def download_unified(
             if not client or client.tax_office_id != user.tax_office_id:
                 continue
 
-            payroll_entries = await _payroll_entries_for_filing(filing_id, db, target_id)
-            if not payroll_entries:
+            # 소득구분별로 위하고T 업로드 서식이 다르므로 한 파일에 섞지 않는다
+            # (근로소득을 급여대장 22컬럼에, 사업소득을 기본급·4대보험 컬럼에 넣으면 업로드가 깨진다).
+            wage_entries = await _wage_entries_for_filing(filing_id, db, target_id)
+            business_entries = await _business_entries_for_filing(filing_id, db, target_id)
+            unsupported_entries = await _unsupported_upload_entries_for_filing(
+                filing_id, db, target_id
+            )
+            if not wage_entries and not business_entries and not unsupported_entries:
                 continue
 
-            try:
-                blob = generate_payroll_excel(
-                    payroll_entries, period=period, client_name=client.business_name
-                )
-            except PayrollExcelError as e:
-                raise HTTPException(
-                    status.HTTP_409_CONFLICT, f"{client.business_name}: {e}"
-                ) from e
             folder = _unique_folder(client.business_name, used_folders)
-            zf.writestr(f"{folder}/급여대장_{period}.xlsx", blob)
-            # 당분간 급여대장만 내려준다 — 4대보험·사업소득은 복구 시 아래 주석 해제.
-            # zf.writestr(
-            #     f"{folder}/4대보험_통합_{period}.xlsx",
-            #     generate_combined_insurance_report(
-            #         await _wage_entries_for_filing(filing_id, db, target_id), period=period
-            #     ),
-            # )
-            # business_entries = await _business_entries_for_filing(filing_id, db, target_id)
-            # if business_entries:
-            #     zf.writestr(
-            #         f"{folder}/사업소득_지급명세서_{period}.xls",
-            #         generate_smarta_business_xls(business_entries, period=period),
-            #     )
-            written += 1
+            wrote_any = False
+
+            if wage_entries:
+                try:
+                    blob = generate_payroll_excel(
+                        wage_entries, period=period, client_name=client.business_name
+                    )
+                except PayrollExcelError as e:
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT, f"{client.business_name}: {e}"
+                    ) from e
+                zf.writestr(f"{folder}/급여대장_{period}.xlsx", blob)
+                wrote_any = True
+                # 당분간 4대보험은 제외 — 복구 시 아래 주석 해제.
+                # zf.writestr(
+                #     f"{folder}/4대보험_통합_{period}.xlsx",
+                #     generate_combined_insurance_report(wage_entries, period=period),
+                # )
+
+            if business_entries:
+                zf.writestr(
+                    f"{folder}/사업소득_지급명세서_{period}.xls",
+                    generate_smarta_business_xls(business_entries, period=period),
+                )
+                wrote_any = True
+
+            if unsupported_entries:
+                counts: dict[str, int] = {}
+                for e in unsupported_entries:
+                    counts[e.income_type] = counts.get(e.income_type, 0) + 1
+                lines = [
+                    f"- {_UNSUPPORTED_UPLOAD_INCOME_LABELS.get(t, t)}: {n}건"
+                    for t, n in counts.items()
+                ]
+                zf.writestr(
+                    f"{folder}/안내_위하고업로드서식_미지원_{period}.txt",
+                    "아래 소득구분은 위하고T 업로드 서식이 아직 준비되지 않아 "
+                    "이 ZIP에 포함되지 않았습니다. 위하고T에 직접 입력해주세요.\n\n"
+                    + "\n".join(lines),
+                )
+                wrote_any = True
+
+            if wrote_any:
+                written += 1
 
     if not written:
         raise HTTPException(status.HTTP_409_CONFLICT, "엔트리가 없습니다.")
