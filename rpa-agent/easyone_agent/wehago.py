@@ -962,19 +962,18 @@ class WehagoUploader:
 
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
-        # 사업소득자료입력에 데이터가 없는 거래처(대부분 — 근로소득만 자동화 대상) — 실패 아님, 건너뛴다.
-        # (§4-4 ⑨-b, 문구는 계획 문서 기준으로 2026-09-30 추가 — 실제 위하고 화면으로 아직 검증 못함)
+        # 사업소득자료입력에 데이터가 없는 거래처(대부분 — 근로소득만 자동화 대상) — 실패 아님,
+        # 건너뛴다 (§4-4 ⑨-b, 2026-09-30 사용자 스크린샷으로 문구·단일 [확인] 버튼 실측 확정).
+        # 5초로는 너무 짧아 렌더 지연 때 놓쳤다(같은 사용자 스크린샷) — 확인모달 대기와 같은
+        # UPLOAD_WAIT_MS로 늘린다. 대다수 작업이 이 경로라 지연 비용보다 놓치는 게 더 나쁘다.
         no_data = smarta.locator("div:visible", has_text="마감할 데이터가 존재하지 않습니다")
         try:
-            no_data.wait_for(state="visible", timeout=5_000)
+            no_data.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         except PlaywrightTimeout:
             pass
         else:
-            ok = no_data.get_by_role("button", name="확인", exact=True)
-            if ok.count() == 0:
-                ok = smarta.get_by_role("button", name="확인", exact=True)
             think("wehago")
-            ok.click()
+            smarta.get_by_role("button", name="확인", exact=True).click()
             return "마감할 데이터가 존재하지 않습니다 (건너뜀)"
 
         self.step = "사업소득 마감 확인 모달"
