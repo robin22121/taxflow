@@ -984,6 +984,45 @@ class WehagoUploader:
         think("wehago")
         smarta.locator("#Leftgrid_dropdown").select_option(label=income_type_label)
 
+    _DAILY_WORKER_REGISTER_MENU_ID = "SWPM0109"  # TODO 실측: 실제 메뉴 ID 확인 필요 (추정)
+
+    def register_daily_worker(self, business_number: str, name: str, rrn: str, hired_at: date) -> None:
+        """일용직 사원등록 — "근로소득관리 / 연말정산관리" 카테고리, 그리드 id는
+        `#Tab1_left_grid_line` (2026-09-28 §12 사원등록/2026-09-29 이 화면 둘 다 "Tab1_left_grid"
+        접두어를 씀 — 화면마다 그리드가 여러 개일 때의 공통 명명 규칙으로 보인다).
+
+        등록 결과(2026-09-29 실측, 김태호/770728-1323914)에서 확인된 사실:
+        - 그리드에 이름·주민번호만 넣으면 "나이"가 생년월일 기준으로 자동 계산돼 표시된다.
+        - 오른쪽 상세 패널이 매우 크다(기본정보·급여정보·4대보험정보·관리항목·부가정보) —
+          입사년월일은 기본값(오늘 근처 날짜)이 이미 채워져 있어 원하는 값으로 덮어써야 한다.
+        - "급여지급방법"은 코드도움이 아니라 진짜 드롭다운 리스트(0.매일지급/1.일정기간지급).
+        - 계좌정보의 예금주는 이름을 넣으면 자동으로 같이 채워진다.
+
+        ⚠️ 스켈레톤 — 좌표 기반, 그리드 컬럼 순서(이름→주민번호)만 확인했고 "나이" 칸
+        오른쪽에 더 있을 수 있는 칸(직종 등)은 안 건드렸다. 상세 패널(급여정보·4대보험정보
+        등)은 이 메서드가 손대지 않는다 — 필요하면 별도로 채워야 한다.
+        """
+        smarta, _name, _number = self._open_closing_menu(
+            business_number, self._DAILY_WORKER_REGISTER_MENU_ID
+        )
+
+        self.step = "일용직 사원등록 — 이름"
+        grid_input = smarta.locator("#Tab1_left_grid_line")
+        think("wehago")
+        grid_input.dblclick(position={"x": 88, "y": 44})  # TODO 실측: 좌표 대신 셀 지정 방식으로
+        grid_input.press("Enter")
+        grid_input.fill(name)
+        grid_input.press("Tab")
+
+        self.step = "일용직 사원등록 — 주민번호"
+        think("wehago")
+        grid_input.fill(rrn.replace("-", ""))
+        grid_input.press("Tab")
+
+        # TODO 실측 미확정: 입사년월일이 오른쪽 상세 패널에 기본값으로 이미 채워져 있어
+        # (2026-09-29 관찰: "2026.09.02") 원하는 hired_at 인자로 덮어써야 하는데, 그 입력칸의
+        # 정확한 셀렉터를 아직 못 구해 여기서는 손대지 않는다.
+
     # ---- 내부 헬퍼 ----
 
     def _payroll_page(self):
