@@ -184,8 +184,23 @@ class WehagoUploader:
         # start-chrome이 만든 기본 컨텍스트를 그대로 쓴다 (프로필·쿠키·확장이 살아 있음).
         contexts = self._browser.contexts
         self._context = contexts[0] if contexts else self._browser.new_context()
+
+        # 이전 작업이 남긴 탭(SmartA·홈택스 탭, 빈 URL 유령 탭 등)이 있으면 문제를 일으킨다
+        # (2026-09-29 실측: 빈 URL 탭이 pages[0]으로 잡혀 "Page.goto: Frame has been detached"
+        # 발생 — 위하고 전송·제작 등 새 작업을 시작할 때마다 위하고 T 메인 화면 탭 하나만
+        # 남기고 나머지는 전부 닫아 항상 같은 깨끗한 상태에서 시작한다).
+        self.step = "이전 작업 탭 정리"
         pages = self._context.pages
-        self._page = pages[0] if pages else self._context.new_page()
+        main_page = next((pg for pg in pages if pg.url.startswith(WEHAGO_URL)), None)
+        keep = main_page or (pages[0] if pages else self._context.new_page())
+        for pg in list(self._context.pages):
+            if pg is not keep:
+                try:
+                    pg.close()
+                except Exception:
+                    pass
+        self._page = keep
+        self._page.bring_to_front()
         # Playwright 는 붙을 때 크롬 다운로드를 가로채(임시 폴더·무작위 이름·확장자 없음) 사람이
         # 위하고에서 내려받은 엑셀을 못 쓰게 된다 (2026-09-27). 에이전트는 이 기능을 쓰지 않으므로
         # 크롬 기본 다운로드(다운로드 폴더·원래 이름)로 되돌린다.
