@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from easyone_agent.wehago import (
     _excel_employees,
     _excel_totals,
@@ -7,8 +9,23 @@ from easyone_agent.wehago import (
     _employee_mismatch,
     _nontaxable_limits,
     _prepare_upload_xlsx,
+    _report_type_code,
     _unmapped_amount_columns,
 )
+
+
+def test_report_type_code_regular_within_deadline():
+    # 2026-08 귀속분 정기신고 기한은 2026-09-10
+    assert _report_type_code("2026-08", today=date(2026, 9, 10)) == "0"
+
+
+def test_report_type_code_late_after_deadline():
+    assert _report_type_code("2026-08", today=date(2026, 9, 29)) == "2"
+
+
+def test_report_type_code_deadline_crosses_year():
+    assert _report_type_code("2026-12", today=date(2027, 1, 10)) == "0"
+    assert _report_type_code("2026-12", today=date(2027, 1, 11)) == "2"
 
 
 def _col(excel: str, wehago: str, has_amount: bool) -> dict:

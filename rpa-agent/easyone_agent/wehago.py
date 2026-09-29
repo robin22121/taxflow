@@ -853,6 +853,19 @@ class WehagoUploader:
         self._fill_closing_period(smarta, items.nth(0), period)  # 귀속기간
         self._fill_closing_period(smarta, items.nth(1), period)  # 지급기간
 
+        # 신고구분(정기/기한후) — 기한(다음달 10일) 지나서 신고하면 기한후신고로 조회해야
+        # 소득세 등 계산값이 나온다(2026-09-30 사용자 실측: 정기신고로 조회하면 지급액만
+        # 보이고 소득세가 빈칸). items.nth(2) — 귀속기간(0)·지급기간(1) 다음 칸.
+        self.step = "원천세 신고구분 확인"
+        report_type = items.nth(2)
+        code = _report_type_code(period)
+        if _fake_text(report_type).split(".", 1)[0].strip() != code:
+            think("wehago")
+            report_type.locator("span.fakeinput").click()
+            smarta.keyboard.type(code)
+            think("wehago")
+            smarta.keyboard.press("Tab")
+
         think("wehago")
         smarta.get_by_role("button", name="조회", exact=True).click()
         self._wait_for_no_dimmed(smarta)
@@ -1615,6 +1628,21 @@ class WehagoUploader:
             }"""
         )
         return _clean_business_number(raw)
+
+
+def _report_type_code(period: str, today: date | None = None) -> str:
+    """원천세 신고구분 코드 — 귀속월 다음달 10일(정기신고 기한)이 지났으면 기한후신고.
+
+    "0. 정기신고"/"2. 기한후신고" 두 가지만 다룬다 — 수정신고 계열(1·3)은 자동화 범위 밖
+    (사용자 지시로 2026-09-30 추가, plan/16 §4-8 "수정신고·기한후신고 초기 제외"를 넘어선
+    실무 요구 — 반영 필요).
+    """
+    year, month = (int(x) for x in period.split("-"))
+    deadline_month, deadline_year = month + 1, year
+    if deadline_month > 12:
+        deadline_month, deadline_year = 1, year + 1
+    deadline = date(deadline_year, deadline_month, 10)
+    return "2" if (today or date.today()) > deadline else "0"
 
 
 def _clean_business_number(value: str) -> str:
