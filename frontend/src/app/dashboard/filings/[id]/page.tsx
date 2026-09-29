@@ -1655,6 +1655,8 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const displayEntries = summaryMode === "wht" ? entries.filter((e) => matchesWhtSubTab(e, whtSubTab)) : entries;
   const pendingEntries = displayEntries.filter((e) => !e.approved);
   const approvedEntries = displayEntries.filter((e) => e.approved);
+  // 받은 자료 = 고객이 준 원시 파싱값 그대로 보존(조회 전용). 값 조정 + 사유 기록 + 승인은 원천세관리에서만.
+  const readOnly = summaryMode === "received";
 
   const getDraft = useCallback((e: PayrollEntry): Partial<PayrollEntry> => {
     return drafts[e.id] ?? {
@@ -1803,14 +1805,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                       검토 대상 ({pendingEntries.length}명)
                     </td></tr>
                   )}
-                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
                   {/* ── 승인 완료 섹션 ── */}
                   {approvedEntries.length > 0 && (
                     <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
                       승인 완료 ({approvedEntries.length}명)
                     </td></tr>
                   )}
-                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
+                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => setExpandedId(expandedId === e.id ? null : e.id)} expanded={expandedId === e.id} update={update} remove={remove} />)}
                 </tbody>
               </table>
             ) : (
@@ -2451,6 +2453,7 @@ function EdiGuideSection() {
 type EntryRowProps = {
   e: PayrollEntry;
   mode: "pending" | "approved";
+  readOnly: boolean;
   draft: Partial<PayrollEntry>;
   setDraft: (d: Partial<PayrollEntry>) => void;
   selected: Set<string>;
@@ -2466,7 +2469,7 @@ type EntryRowProps = {
   remove: ReturnType<typeof useDeleteEntry>;
 };
 
-function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onDelete, onSave, onRecalc, onToggleExpand, expanded, update, remove }: EntryRowProps) {
+function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onDelete, onSave, onRecalc, onToggleExpand, expanded, update, remove }: EntryRowProps) {
   // 메모(anomaly_notes.memo)만 있는 행은 이상치가 아니다 — 분석 사유 기준으로 판정
   const reasons = anomalyReasons(e);
   const hasFlag = reasons.length > 0 && !e.approved;
@@ -2530,7 +2533,10 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
         </td>
         <td className="py-2.5 pr-3 text-right" onClick={(ev) => ev.stopPropagation()}>
           <div className="flex gap-1 justify-end">
-            {mode === "pending" ? (<>
+            {readOnly ? (<>
+              <button onClick={onToggleExpand} className="px-2 py-1 text-[11px] text-gray-500 border border-gray-200 rounded-full hover:bg-gray-50">{expanded ? "접기" : "보기"}</button>
+              <button onClick={onDelete} className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
+            </>) : mode === "pending" ? (<>
               <button onClick={onToggleExpand} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{expanded ? "접기" : "수정"}</button>
               <button onClick={onDelete} className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
             </>) : (<>
@@ -2553,6 +2559,7 @@ function EntryRow({ e, mode, draft, setDraft, selected, toggleSelect, highlightE
               fieldChanges={fieldChanges}
               calcDiffs={calcDiffs}
               mode={mode}
+              readOnly={readOnly}
               onSave={onSave}
               onCancel={onToggleExpand}
               onRecalc={onRecalc}
@@ -2575,6 +2582,7 @@ function V3Spreadsheet({
   fieldChanges,
   calcDiffs,
   mode,
+  readOnly,
   onSave,
   onCancel,
   onRecalc,
@@ -2585,13 +2593,14 @@ function V3Spreadsheet({
   fieldChanges: Record<string, { prev: number; curr: number }> | null;
   calcDiffs: Record<string, { actual: number; computed: number }> | null;
   mode: "pending" | "approved";
+  readOnly: boolean;
   onSave: () => void;
   onCancel: () => void;
   onRecalc: () => void;
   saving: boolean;
 }) {
-  // v3 의도: 펼친 상태 = 편집 모드. pending/approved 모두 인라인 편집 가능.
-  const editing = true;
+  // 받은 자료(readOnly) = 원시 파싱값 그대로 조회만. 값 조정·재계산·사유 기록·저장(=승인)은 원천세관리에서만.
+  const editing = !readOnly;
   // 검토완료(승인)된 행은 이상치 칸 표시는 유지하되 글자색을 검은색으로
   const reviewed = mode === "approved";
   const v = (k: keyof PayrollEntry): number => Number(draft[k] ?? 0) || 0;
@@ -2809,34 +2818,38 @@ function V3Spreadsheet({
         </div>
       </div>
 
-      {/* 수정 사유 — 저장 전 간단히 남기는 작은 별도 입력 (선택) */}
-      <div className="flex items-center gap-2 px-5 py-1.5 bg-white border-t border-gray-100">
-        <label className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wider shrink-0">수정 사유</label>
-        <input
-          type="text"
-          value={(draft.edit_reason as string) ?? ""}
-          onChange={(e) => setDraft({ ...draft, edit_reason: e.target.value })}
-          placeholder="(선택) 무엇을 왜 수정했는지 간단히"
-          className="flex-1 text-[12px] text-gray-700 bg-gray-50 border border-gray-200 focus:bg-white focus:border-blue-300 rounded px-2 py-1 outline-none"
-        />
-      </div>
+      {/* 수정 사유 — 저장 전 간단히 남기는 작은 별도 입력 (선택). 원천세관리(편집 가능)에서만 노출 */}
+      {editing && (
+        <div className="flex items-center gap-2 px-5 py-1.5 bg-white border-t border-gray-100">
+          <label className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wider shrink-0">수정 사유</label>
+          <input
+            type="text"
+            value={(draft.edit_reason as string) ?? ""}
+            onChange={(e) => setDraft({ ...draft, edit_reason: e.target.value })}
+            placeholder="(선택) 무엇을 왜 수정했는지 간단히"
+            className="flex-1 text-[12px] text-gray-700 bg-gray-50 border border-gray-200 focus:bg-white focus:border-blue-300 rounded px-2 py-1 outline-none"
+          />
+        </div>
+      )}
 
-      {/* 하단 액션: 저장/취소 + 보조 액션(v3 ghost actions) */}
+      {/* 하단 액션: 저장/취소(편집 가능일 때만) + 보조 액션(v3 ghost actions) */}
       <div className="flex items-center gap-1.5 px-5 py-2 bg-white border-t border-gray-200">
-        <button
-          onClick={onSave}
-          disabled={saving}
-          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? "저장 중..." : "저장"}
-        </button>
-        <button
-          onClick={onCancel}
-          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
-        >
-          취소
-        </button>
-        <span className="w-px h-4 bg-gray-200 mx-1" />
+        {editing && (<>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? "저장 중..." : "저장"}
+          </button>
+          <button
+            onClick={onCancel}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+          >
+            취소
+          </button>
+          <span className="w-px h-4 bg-gray-200 mx-1" />
+        </>)}
         <button className="text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded">
           명세서 PDF
         </button>
@@ -3520,7 +3533,7 @@ function anomalyReasons(e: PayrollEntry): AnomalyReason[] {
       detail: raw
         ? `사장님이 직접 입력한 문장을 AI가 읽은 값입니다 — 원문 “${raw.length > 80 ? `${raw.slice(0, 80)}…` : raw}”`
         : "사장님이 직접 입력한 문장을 AI가 읽은 값입니다",
-      action: "원문과 이름·금액을 대조한 뒤 이 항목만 개별 승인 (일괄 승인 제외)",
+      action: "원문과 이름·금액을 대조해 확인 (값 조정이 필요하면 원천세관리에서)",
     });
   }
 
