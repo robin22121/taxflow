@@ -130,6 +130,7 @@ async def _load_prev_entries(
                 MonthlyFiling.tax_office_id == filing.tax_office_id,
                 MonthlyFiling.period == prev_period,
                 PayrollEntry.client_id == client.id,
+                PayrollEntry.deleted.is_(False),
             )
         )
     ).scalars().all()
@@ -159,6 +160,7 @@ async def _current_entry_count(
             select(PayrollEntry.id).where(
                 PayrollEntry.monthly_filing_id == filing_id,
                 PayrollEntry.client_id == client_id,
+                PayrollEntry.deleted.is_(False),
             )
         )
     ).scalars().all()

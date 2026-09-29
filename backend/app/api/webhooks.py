@@ -411,6 +411,7 @@ async def _callback_ingest_kakao(
                     .where(
                         PayrollEntry.monthly_filing_id == filing_id,
                         PayrollEntry.client_id == client_id,
+                        PayrollEntry.deleted.is_(False),
                     )
                     .order_by(PayrollEntry.total_amount.desc())
                 )

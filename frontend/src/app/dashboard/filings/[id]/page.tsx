@@ -1657,6 +1657,9 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const approvedEntries = displayEntries.filter((e) => e.approved);
   // 받은 자료 = 고객이 준 원시 파싱값 그대로 보존(조회 전용). 값 조정 + 사유 기록 + 승인은 원천세관리에서만.
   const readOnly = summaryMode === "received";
+  // 삭제(소프트 삭제)된 항목은 행 목록에는 취소선으로 남기되, 합계·신고서 미리보기·서브탭 카운트에서는 제외한다.
+  const activeEntries = entries.filter((e) => !e.deleted);
+  const activeDisplayEntries = displayEntries.filter((e) => !e.deleted);
 
   const getDraft = useCallback((e: PayrollEntry): Partial<PayrollEntry> => {
     return drafts[e.id] ?? {
@@ -1777,11 +1780,11 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
         ) : (
           <>
             {summaryMode === "wht" && (
-              <WhtSubTabBar value={whtSubTab} onChange={setWhtSubTab} entries={entries} />
+              <WhtSubTabBar value={whtSubTab} onChange={setWhtSubTab} entries={activeEntries} />
             )}
             {summaryMode === "wht" && whtSubTab === "PREVIEW" ? (
-              entries.length > 0
-                ? <WhtFormPreview entries={entries} />
+              activeEntries.length > 0
+                ? <WhtFormPreview entries={activeEntries} />
                 : <div className="flex items-center justify-center py-12 text-sm text-gray-400">아직 파싱된 항목이 없습니다</div>
             ) : displayEntries.length > 0 ? (
               <table className="w-full text-[12px]">
@@ -1822,7 +1825,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                   : "아직 파싱된 항목이 없습니다"}
               </div>
             )}
-            {summaryMode && whtSubTab !== "PREVIEW" && displayEntries.length > 0 && <EntriesFooter mode={summaryMode} entries={displayEntries} />}
+            {summaryMode && whtSubTab !== "PREVIEW" && displayEntries.length > 0 && <EntriesFooter mode={summaryMode} entries={activeDisplayEntries} />}
           </>
         )}
       </div>
@@ -2481,7 +2484,7 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
     <>
       <tr
         onClick={() => { onToggleExpand(); if (e.collection_event_id) onHighlight(highlightEventId === e.collection_event_id ? null : e.collection_event_id); }}
-        className={`border-b border-gray-50 transition-colors cursor-pointer ${
+        className={`border-b border-gray-50 transition-colors cursor-pointer ${e.deleted ? "opacity-60" : ""} ${
           highlightEventId && e.collection_event_id === highlightEventId
             ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
             : expanded ? "bg-blue-50/30"
@@ -2493,14 +2496,15 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
         <td className="py-2.5 pl-2">
           <div className="flex items-center gap-1.5">
             <span className={`text-[10px] text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}>▶</span>
-            <span className="font-semibold text-[13px] text-gray-900 tracking-tight">{e.raw_name}</span>
-            {e.approved && <span className="text-[10px] text-green-600">✓</span>}
+            <span className={`font-semibold text-[13px] tracking-tight ${e.deleted ? "text-gray-400 line-through decoration-red-500 decoration-2" : "text-gray-900"}`}>{e.raw_name}</span>
+            {e.deleted && <span className="text-[10px] font-semibold text-red-500">삭제됨</span>}
+            {!e.deleted && e.approved && <span className="text-[10px] text-green-600">✓</span>}
           </div>
           <div className="text-[11px] text-gray-500 mt-0.5 pl-[18px]">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
         </td>
         <td className="py-2.5 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
         <td className="py-2.5 pr-3.5 text-right tabular-nums font-semibold">
-          <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
+          <span className={e.deleted ? "text-gray-400 line-through decoration-red-500 decoration-2" : hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
           {fieldChanges && !expanded && (
             <div className="flex flex-wrap gap-0.5 mt-0.5 justify-end">
               {Object.keys(fieldChanges).map((k) => (
@@ -2533,10 +2537,9 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
         </td>
         <td className="py-2.5 pr-3 text-right" onClick={(ev) => ev.stopPropagation()}>
           <div className="flex gap-1 justify-end">
-            {readOnly ? (<>
-              <button onClick={onToggleExpand} className="px-2 py-1 text-[11px] text-gray-500 border border-gray-200 rounded-full hover:bg-gray-50">{expanded ? "접기" : "보기"}</button>
-              <button onClick={onDelete} className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
-            </>) : mode === "pending" ? (<>
+            {readOnly ? null : e.deleted ? (
+              <button onClick={() => update.mutate({ id: e.id, patch: { deleted: false } })} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50" disabled={update.isPending}>복구</button>
+            ) : mode === "pending" ? (<>
               <button onClick={onToggleExpand} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{expanded ? "접기" : "수정"}</button>
               <button onClick={onDelete} className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
             </>) : (<>
@@ -2559,7 +2562,7 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
               fieldChanges={fieldChanges}
               calcDiffs={calcDiffs}
               mode={mode}
-              readOnly={readOnly}
+              readOnly={readOnly || e.deleted}
               onSave={onSave}
               onCancel={onToggleExpand}
               onRecalc={onRecalc}

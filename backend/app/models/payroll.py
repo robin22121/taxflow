@@ -80,6 +80,9 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
     anomaly_notes: Mapped[dict | None] = mapped_column(JSON)
     approved: Mapped[bool] = mapped_column(default=False)
     edit_reason: Mapped[str | None] = mapped_column(String(500))  # 최근 수정 사유 (검토 화면 "수정" 저장 시 입력)
+    # 소프트 삭제 — 원천세관리에서 "삭제"해도 실제로는 지우지 않고 빨간 취소선으로 표시.
+    # 신고서 산출물·집계·매칭 로직에서는 반드시 제외해야 한다.
+    deleted: Mapped[bool] = mapped_column(default=False)
 
     monthly_filing: Mapped[MonthlyFiling] = relationship()
     collection_session: Mapped[CollectionSession] = relationship()

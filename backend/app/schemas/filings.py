@@ -76,6 +76,7 @@ class PayrollEntryOut(BaseModel):
     anomaly_notes: dict | None
     approved: bool
     edit_reason: str | None = None
+    deleted: bool = False
     source_event: SourceEventOut | None = None
 
     model_config = {"from_attributes": True}
@@ -104,6 +105,7 @@ class PayrollEntryUpdate(BaseModel):
     employee_id: str | None = None
     approved: bool | None = None
     edit_reason: str | None = None
+    deleted: bool | None = None
 
 
 class RecalculateDeductionsIn(BaseModel):

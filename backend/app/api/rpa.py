@@ -188,6 +188,7 @@ async def _pay_date(
                     PayrollEntry.monthly_filing_id == filing_id,
                     PayrollEntry.client_id == client_id,
                     PayrollEntry.payment_date.is_not(None),
+                    PayrollEntry.deleted.is_(False),
                 )
             )
         ).scalars().all()
@@ -226,7 +227,10 @@ async def preview_wehago_uploads(
     client_ids = set(
         (
             await db.execute(
-                select(PayrollEntry.client_id).where(PayrollEntry.monthly_filing_id == filing.id)
+                select(PayrollEntry.client_id).where(
+                    PayrollEntry.monthly_filing_id == filing.id,
+                    PayrollEntry.deleted.is_(False),
+                )
             )
         ).scalars().all()
     )
@@ -241,6 +245,7 @@ async def preview_wehago_uploads(
                 .where(
                     PayrollEntry.monthly_filing_id == filing.id,
                     func.coalesce(func.trim(Employee.employee_code), "") == "",
+                    PayrollEntry.deleted.is_(False),
                 )
             )
         ).scalars().all()
@@ -263,7 +268,8 @@ async def preview_wehago_uploads(
     income_rows = (
         await db.execute(
             select(PayrollEntry.client_id, PayrollEntry.income_type, PayrollEntry.approved).where(
-                PayrollEntry.monthly_filing_id == filing.id
+                PayrollEntry.monthly_filing_id == filing.id,
+                PayrollEntry.deleted.is_(False),
             )
         )
     ).all()
@@ -346,6 +352,7 @@ async def create_wehago_uploads(
             select(PayrollEntry.client_id, PayrollEntry.approved, PayrollEntry.income_type).where(
                 PayrollEntry.monthly_filing_id == filing.id,
                 PayrollEntry.client_id.in_(client_ids),
+                PayrollEntry.deleted.is_(False),
             )
         )
     ).all()
@@ -388,6 +395,7 @@ async def create_wehago_uploads(
                 PayrollEntry.monthly_filing_id == filing.id,
                 PayrollEntry.client_id.in_(client_ids),
                 func.coalesce(func.trim(Employee.employee_code), "") == "",
+                PayrollEntry.deleted.is_(False),
             )
         )
     ).all()
@@ -706,6 +714,8 @@ async def agent_download_payroll_excel(
                     # 급여자료입력(SmartA SWSA0101)은 근로소득 전용 — 사업·기타·일용은 다른 화면(§13-3)이라
                     # 여기 섞이면 안 된다. create_wehago_uploads가 미리 막지만, 방어적으로 한 번 더 거른다.
                     PayrollEntry.income_type == IncomeType.WAGE,
+                    # 소프트 삭제된 항목이 실제 위하고 업로드 엑셀에 들어가면 안 된다 (신고 사고).
+                    PayrollEntry.deleted.is_(False),
                 )
                 .options(selectinload(PayrollEntry.employee))
             )

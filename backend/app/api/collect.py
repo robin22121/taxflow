@@ -128,6 +128,7 @@ async def _load_current_entries(
                 select(PayrollEntry).where(
                     PayrollEntry.monthly_filing_id == filing.id,
                     PayrollEntry.client_id == client.id,
+                    PayrollEntry.deleted.is_(False),
                 )
             )
         ).scalars().all()
@@ -592,6 +593,7 @@ async def _build_context(
                     select(PayrollEntry).where(
                         PayrollEntry.monthly_filing_id == prev_filing.id,
                         PayrollEntry.client_id == client.id,
+                        PayrollEntry.deleted.is_(False),
                     )
                 )
             ).scalars().all()
@@ -914,6 +916,7 @@ async def _persist_results(
                 select(PayrollEntry).where(
                     PayrollEntry.monthly_filing_id == filing.id,
                     PayrollEntry.client_id == client.id,
+                    PayrollEntry.deleted.is_(False),
                 )
             )
         ).scalars().all()
