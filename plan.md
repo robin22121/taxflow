@@ -31,6 +31,8 @@
 | [`plan/22-worker-attendance.md`](plan/22-worker-attendance.md) | 출근·연장근로 기록·근로자 이의제기 (사업주 입력 vs 근로자 대조) |
 | [`plan/23-세무사세팅.md`](plan/23-세무사세팅.md) | **세무사 세팅** — 사무소 도입 시 기본 세팅 체크리스트 (자동화 노트북 설치·알리고 문자·카카오 채널·수임처별 위하고 사원·수당·공제 맞추기) |
 | [`plan/25-tax-law-compliance-checklist.md`](plan/25-tax-law-compliance-checklist.md) | **세법 준수 체크리스트** — 계산·서식 코드가 최신 법령·공식서식과 일치하는지 항목별 추적 (기능 버그 아닌 법령 정합성 검증용) |
+| [`plan/26-status-and-agent-permissions.md`](plan/26-status-and-agent-permissions.md) | **[백로그]** 상태 정의 2계층(큰 단계 + 세부 상태) & AI 에이전트/RPA 권한 3단(direct/approval/denied) 설계안 — plan/02·03·10·16 반영 후보 |
+| [`plan/28-invoice-issuance.md`](plan/28-invoice-issuance.md) | **[백로그·Phase 3+]** 세금계산서 발급 대행 — 사업주 포털 요청 → 세무사 승인 → 자동화 노트북(이지원) 홈택스 발급 → 담당자 최종 확인 → 사장님 발송. 접점·이탈방어 최강 트랙, 인증서 다계정 관리·법적 책임 경계 선결 |
 
 ---
 
