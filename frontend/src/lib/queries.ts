@@ -173,6 +173,16 @@ export function useUpdateClient(clientId: string) {
   });
 }
 
+/** 거래처 삭제 — 사무소 관리자(세무사 아이디)만 가능. 상호·확인 문구가 정확해야 서버가 받아준다. */
+export function useDeleteClient(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (confirm: { business_name: string; confirm_text: string }) =>
+      api<void>(`/api/v1/clients/${clientId}`, { method: "DELETE", json: confirm }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
+  });
+}
+
 export function useSendClientInvite(clientId: string) {
   const qc = useQueryClient();
   return useMutation({

@@ -8,20 +8,27 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
 from app.models import (
+    CertificateIssue,
     Client,
     ClientFilingResult,
     ClientPayrollDefault,
+    CollectionEvent,
+    CollectionSession,
     Employee,
+    EmployeeChangeRequest,
     EmploymentStatus,
     IncomeType,
+    MessageLog,
     MonthlyFiling,
     MonthlyFilingStatus,
     PayrollEntry,
+    RpaJob,
+    SecureToken,
     TaxOffice,
     User,
 )
@@ -272,6 +279,57 @@ async def update_client(
     await db.commit()
     await db.refresh(client)
     return client
+
+
+_DELETE_CONFIRM_PHRASE = "거래처명단을 삭제합니다"
+
+
+class ClientDeleteConfirm(BaseModel):
+    business_name: str
+    confirm_text: str
+
+
+@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_client(
+    client_id: str,
+    payload: ClientDeleteConfirm,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """거래처 삭제 — 사무소 관리자(세무사 아이디)만, 상호와 확인 문구를 정확히 입력해야 한다.
+
+    거래처에 딸린 직원·급여자료·수집이력·전자신고결과·증명원·변동신청 등 관련 레코드를
+    전부 함께 지운다. 알림·RPA 작업 이력은 감사 목적으로 남기되 이 거래처와의 연결만 끊는다
+    (client_id를 NULL로).
+    """
+    client = await db.get(Client, client_id)
+    if not client or client.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
+    if not user.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "사무소 관리자(세무사 아이디)만 거래처를 삭제할 수 있습니다")
+    if payload.business_name != client.business_name or payload.confirm_text != _DELETE_CONFIRM_PHRASE:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "상호 또는 확인 문구가 일치하지 않습니다")
+
+    session_ids = (
+        await db.execute(select(CollectionSession.id).where(CollectionSession.client_id == client_id))
+    ).scalars().all()
+
+    await db.execute(delete(PayrollEntry).where(PayrollEntry.client_id == client_id))
+    if session_ids:
+        await db.execute(delete(CollectionEvent).where(CollectionEvent.session_id.in_(session_ids)))
+    await db.execute(delete(SecureToken).where(SecureToken.client_id == client_id))
+    await db.execute(delete(CollectionSession).where(CollectionSession.client_id == client_id))
+    await db.execute(delete(ClientFilingResult).where(ClientFilingResult.client_id == client_id))
+    await db.execute(delete(CertificateIssue).where(CertificateIssue.client_id == client_id))
+    await db.execute(delete(EmployeeChangeRequest).where(EmployeeChangeRequest.client_id == client_id))
+    # 알림/작업 이력은 감사 목적으로 남기고 이 거래처와의 연결만 끊는다.
+    await db.execute(update(MessageLog).where(MessageLog.client_id == client_id).values(client_id=None))
+    await db.execute(update(RpaJob).where(RpaJob.client_id == client_id).values(client_id=None))
+    await db.execute(delete(Employee).where(Employee.client_id == client_id))
+    # ClientPayrollDefault는 FK가 ondelete=CASCADE라 아래 client 삭제 시 DB가 알아서 지운다.
+    await db.delete(client)
+    await db.commit()
+    logger.info("Client %s (%s) deleted by admin %s", client_id, client.business_name, user.id)
 
 
 class PortalLinkOut(BaseModel):

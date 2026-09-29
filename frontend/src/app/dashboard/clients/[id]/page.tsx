@@ -2,16 +2,19 @@
 
 import { Fragment, use, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import {
   useClientArchive,
   useClientDetail,
   useClientEmployees,
+  useDeleteClient,
   useUpdateEmployee,
   useClientPayrollHistory,
   useImportEmployees,
   useImportPayroll,
   useIssuePortalPin,
+  useMe,
   usePayrollDefault,
   usePortalLink,
   usePortalPinStatus,
@@ -59,6 +62,8 @@ export default function ClientDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
+  const { data: me } = useMe();
   const { data: client, isLoading } = useClientDetail(id);
   const { data: employees } = useClientEmployees(id);
   const importEmp = useImportEmployees(id);
@@ -79,6 +84,7 @@ export default function ClientDetailPage({
   const [wehagoOpen, setWehagoOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [incomeTab, setIncomeTab] = useState<string>("WAGE");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   if (isLoading || !client) return <p className="p-6 text-gray-900">로딩 중...</p>;
 
@@ -103,6 +109,15 @@ export default function ClientDetailPage({
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               편집
             </Button>
+            {me?.is_admin && (
+              <Button
+                variant="secondary"
+                className="!text-red-600 !border-red-200 hover:!bg-red-50"
+                onClick={() => setDeleteOpen(true)}
+              >
+                삭제
+              </Button>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -393,6 +408,15 @@ export default function ClientDetailPage({
         <EmployeeEditModal clientId={id} employee={editingEmployee} onClose={() => setEditingEmployee(null)} />
       )}
 
+      {deleteOpen && client && (
+        <ClientDeleteModal
+          clientId={id}
+          client={client}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => router.push("/dashboard/clients")}
+        />
+      )}
+
       {/* 급여 이력 — 거래처의 전체 월 급여자료 */}
       <PayrollHistorySection clientId={id} />
 
@@ -510,6 +534,66 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
         </p>
       )}
       <p className="mt-3 text-[11.5px] text-gray-500">주민번호는 여기서 바꾸지 않습니다.</p>
+      {error && <p className="mt-2 text-[12px] text-red-600">{error}</p>}
+    </Modal>
+  );
+}
+
+/* ─── 거래처 삭제 — 세무사(사무소 관리자)만, 상호+확인 문구를 정확히 입력해야 삭제 가능 ─── */
+
+const DELETE_CONFIRM_PHRASE = "거래처명단을 삭제합니다";
+
+function ClientDeleteModal({
+  clientId,
+  client,
+  onClose,
+  onDeleted,
+}: {
+  clientId: string;
+  client: Client;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const del = useDeleteClient(clientId);
+  const [businessName, setBusinessName] = useState("");
+  const [confirmText, setConfirmText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const ready = businessName === client.business_name && confirmText === DELETE_CONFIRM_PHRASE;
+
+  async function run() {
+    setError(null);
+    try {
+      await del.mutateAsync({ business_name: businessName, confirm_text: confirmText });
+      onDeleted();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  return (
+    <Modal open={true} onClose={onClose} title={`거래처 삭제 — ${client.business_name}`}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button
+          className="!bg-red-600 hover:!bg-red-700"
+          onClick={run}
+          disabled={!ready || del.isPending}
+        >
+          {del.isPending ? "삭제 중..." : "영구 삭제"}
+        </Button>
+      </>}>
+      <p className="text-[13px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+        이 거래처와 직원 명단·급여자료·신고이력·증명원 등 관련 기록이 전부 삭제됩니다.
+        되돌릴 수 없습니다.
+      </p>
+      <label className="block mt-3 space-y-1 text-[12px] text-gray-600">
+        상호 확인 — <strong className="text-gray-900">{client.business_name}</strong>를 정확히 입력하세요
+        <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+      </label>
+      <label className="block mt-3 space-y-1 text-[12px] text-gray-600">
+        &quot;{DELETE_CONFIRM_PHRASE}&quot; 를 그대로 입력하세요
+        <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
+      </label>
       {error && <p className="mt-2 text-[12px] text-red-600">{error}</p>}
     </Modal>
   );
