@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models._base import Base, IdMixin, TimestampMixin
 from app.models.client import Client
+from app.models.income_type import IncomeType
 
 
 class EmploymentStatus(str, enum.Enum):
@@ -43,6 +44,12 @@ class Employee(Base, IdMixin, TimestampMixin):
     status: Mapped[EmploymentStatus] = mapped_column(
         Enum(EmploymentStatus, native_enum=False, length=20),
         default=EmploymentStatus.ACTIVE,
+    )
+    # 소득구분 (plan/02-data-model.md — 근로/사업/기타/일용/퇴직). 영세사업장 대다수가
+    # 근로소득만 다루므로 기본값 WAGE (신규 필드는 항상 기본값 우선, 필수입력 강제 금지).
+    income_type: Mapped[IncomeType] = mapped_column(
+        Enum(IncomeType, native_enum=False, length=20),
+        default=IncomeType.WAGE,
     )
 
     client: Mapped[Client] = relationship()
