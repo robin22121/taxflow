@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card } from "@/components/ui";
 import { ApiError } from "@/lib/api";
+import { AgentStatusBanner } from "./agent-status-banner";
 import {
   type FilingResult,
   type RpaJob,
@@ -120,6 +121,8 @@ export function RpaPanel({ filingId, clientIds, filingResults, onChange }: Props
 
   return (
     <Card className="space-y-3">
+      <AgentStatusBanner />
+
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-900">위하고 자동화 (RPA)</h3>
         <button

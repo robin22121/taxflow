@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import { api, setTokens } from "@/lib/api";
 import { Button, Card, Input } from "@/components/ui";
 import type { CurrentUser, TokenPair } from "@/lib/types";
+import { type LoginMode, setLoginMode } from "@/lib/login-mode";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<LoginMode>("demo");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,6 +29,7 @@ export default function LoginPage() {
       });
       setTokens(res.access_token, res.refresh_token);
       const me = await api<CurrentUser>("/api/v1/auth/me");
+      setLoginMode(mode);
       router.push(me.is_superadmin ? "/admin" : "/dashboard?landing=1");
     } catch (e) {
       setErr((e as Error).message);
@@ -51,6 +54,42 @@ export default function LoginPage() {
           <p className="text-[13px] text-gray-500 mb-5">세무사 사무소 계정으로 시작하세요</p>
 
           <form className="space-y-4" onSubmit={onSubmit}>
+            <div>
+              <label className="block text-[12px] font-medium text-gray-700 mb-1.5">모드</label>
+              <div className="grid grid-cols-2 gap-2 text-[12px]">
+                {(
+                  [
+                    { value: "demo", label: "데모버전" },
+                    { value: "agent", label: "이지원 버전" },
+                  ] as const
+                ).map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={
+                      "flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 cursor-pointer " +
+                      (mode === opt.value
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-300 text-gray-700 hover:bg-gray-50")
+                    }
+                  >
+                    <input
+                      type="radio"
+                      name="loginMode"
+                      value={opt.value}
+                      checked={mode === opt.value}
+                      onChange={() => setMode(opt.value)}
+                      className="sr-only"
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                {mode === "demo"
+                  ? "이 PC에 위하고 T·홈택스가 로그인돼 있는 것으로 가정하고 시뮬레이션합니다."
+                  : "별도 이지원 노트북에서 자동화가 실행됩니다."}
+              </p>
+            </div>
             <div>
               <label className="block text-[12px] font-medium text-gray-700 mb-1.5">
                 아이디 (사업자번호)
