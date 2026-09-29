@@ -776,6 +776,9 @@ class WehagoUploader:
         """
         category_text = self._CLOSING_MENU_CATEGORY[menu_id]
         smarta, name, number = self._open_smarta(business_number)
+        # open_payroll_screen과 동일 — 실패 시 save_failure_screenshot이 이 탭을 캡처하게 한다
+        # (2026-09-30: 이걸 빠뜨려서 마감 실패 스크린샷이 엉뚱한 메인 탭을 찍은 버그 발견).
+        self._smarta_page = smarta
         category = smarta.get_by_text(category_text, exact=True)
         try:
             category.wait_for(state="visible", timeout=5_000)
