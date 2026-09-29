@@ -287,8 +287,11 @@ class WehagoUploader:
             close_buttons.last.click(force=True)
             page.wait_for_timeout(400)
 
-    def _open_smarta_menu(self, business_number: str, menu_id: str):
-        """위하고 T 메인 담당 수임처 → [급여] → SmartA 메인 → 지정 메뉴 (2026-09-25 실측).
+    def _open_smarta(self, business_number: str):
+        """위하고 T 메인 담당 수임처 검색 → [급여] 클릭 → SmartA 새 탭(메인화면) 반환.
+
+        `_open_smarta_menu`(특정 메뉴로 바로 진입)와 `_open_closing_menu`(카테고리 전환이
+        필요한 마감·제작 화면)가 공유하는 앞부분이다 (2026-09-25 실측, 2026-09-29 분리).
 
         수임처는 사업자번호(하이픈 없는 10자리)로 검색해 정확히 1건일 때만 연다.
         [급여]는 SmartA 를 새 탭으로 열고, 메뉴는 그 탭 안에서 바뀐다.
@@ -308,6 +311,13 @@ class WehagoUploader:
         page.goto(f"{WEHAGO_URL}/#/main")
         self._dismiss_splash()
         self._wait_for_no_dimmed()
+        # 담당 수임처 목록은 탭(전체/T edge 사용/T edge 미사용/개인고객/대시보드)으로 필터링된다.
+        # "T edge 사용"이 기본 탭이라 T edge 미가입 수임처는 검색에 안 잡힌다 — "전체"로 전환
+        # (explore_closing_screens.py에서 먼저 발견된 문제, 2026-09-29 적용).
+        all_tab = page.locator("button.btn_tab", has_text="전체").first
+        if all_tab.count():
+            all_tab.click()
+            page.wait_for_timeout(500)
         search = page.locator("input[placeholder*='사업자등록번호']").first
         search.wait_for(state="visible", timeout=SIDEBAR_WAIT_MS)
         target = normalize_business_number(business_number)
@@ -336,6 +346,15 @@ class WehagoUploader:
             row.locator("button.btn_quick", has_text=re.compile(r"^급여$")).click()
         smarta = new_tab.value
         smarta.wait_for_load_state()
+        return smarta, name, number
+
+    def _open_smarta_menu(self, business_number: str, menu_id: str):
+        """`_open_smarta` + 지정 메뉴 클릭 (2026-09-25 실측).
+
+        Returns:
+            (SmartA 탭, 위하고 상호, 사업자번호) — 호출자가 작업의 거래처와 대조한다.
+        """
+        smarta, name, number = self._open_smarta(business_number)
         menu = smarta.locator(f"a#{menu_id}.text_link")
         menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
@@ -638,6 +657,233 @@ class WehagoUploader:
         result.get_by_role("button", name="확인", exact=True).click()
         if "완료" not in text:
             raise WehagoError(f"사업소득 엑셀서식 불러오기 실패 — 위하고 응답: {text}")
+        return text
+
+    # ------------------------------------------------------------------
+    # 마감·제작 (§4-4, 2026-09-29 실측 진행 중 — 사용자가 크롬 화면을 직접 보며 셀렉터 제공)
+    #
+    # 급여자료입력·사원등록·사업소득자료입력과 달리 이 5개 화면(SWTA0101·SWHM0103·SWER0101·
+    # SWTA0112·SWER0109)은 SmartA 메인화면의 기본 카테고리("근로소득관리 / 연말정산관리")
+    # 밖에 있다. SmartA 메인화면은 열리자마자 "전체메뉴" 탭이 이미 보이는 상태고(별도로
+    # 열 필요 없음), 왼쪽 카테고리 목록에서 기본으로 "근로소득관리 / 연말정산관리"가 선택돼
+    # 있어 그 안의 급여자료입력 등만 처음부터 `a#{id}.text_link`로 렌더링돼 있다 —
+    # `_open_smarta_menu`가 카테고리 전환 없이 바로 성공했던 이유. 마감·제작 화면은
+    # "세무신고관리 / 전자신고 / AI원천세" 카테고리 라벨을 먼저 클릭해야 해당 앵커가
+    # DOM에 나타난다 (`_open_closing_menu` 참고, 2026-09-29 실측 확정).
+    #
+    # 원천징수이행상황신고서(SWTA0101) 전체 플로우 실측 확정 (2026-09-29, 서도 더미 수임처
+    # 2026년 1월 원천세로 끝까지 실행 검증됨):
+    # 1. 조회 조건은 귀속기간·지급기간 각각 년/월 4칸을 모두 채워야 한다. 하나라도 비면
+    #    "조회조건에 누락되거나 잘못된 내역이 있습니다" 알럿(div, [확인] 버튼)이 뜬다.
+    # 2. [조회] 성공 후에만 타이틀바에 텍스트 버튼 [마감]·[불러오기]·[저장]·[역추적 검증]이
+    #    나타난다 (아이콘이 아니라 `<button class="WSC_LUXButton"><span>마감</span></button>`,
+    #    id 없음 — role/name으로 찾는다).
+    # 3. [마감] 클릭 → "원천징수 신고" 제목의 면책 안내 모달, [취소(esc)]/[확인(enter)].
+    # 4. [확인] 클릭 → ✅ 아이콘 + "마감 완료!" 텍스트 모달 + [확인] 버튼.
+    # 5. 완료 후 [마감] 버튼이 [마감해제]로 바뀐다 (재실행 시 이미 마감됐는지 판별 가능).
+    #
+    # 귀속기간·지급기간 년/월 4칸(`div[tabindex='0']`, class 없음)의 DOM도 실측 완료
+    # (`_fill_closing_period` 참고) — 다만 타이핑 커밋 방식(Tab)이 실제로 반영되는지는
+    # 아직 끝까지 실행 검증 못함 (이번 실측 때는 이미 값이 채워진 상태에서 시작함).
+    #
+    # 아직 미실측: 데이터가 실제로 있을 때의 그리드·[마감] 응답(이번 실측은 빈 데이터 상태로
+    # 확인함), SWTA0112·SWER0109 화면 자체.
+    #
+    # ⚠️ SWER0101(원천징수 전자신고) [제작(F4)]은 맥에서 지원 안 됨 (2026-09-29 실측 확정) —
+    # "맥에서는 제작을 할 수 없다"는 안내가 뜬다 (국세청 암호화 정책상 Windows 전용 모듈이
+    # 필요한 것으로 추정, plan/16-wehago-rpa.md §3-5 참고). SWER0109(지방세 전자신고)도
+    # 같은 제약일 가능성이 높다 — 둘 다 Windows PC에서만 끝까지 실측·검증 가능하다.
+    # ------------------------------------------------------------------
+
+    _WHT_RETURN_MENU_ID = "SWTA0101"
+    _BUSINESS_INCOME_REPORT_MENU_ID = "SWHM0103"
+    _WHT_EFILE_MENU_ID = "SWER0101"
+    _LOCAL_TAX_PAYMENT_MENU_ID = "SWTA0112"
+    _LOCAL_TAX_EFILE_MENU_ID = "SWER0109"
+
+    # 메뉴 ID → 전체메뉴 왼쪽 카테고리 라벨 (2026-09-29 실측: SWTA0101·SWHM0103 확정,
+    # SWER0101·SWTA0112·SWER0109는 SWTA0101과 같은 "세무신고관리..." 카테고리일 것으로
+    # 추정 — plan/16 §4-4 표에서도 넷 다 원천세/지방세 신고 계열이라 같이 묶여 있었다,
+    # 실측으로 재확인 필요).
+    _CLOSING_MENU_CATEGORY = {
+        "SWTA0101": "세무신고관리 / 전자신고 / AI원천세",
+        "SWHM0103": "사업소득관리 / 기타(이자 / 배당)소득관리",
+        "SWER0101": "세무신고관리 / 전자신고 / AI원천세",
+        "SWTA0112": "세무신고관리 / 전자신고 / AI원천세",
+        "SWER0109": "세무신고관리 / 전자신고 / AI원천세",
+    }
+    _ALL_MENU_BUTTON = "button#allmenu"  # "전체메뉴" 패널을 (다시) 여는 버튼 — 실측: 우측 상단 아이콘
+
+    def _open_closing_menu(self, business_number: str, menu_id: str):
+        """담당 수임처 → [급여] → SmartA 메인화면 → 해당 카테고리 → 지정 화면.
+
+        메인화면은 열리자마자 전체메뉴가 보이지만 기본 카테고리가 다르므로, 대상 카테고리
+        라벨이 바로 보이지 않으면 `_ALL_MENU_BUTTON`을 눌러 패널을 다시 연 뒤 재시도한다
+        (2026-09-29 실측 — 사용자가 실제로 이 버튼을 눌러 진입했다. 매번 눌러도 안전한지,
+        즉 이미 열려 있을 때 토글로 닫히지는 않는지는 아직 확인 못해 폴백으로만 쓴다).
+        """
+        category_text = self._CLOSING_MENU_CATEGORY[menu_id]
+        smarta, name, number = self._open_smarta(business_number)
+        category = smarta.get_by_text(category_text, exact=True)
+        try:
+            category.wait_for(state="visible", timeout=5_000)
+        except Exception:
+            smarta.locator(self._ALL_MENU_BUTTON).click()
+            category.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        category.click()
+        menu = smarta.locator(f"a#{menu_id}.text_link")
+        menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        menu.click()
+        return smarta, name, number
+
+    def _fill_closing_period(self, smarta, item, period: str) -> None:
+        """귀속기간·지급기간 공용 — `div.item` 안 연/월 4칸(시작연·시작월·종료연·종료월)을 채운다.
+
+        각 칸은 `<input>`이 아니라 `<div tabindex="0">2026</div>` 형태의 커스텀 위젯이라
+        (2026-09-29 실측 DOM — class·id 없이 순서로만 구분됨) 포커스를 주고 바로 타이핑한다.
+        시작=종료=`period`로 채운다 (매월 정기신고 기준, 반기 등은 미지원).
+
+        연도 칸은 자체에 width가 있어 비어 있어도 보이지만, 월 칸은 감싸는 부모 div에만
+        width가 있고 안쪽 tabindex div는 비어 있으면 크기가 0으로 접혀 "안 보이는" 상태가
+        된다 (2026-09-29 실기 재현: 월이 빈 채로 화면을 열면 `.click()`이 "element is not
+        visible"로 30초 타임아웃). `.click()` 대신 JS `focus()`로 포커스를 줘서 이 문제를
+        피한다 — 크기·가시성과 무관하게 포커스 가능한 요소면 동작한다.
+        """
+        year, month = period.split("-")
+        boxes = item.locator("div[tabindex='0']")
+        for i, value in enumerate([year, month, year, month]):
+            box = boxes.nth(i)
+            if box.inner_text().strip() == value:
+                continue
+            think("wehago")
+            box.evaluate("el => el.focus()")
+            smarta.keyboard.type(value)
+            smarta.keyboard.press("Tab")
+
+    def close_wht_return(self, business_number: str, period: str) -> str:
+        """원천징수이행상황신고서(SWTA0101) 마감 (§4-4 ⑨-a, 2026-09-29 실측).
+
+        Args:
+            period: "YYYY-MM" 귀속연월 — 귀속기간·지급기간 모두 이 한 달로 채운다
+                (반기 신고 등 기간이 다른 경우는 아직 다루지 않는다).
+
+        Returns:
+            "마감 완료!" 등 완료 모달의 원문 텍스트.
+
+        Raises:
+            WehagoError: 조회 조건이 잘못됐거나, 마감 확인 모달·완료 모달이 예상과 다름.
+        """
+        smarta, _name, _number = self._open_closing_menu(business_number, self._WHT_RETURN_MENU_ID)
+
+        self.step = "원천세 조회 조건 입력"
+        items = smarta.locator(_COND_BAR).locator("div.item")
+        self._fill_closing_period(smarta, items.nth(0), period)  # 귀속기간
+        self._fill_closing_period(smarta, items.nth(1), period)  # 지급기간
+
+        think("wehago")
+        smarta.get_by_role("button", name="조회", exact=True).click()
+        self._wait_for_no_dimmed(smarta)
+
+        # 조회 조건이 누락되면 알럿이 뜬다 — 있으면 즉시 실패로 간주 (재입력 로직은 아직 없음)
+        alert = smarta.locator("div:visible", has_text="조회조건에 누락되거나 잘못된 내역이 있습니다")
+        if alert.count():
+            alert.get_by_role("button", name="확인", exact=True).click()
+            raise WehagoError("원천세 조회 조건이 올바르지 않습니다 (귀속기간/지급기간 확인 필요)")
+
+        self.step = "원천세 마감"
+        think("wehago")
+        smarta.get_by_role("button", name="마감", exact=True).click()
+
+        self.step = "원천세 마감 확인 모달"
+        confirm = smarta.locator("div._isDialog:visible", has_text="원천징수 신고")
+        confirm.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        confirm.get_by_role("button", name="확인(enter)", exact=True).click()
+
+        self.step = "원천세 마감 완료 대기"
+        result = smarta.locator("div._isDialog:visible", has_text="마감 완료!")
+        result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        text = result.inner_text().strip()
+        think("wehago")
+        result.get_by_role("button", name="확인", exact=True).click()
+        if "완료" not in text:
+            raise WehagoError(f"원천세 마감 실패 — 위하고 응답: {text}")
+        return text
+
+    def close_business_income_report(self, business_number: str, period: str) -> str:
+        """거주자사업소득간이지급명세서(SWHM0103) 마감 (§4-4 ⑨-b).
+
+        2026-09-29 Playwright Inspector 녹화로 실측. SWTA0101과 달리 지급기간이 연/월 낱개
+        칸이 아니라 "달력 열기" → 팝업에서 월 버튼 클릭 방식이다 (`_payroll_select_period`의
+        귀속연월 캘린더와 같은 패턴, 연도는 SmartA 귀속 연도로 고정돼 별도 선택 안 함).
+
+        [마감] → 확인(enter) 모달 다음, 사업소득자료입력과 이 화면 데이터가 안 맞으면
+        "오류항목" 모달(표: Code·사원명·오류내용, [강제마감]/[취소(esc)])이 뜬다
+        (2026-09-29 실측: 인원수·총지급액 불일치로 실제 발생 확인). §8-1 원칙과 동일하게
+        **[강제마감]은 절대 누르지 않는다** — 데이터 정합성 문제는 사람이 사업소득자료입력을
+        고친 뒤 다시 시도해야 한다.
+
+        Returns:
+            정상 마감 시 완료 팝업의 원문 텍스트.
+
+        Raises:
+            WehagoError: "오류항목" 모달이 떴음(§8-1 — 강제마감 금지, 사업소득자료입력 재확인 필요).
+        """
+        smarta, _name, _number = self._open_closing_menu(
+            business_number, self._BUSINESS_INCOME_REPORT_MENU_ID
+        )
+
+        self.step = "사업소득 간이지급명세서 조회 조건 입력"
+        item = smarta.locator(_COND_BAR).locator("div.item").first
+        think("wehago")
+        item.get_by_text("달력 열기").click()
+        months = smarta.locator("div.date_tbl td.date_day button")
+        months.first.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        month = int(period.split("-")[1])
+        think("wehago")
+        months.filter(has_text=re.compile(rf"^{month}월$")).click()
+
+        think("wehago")
+        smarta.get_by_role("button", name="조회", exact=True).click()
+        self._wait_for_no_dimmed(smarta)
+
+        self.step = "사업소득 마감"
+        think("wehago")
+        smarta.get_by_role("button", name="마감", exact=True).click()
+
+        self.step = "사업소득 마감 확인 모달"
+        confirm = smarta.get_by_role("button", name="확인(enter)", exact=True)
+        confirm.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        confirm.click()
+
+        self.step = "사업소득 마감 결과 확인"
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        error_dialog = smarta.locator("div._isDialog:visible", has_text="오류항목")
+        try:
+            error_dialog.wait_for(state="visible", timeout=5_000)
+        except PlaywrightTimeout:
+            error_dialog = None
+        if error_dialog is not None:
+            # §8-1 원칙: 데이터 정합성 오류는 강제마감 금지, 취소하고 실패로 회신한다.
+            rows = error_dialog.locator("table tr").all_inner_texts()
+            think("wehago")
+            error_dialog.get_by_role("button", name="취소(esc)", exact=True).click()
+            raise WehagoError(
+                "사업소득 간이지급명세서 마감 오류 (강제마감 금지 — 사업소득자료입력 재확인 필요): "
+                + " / ".join(r.strip() for r in rows if r.strip())
+            )
+
+        # TODO 실측: 오류 없이 정상 마감됐을 때 완료 팝업의 정확한 문구·구조 — 이번 실측은
+        # 오류 케이스만 확인했다 (사업소득자료입력과 데이터가 맞는 거래처로 재검증 필요).
+        result = smarta.locator("div._isDialog:visible", has_text="완료")
+        result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        text = result.inner_text().strip()
+        think("wehago")
+        result.get_by_role("button", name="확인", exact=True).click()
         return text
 
     # ---- 내부 헬퍼 ----
