@@ -271,6 +271,18 @@ export function useUpdateEmployee(clientId: string) {
   });
 }
 
+export type EmployeeCreatePayload = EmployeePatch & { name: string; rrn?: string | null };
+
+/** 소득지급자 수동 추가 — 사원코드를 빈 값으로 보내면 서버가 거래처의 다음 번호를 붙인다. */
+export function useCreateEmployee(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: EmployeeCreatePayload) =>
+      api<Employee>(`/api/v1/clients/${clientId}/employees`, { method: "POST", json: payload }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients", clientId, "employees"] }),
+  });
+}
+
 export function useImportEmployees(clientId: string) {
   const qc = useQueryClient();
   return useMutation({

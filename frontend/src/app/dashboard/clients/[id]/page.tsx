@@ -8,6 +8,7 @@ import {
   useClientArchive,
   useClientDetail,
   useClientEmployees,
+  useCreateEmployee,
   useDeleteClient,
   useUpdateEmployee,
   useClientPayrollHistory,
@@ -83,6 +84,7 @@ export default function ClientDetailPage({
   const [editOpen, setEditOpen] = useState(false);
   const [wehagoOpen, setWehagoOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [addingEmployee, setAddingEmployee] = useState(false);
   const [incomeTab, setIncomeTab] = useState<string>("WAGE");
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -330,6 +332,13 @@ export default function ClientDetailPage({
           <h2 className="text-lg font-semibold text-gray-900">
             소득지급자 목록 ({employees?.length ?? 0}명)
           </h2>
+          <Button
+            variant="secondary"
+            className="!text-[12px] !px-2.5 !py-1"
+            onClick={() => setAddingEmployee(true)}
+          >
+            + 추가
+          </Button>
         </div>
         <div className="flex gap-1.5 mb-3">
           {INCOME_TYPE_TABS.map((t) => {
@@ -406,6 +415,10 @@ export default function ClientDetailPage({
 
       {editingEmployee && (
         <EmployeeEditModal clientId={id} employee={editingEmployee} onClose={() => setEditingEmployee(null)} />
+      )}
+
+      {addingEmployee && (
+        <EmployeeCreateModal clientId={id} incomeType={incomeTab} onClose={() => setAddingEmployee(false)} />
       )}
 
       {deleteOpen && client && (
@@ -534,6 +547,111 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
         </p>
       )}
       <p className="mt-3 text-[11.5px] text-gray-500">주민번호는 여기서 바꾸지 않습니다.</p>
+      {error && <p className="mt-2 text-[12px] text-red-600">{error}</p>}
+    </Modal>
+  );
+}
+
+/* ─── 소득지급자 추가 — 사원코드: 위하고 명단을 그대로 옮기는 게 아니라 직접 한 명 등록하는
+   경우라 사용자가 입력하고, 비우면 거래처의 다음 번호가 자동으로 붙는다 (규칙은 백엔드
+   create_employee와 동일, services/employee_codes.py 참고). ─── */
+
+function EmployeeCreateModal({ clientId, incomeType, onClose }: { clientId: string; incomeType: string; onClose: () => void }) {
+  const create = useCreateEmployee(clientId);
+  const [form, setForm] = useState({
+    name: "",
+    employee_code: "",
+    rrn: "",
+    department: "",
+    position: "",
+    job_type: "",
+    hired_at: "",
+    income_type: (INCOME_TYPE_TABS as readonly string[]).includes(incomeType) ? incomeType : "WAGE",
+    dependents_count: "1",
+    children_count: "0",
+    withholding_rate_adjust: "100",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+  const code = form.employee_code.trim();
+  const nonNumeric = code !== "" && !/^\d+$/.test(code);
+
+  async function save() {
+    setError(null);
+    try {
+      await create.mutateAsync({
+        name: form.name.trim(),
+        employee_code: code,
+        rrn: form.rrn.trim() || null,
+        department: form.department.trim() || null,
+        position: form.position.trim() || null,
+        job_type: form.job_type.trim() || null,
+        hired_at: form.hired_at || null,
+        income_type: form.income_type,
+        dependents_count: Math.max(1, Number(form.dependents_count) || 1),
+        children_count: Math.max(0, Number(form.children_count) || 0),
+        withholding_rate_adjust: Number(form.withholding_rate_adjust) || 100,
+      });
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  const field = "w-full rounded-lg border border-gray-300 px-3 py-1.5 text-[13px] outline-none focus:border-blue-500";
+  return (
+    <Modal open={true} onClose={onClose} title="소득지급자 추가"
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button onClick={save} disabled={!form.name.trim() || create.isPending}>{create.isPending ? "추가 중..." : "추가"}</Button>
+      </>}>
+      <div className="grid grid-cols-2 gap-3 text-[12px] text-gray-600">
+        <label className="space-y-1">이름<input className={field} value={form.name} onChange={set("name")} /></label>
+        <label className="space-y-1">사원코드 (위하고와 같게)
+          <input className={field} value={form.employee_code} onChange={set("employee_code")} placeholder="비우면 다음 번호" inputMode="numeric" />
+        </label>
+        <label className="space-y-1">소득구분
+          <select className={field} value={form.income_type} onChange={set("income_type")}>
+            {INCOME_TYPE_TABS.map((t) => (
+              <option key={t} value={t}>{incomeTypeKo(t)}</option>
+            ))}
+            <option value="RETIREMENT">퇴직</option>
+          </select>
+        </label>
+        <label className="space-y-1">주민번호 (선택, 나중에 입력 가능)
+          <input className={field} value={form.rrn} onChange={set("rrn")} placeholder="900101-1234567" />
+        </label>
+        <label className="space-y-1">부서<input className={field} value={form.department} onChange={set("department")} /></label>
+        <label className="space-y-1">직급<input className={field} value={form.position} onChange={set("position")} /></label>
+        <label className="space-y-1">직종<input className={field} value={form.job_type} onChange={set("job_type")} /></label>
+        <label className="space-y-1">입사일<input type="date" className={field} value={form.hired_at} onChange={set("hired_at")} /></label>
+      </div>
+      <details className="mt-3 rounded-lg border border-gray-200 px-3 py-2">
+        <summary className="cursor-pointer text-[12px] font-medium text-gray-700">
+          소득세 계산 설정 (대부분 기본값 그대로 두면 됩니다)
+        </summary>
+        <div className="mt-2 grid grid-cols-3 gap-3 text-[12px] text-gray-600">
+          <label className="space-y-1">부양가족수 (본인 포함)
+            <input type="number" min={1} className={field} value={form.dependents_count} onChange={set("dependents_count")} />
+          </label>
+          <label className="space-y-1">8~20세 자녀수
+            <input type="number" min={0} className={field} value={form.children_count} onChange={set("children_count")} />
+          </label>
+          <label className="space-y-1">원천징수 조정율
+            <select className={field} value={form.withholding_rate_adjust} onChange={set("withholding_rate_adjust")}>
+              <option value="80">80%</option>
+              <option value="100">100% (기본)</option>
+              <option value="120">120%</option>
+            </select>
+          </label>
+        </div>
+      </details>
+      {nonNumeric && (
+        <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+          사원코드에 숫자가 아닌 글자가 있습니다. 위하고 사원코드는 보통 숫자(1, 2, 3…)라서, 다르면 위하고 전송이 멈춥니다.
+        </p>
+      )}
       {error && <p className="mt-2 text-[12px] text-red-600">{error}</p>}
     </Modal>
   );
