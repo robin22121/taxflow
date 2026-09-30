@@ -798,13 +798,15 @@ async def recalculate_entry_deductions(
 
     taxable = max(0, total_amount - non_taxable)
 
+    daily_count = payload.work_days if payload.work_days is not None else entry.work_days
+
     from app.services.tax_calc import calculate_withholding_tax
     tax = calculate_withholding_tax(
         income_type, taxable,
         dependents=entry.dependents or 1,
         children=entry.children or 0,
         rate_adjust=entry.rate_adjust or 100,
-        daily_count=entry.work_days,
+        daily_count=daily_count,
     )
     from app.services.payroll_defaults import load_payroll_defaults
     defaults = await load_payroll_defaults(db, entry.client_id)

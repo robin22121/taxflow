@@ -427,6 +427,7 @@ export function useRecalculateDeductions(filingId: string) {
         car_amount?: number;
         childcare_amount?: number;
         income_type?: string;
+        work_days?: number | null;
       };
     }) =>
       api<{

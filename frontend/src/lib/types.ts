@@ -341,6 +341,7 @@ export type PayrollEntry = {
   settlement_insurance: number;
   rent_support: number;
   payment_date: string | null;
+  work_days: number | null;
   match_status: string;
   prev_amount: number | null;
   anomaly_notes: Record<string, unknown> | null;

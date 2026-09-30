@@ -1722,6 +1722,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       national_pension: e.national_pension, health_insurance: e.health_insurance, employment_insurance: e.employment_insurance, longterm_care: e.longterm_care,
       income_tax: e.income_tax, local_tax: e.local_tax,
       student_loan: e.student_loan, settlement_insurance: e.settlement_insurance, rent_support: e.rent_support,
+      work_days: e.work_days ?? null,
       edit_reason: e.edit_reason ?? "",
     };
   }, [drafts]);
@@ -1751,7 +1752,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const DETAIL_FIELDS: (keyof PayrollEntry)[] = [
     "raw_name", "income_type", "total_amount", "bonus_amount", "meal_amount", "car_amount", "childcare_amount",
     "national_pension", "health_insurance", "employment_insurance", "longterm_care", "income_tax", "local_tax",
-    "student_loan", "settlement_insurance", "rent_support", "edit_reason",
+    "student_loan", "settlement_insurance", "rent_support", "work_days", "edit_reason",
   ];
 
   // 급여 인풋(총지급액/상여/식대/자가운전/육아) 값이 바뀌면 blur 시 자동으로 4대보험·소득세를 재계산한다(확인 없이 즉시 반영).
@@ -1766,6 +1767,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
           car_amount: d.car_amount,
           childcare_amount: d.childcare_amount,
           income_type: d.income_type,
+          work_days: d.work_days,
         },
       },
       {
@@ -2829,7 +2831,7 @@ function V3Spreadsheet({
       <div className={`${V3_GRID} bg-gray-50 border-b border-gray-200 text-[10.5px] font-bold uppercase tracking-wider text-gray-500`}>
         <div className="px-3.5 py-2 border-r border-gray-200">(+) 총지급</div>
         <div className="px-3.5 py-2 border-r border-gray-200">
-          {isWage ? "수당" : "비과세 미적용"}
+          {isWage ? "수당" : incomeType === "DAILY" ? "근무일수" : "비과세 미적용"}
         </div>
         <div className="px-3.5 py-2 border-r border-gray-200">(−) 공제 · 4대보험</div>
         <div className="px-3.5 py-2 border-r border-gray-200">(−) 공제 · 세금/기타</div>
@@ -2859,6 +2861,18 @@ function V3Spreadsheet({
               ["육아", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount, true)],
             ]}
           />
+        ) : incomeType === "DAILY" ? (
+          <div className="px-3.5 py-2.5 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
+            <span className="text-[11px] text-gray-500">근무일수(공수)</span>
+            <span className="font-mono tabular-nums text-[13.5px] font-semibold text-gray-900">
+              {editing
+                ? v3Num("work_days", v("work_days"), !!fieldChanges?.work_days, true)
+                : v("work_days").toLocaleString("ko-KR")}
+            </span>
+            <span className="text-[10px] text-gray-400 leading-snug">
+              위하고 업로드 시 "공수"로 반영 · 세액은 총지급액÷근무일수(일급)로 계산
+            </span>
+          </div>
         ) : (
           <div className="px-3.5 py-2 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
             <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">지급항목</div>
@@ -3546,6 +3560,7 @@ const FIELD_LABELS: Record<string, string> = {
   student_loan: "학자금상환액",
   settlement_insurance: "정산보험료",
   rent_support: "월세지원금",
+  work_days: "근무일수(공수)",
 };
 
 function incomeLabel(type: string): string {

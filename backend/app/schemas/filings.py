@@ -119,6 +119,7 @@ class RecalculateDeductionsIn(BaseModel):
     car_amount: int | None = None
     childcare_amount: int | None = None
     income_type: str | None = None
+    work_days: int | None = None
 
 
 class RecalculateDeductionsOut(BaseModel):
