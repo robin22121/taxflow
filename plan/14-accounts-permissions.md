@@ -144,7 +144,11 @@ async def get_scoped_client(client_id: str, user=Depends(get_current_user), db=D
 | **신고 건 집계·일괄** | filings `/dashboard`, `/entries`, `/entries/resign`, `/request`, `/invite`, 엑셀 2종(`wehago-excel`·`payroll-excel`), 간이지급명세서 2종(`statement-wage`·`statement-business`), 4대보험 5종(`insurance-acquisition`·`-loss`·`-change`·`-combined`·`-summary`), `/unified-download`, `/payslips` | 결과 행·발송 대상을 **visible 거래처 집합으로 필터**. STAFF의 일괄 발송·다운로드는 자기 담당분만 |
 | **신고 건 생성·목록** | filings `POST ""`, `GET ""` | 컨테이너는 사무소 공용 → STAFF도 허용 |
 
-> 집계·일괄 엔드포인트가 거래처 파라미터를 받는지는 **구현 착수 시 엔드포인트별로 확인**한다(본 진단은 라우트 목록 수준).
+> **2026-09-30 구현 완료.** 위 §5.1~5.2 표의 대상 전부(clients.py·filings.py·imports.py·
+> collect.py·employee_changes.py)에 `visible_clients`/`get_scoped_client`/`_scoped_filing`/
+> `_scoped_session`/`_scoped_entry`/`require_write` 게이트를 적용. §5.4 회귀 테스트(격리
+> in-memory DB로 STAFF가 담당 외 거래처의 엔트리·세션 접근 시 404, OWNER는 전체 접근)
+> 통과 확인. 단, `access_log`(§8.1 접속기록 로깅)는 별개 — 아직 미구현.
 
 ### 5.3 세션 인증 경로가 아닌 곳 — 변경 없음
 
@@ -332,10 +336,10 @@ action ∈ VIEW | EDIT | DOWNLOAD | DECRYPT_RRN | LOGIN | LOGIN_FAILED
 
 | 단계 | 내용 | 검증 기준 |
 |:---:|------|----------|
-| **1** | 마이그레이션: `users.role`(+백필), `users.phone/contact_email/must_change_password`, `clients.assigned_user_id`, `client_assignment_history` | 기존 대표 계정 로그인·전 거래처 조회가 **변경 전과 동일** |
-| **2** | `visible_clients` / `get_scoped_client` 도입, §5.2 표의 37곳 전환, `require_same_office` 제거 | §5.4 회귀 테스트 전부 통과 |
-| **3** | 직원 초대·비활성화 API + 화면, 로그인 잠금, 최초 비번 변경 | 신규 STAFF가 미배정 거래처 0건 조회 / 비활성화 즉시 401 |
-| **4** | 담당 배정 UI (거래처 목록 일괄 변경) + 미분류함 OWNER 전용화 | 재배정 후 이전 담당자 404, 이력 1행 생성 |
+| **1** | ✅ **완료(2026-09-30)** 마이그레이션: `users.role/login_code/can_write`(+백필), `clients.assigned_user_id`, `client_assignment_history` | 기존 대표 계정 로그인·전 거래처 조회가 **변경 전과 동일** — 확인됨 |
+| **2** | ✅ **완료(2026-09-30)** `visible_clients`/`get_scoped_client`/`_scoped_filing`/`_scoped_session`/`_scoped_entry`/`require_write` 도입, §5.2 표 전체 전환 | §5.4 회귀 테스트 통과 — 확인됨 |
+| **3** | ⚠️ **부분 완료** 직원 등록/변경 API+화면(§6.6.1)은 완료. 로그인 잠금·최초 비번 변경 강제는 미구현 | 신규 STAFF가 미배정 거래처 0건 조회 — 확인됨 / 비활성화 즉시 401은 미검증 |
+| **4** | ⚠️ **부분 완료** 담당 배정 UI(§6.6.2)는 완료. 미분류함(카카오) OWNER 전용화는 미구현 | 재배정 후 이전 담당자 404, 이력 1행 생성 — 확인됨 |
 | **5** | `access_log` + RRN 복호화·다운로드 명시 로깅 | STAFF 조회 1회 → 로그 1행, 복호화 → `DECRYPT_RRN` 행 |
 | **6** | OWNER 현황 보드 (§7) | 담당자 필터·미배정 경고 동작 |
 
