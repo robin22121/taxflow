@@ -53,8 +53,7 @@ export default function DashboardHomePage() {
   }
 
   return (
-    <div className="-m-4 sm:-m-6 flex flex-col" style={{ height: "calc(100dvh - 60px)" }}>
-      {/* Body — clients sidebar + monthly filings list */}
+      // "원천세 신고" 세부메뉴 레이아웃(../layout.tsx)이 -m-4/-m-6 + 고정 높이를 대신 제공한다
       <div className="flex-1 flex min-h-0 bg-gray-50">
         {/* LEFT — 거래처 sidebar */}
         <aside className="w-[240px] border-r border-gray-200 bg-white flex flex-col shrink-0">
@@ -200,7 +199,6 @@ export default function DashboardHomePage() {
           </div>
         </main>
       </div>
-    </div>
   );
 }
 

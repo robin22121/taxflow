@@ -12,11 +12,25 @@ import { HeaderSlotContext } from "@/components/header-slot";
 import { ActivityBar } from "@/components/rpa/activity-bar";
 import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 
+// 2026-09-30 상단 탑 메뉴 전면 개편 (plan/08-action-items.md) — 거래처·직원 변동·문자발송은
+// 상단에서 없어지고 "원천세 신고"·"타세목 신고·납부"의 세부메뉴로 흡수된다
+// (세부메뉴 좌측 칼럼 레이아웃은 각 라우트 그룹의 layout.tsx: `(wht)/layout.tsx`, `(tax-other)/layout.tsx`).
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "월별 신고" },
-  { href: "/dashboard/clients", label: "거래처" },
-  { href: "/dashboard/employee-changes", label: "직원 변동" },
-  { href: "/dashboard/messages", label: "문자발송" },
+  {
+    href: "/dashboard",
+    label: "원천세 신고",
+    match: (p: string) =>
+      p === "/dashboard" ||
+      p.startsWith("/dashboard/requests") ||
+      p.startsWith("/dashboard/clients") ||
+      p.startsWith("/dashboard/employee-changes") ||
+      p.startsWith("/dashboard/filings"),
+  },
+  {
+    href: "/dashboard/messages",
+    label: "타세목 신고·납부",
+    match: (p: string) => p.startsWith("/dashboard/messages"),
+  },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -28,6 +42,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [showProfile, setShowProfile] = useState(false);
   // 증명원 발급 팝업 — 화면에서 선택된 거래처(?client_id)가 있으면 거래처 선택 단계를 건너뛴다
   const [certificate, setCertificate] = useState<{ clientId: string | null } | null>(null);
+  // AI 도우미 — 화면 이동 없이 팝업으로만 연다 (2026-09-30 결정)
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [infoSlot, setInfoSlot] = useState<HTMLDivElement | null>(null);
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   const headerSlots = useMemo(() => ({ info: infoSlot, actions: actionsSlot }), [infoSlot, actionsSlot]);
@@ -66,7 +82,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* Nav tabs */}
           <nav className="flex items-center gap-1 shrink-0">
             {NAV_ITEMS.map((item) => {
-              const active = pathname === item.href || pathname.startsWith(item.href + "/");
+              const active = item.match(pathname);
               return (
                 <Link
                   key={item.href}
@@ -88,11 +104,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             >
               증명원 발급
             </button>
+            {/* AI 도우미 — 클릭해도 화면 이동 없이 팝업으로만 열린다 (2026-09-30 결정) */}
             <button
-              onClick={() => alert("타세목 신고·납부 화면은 준비 중입니다.")}
+              onClick={() => setShowAiAssistant(true)}
               className="px-2.5 sm:px-3 py-1.5 rounded-full text-[12px] sm:text-[13px] font-medium transition-colors text-gray-600 hover:bg-gray-100"
             >
-              타세목 신고·납부
+              AI 도우미
             </button>
           </nav>
         </div>
@@ -162,7 +179,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {showProfile && me && (
         <ProfileModal me={me} onClose={() => setShowProfile(false)} onSaved={() => { qc.invalidateQueries({ queryKey: ["me"] }); setShowProfile(false); }} />
       )}
+
+      {showAiAssistant && <AiAssistantModal onClose={() => setShowAiAssistant(false)} />}
     </div>
+  );
+}
+
+function AiAssistantModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal open onClose={onClose} title="AI 도우미">
+      <p className="text-[13px] text-gray-500">준비 중입니다.</p>
+    </Modal>
   );
 }
 
