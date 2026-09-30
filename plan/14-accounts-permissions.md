@@ -338,7 +338,7 @@ action ∈ VIEW | EDIT | DOWNLOAD | DECRYPT_RRN | LOGIN | LOGIN_FAILED
 |:---:|------|----------|
 | **1** | ✅ **완료(2026-09-30)** 마이그레이션: `users.role/login_code/can_write`(+백필), `clients.assigned_user_id`, `client_assignment_history` | 기존 대표 계정 로그인·전 거래처 조회가 **변경 전과 동일** — 확인됨 |
 | **2** | ✅ **완료(2026-09-30)** `visible_clients`/`get_scoped_client`/`_scoped_filing`/`_scoped_session`/`_scoped_entry`/`require_write` 도입, §5.2 표 전체 전환 | §5.4 회귀 테스트 통과 — 확인됨 |
-| **3** | ⚠️ **부분 완료** 직원 등록/변경 API+화면(§6.6.1)은 완료. 로그인 잠금·최초 비번 변경 강제는 미구현 | 신규 STAFF가 미배정 거래처 0건 조회 — 확인됨 / 비활성화 즉시 401은 미검증 |
+| **3** | ✅ **완료(2026-09-30)** 직원 등록/변경 API+화면(§6.6.1), 로그인 잠금(5회 실패·30분), 최초 비번 변경 강제(`/change-password`) | 신규 STAFF가 미배정 거래처 0건 조회 — 확인됨 / 비활성화 즉시 401은 미검증 |
 | **4** | ⚠️ **부분 완료** 담당 배정 UI(§6.6.2)는 완료. 미분류함(카카오) OWNER 전용화는 미구현 | 재배정 후 이전 담당자 404, 이력 1행 생성 — 확인됨 |
 | **5** | `access_log` + RRN 복호화·다운로드 명시 로깅 | STAFF 조회 1회 → 로그 1행, 복호화 → `DECRYPT_RRN` 행 |
 | **6** | OWNER 현황 보드 (§7) | 담당자 필터·미배정 경고 동작 |
