@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMe } from "@/lib/queries";
+import { useMe, useUpdateMe } from "@/lib/queries";
 import { Button, Card, Input } from "@/components/ui";
 import { type RpaAgentIssued, issueAgent, listAgents, revokeAgent } from "@/lib/rpa-api";
 
@@ -20,8 +20,8 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 max-w-xl">
       <div>
-        <h1 className="text-[20px] font-bold tracking-tight text-gray-900">설정</h1>
-        <p className="text-[13px] text-gray-500 mt-0.5">사무소 정보 및 인가코드를 확인하세요.</p>
+        <h1 className="text-[20px] font-bold tracking-tight text-gray-900">사무실 설정</h1>
+        <p className="text-[13px] text-gray-500 mt-0.5">사무소 정보 및 인가코드를 확인·수정하세요.</p>
       </div>
 
       <Card className="p-5 space-y-4">
@@ -50,23 +50,77 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      <Card className="p-5 space-y-3">
-        <h2 className="text-[14px] font-semibold text-gray-900">계정 정보</h2>
-        <InfoRow label="아이디 (사업자번호)" value={me?.email ?? "—"} />
-        <InfoRow label="담당자" value={me?.name ?? "—"} />
-      </Card>
+      {me && <ProfileForm me={me} />}
 
       {me?.is_admin && <AgentsCard />}
     </div>
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function ProfileForm({ me }: { me: NonNullable<ReturnType<typeof useMe>["data"]> }) {
+  const update = useUpdateMe();
+  const [form, setForm] = useState({
+    name: me.name,
+    office_representative: me.office_representative ?? "",
+    office_phone: me.office_phone ?? "",
+    office_email: me.office_email ?? "",
+    office_address: me.office_address ?? "",
+  });
+  const [saved, setSaved] = useState(false);
+
+  // /me가 갱신되면(다른 탭 등) 폼 초기값도 따라간다 — 편집 중 덮어쓰지 않도록 me.id 변경 시에만.
+  useEffect(() => {
+    setForm({
+      name: me.name,
+      office_representative: me.office_representative ?? "",
+      office_phone: me.office_phone ?? "",
+      office_email: me.office_email ?? "",
+      office_address: me.office_address ?? "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me.id]);
+
+  function save() {
+    setSaved(false);
+    update.mutate(form, { onSuccess: () => { setSaved(true); setTimeout(() => setSaved(false), 2000); } });
+  }
+
   return (
-    <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-      <span className="text-[12px] text-gray-500">{label}</span>
-      <span className="text-[13px] font-medium text-gray-900">{value}</span>
-    </div>
+    <Card className="p-5 space-y-4">
+      <h2 className="text-[14px] font-semibold text-gray-900">계정 정보</h2>
+      <div className="text-[11px] text-gray-400">
+        아이디 (사업자번호): <span className="font-medium text-gray-600">{me.email}</span> · 사무소명:{" "}
+        <span className="font-medium text-gray-600">{me.office_name}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[11px] font-medium text-gray-600 mb-1">담당자명</label>
+          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+        <div>
+          <label className="block text-[11px] font-medium text-gray-600 mb-1">대표자명</label>
+          <Input value={form.office_representative} onChange={(e) => setForm({ ...form, office_representative: e.target.value })} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-[11px] font-medium text-gray-600 mb-1">사무소 전화번호</label>
+        <Input value={form.office_phone} onChange={(e) => setForm({ ...form, office_phone: e.target.value })} />
+      </div>
+      <div>
+        <label className="block text-[11px] font-medium text-gray-600 mb-1">사무소 이메일</label>
+        <Input type="email" value={form.office_email} onChange={(e) => setForm({ ...form, office_email: e.target.value })} />
+      </div>
+      <div>
+        <label className="block text-[11px] font-medium text-gray-600 mb-1">사무소 주소</label>
+        <Input value={form.office_address} onChange={(e) => setForm({ ...form, office_address: e.target.value })} />
+      </div>
+      {update.isError && <p className="text-[12px] text-red-600">{(update.error as Error).message}</p>}
+      <div className="flex justify-end">
+        <Button onClick={save} disabled={update.isPending}>
+          {update.isPending ? "저장중..." : saved ? "저장됨" : "저장"}
+        </Button>
+      </div>
+    </Card>
   );
 }
 

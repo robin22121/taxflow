@@ -78,6 +78,17 @@ export type Client = {
   withholding_semiannual: boolean;
   fiscal_year_end_month: number | null;
   sincere_filing: boolean;
+  assigned_user_id: string | null;
+};
+
+export type Staff = {
+  id: string;
+  name: string;
+  login_code: string | null;
+  role: "OWNER" | "STAFF";
+  can_write: boolean;
+  is_active: boolean;
+  assigned_client_count: number;
 };
 
 export type VatType = "GENERAL" | "SIMPLIFIED" | "EXEMPT";
