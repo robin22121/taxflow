@@ -1,3 +1,4 @@
+from app.models.access_log import AccessLog
 from app.models.beta_signup import BetaSignup
 from app.models.business_type import BUSINESS_TYPE_CODES, BusinessTypeCode
 from app.models.certificate import CertificateIssue, CertificateStatus
@@ -35,6 +36,7 @@ from app.models.user import User
 from app.models.secure_token import SecureToken
 
 __all__ = [
+    "AccessLog",
     "BUSINESS_TYPE_CODES",
     "BetaSignup",
     "BusinessTypeCode",

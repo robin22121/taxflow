@@ -24,6 +24,19 @@ export type RegisterResponse = {
   message: string;
 };
 
+export type AccessLogEntry = {
+  id: string;
+  created_at: string;
+  user_id: string | null;
+  user_name: string | null;
+  ip: string | null;
+  action: string;
+  client_id: string | null;
+  client_name: string | null;
+  subject_employee_id: string | null;
+  endpoint: string | null;
+};
+
 // ── 서버 관리자 회원 관리 ───────────────────────────────
 export type Promotion = {
   id: string;

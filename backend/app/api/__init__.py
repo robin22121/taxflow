@@ -6,6 +6,7 @@ def register_routes(app: FastAPI) -> None:
     # Routers are registered in later tasks (auth, clients, filings, collect, dashboard).
     # Importing here so adding new routers is a one-line edit.
     from app.api import (
+        access_log,
         admin,
         auth,
         beta_signup,
@@ -26,6 +27,7 @@ def register_routes(app: FastAPI) -> None:
     )
 
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+    app.include_router(access_log.router, prefix="/api/v1/access-log", tags=["access-log"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(beta_signup.router, prefix="/api/v1/beta-signup", tags=["beta-signup"])
     app.include_router(clients.router, prefix="/api/v1/clients", tags=["clients"])

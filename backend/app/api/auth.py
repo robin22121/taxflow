@@ -3,7 +3,7 @@
 import logging
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,6 +27,7 @@ from app.schemas.auth import (
     RegisterResponse,
     TokenPair,
 )
+from app.services.access_log import log_access
 from app.services.login_lockout import (
     login_locked_until,
     record_login_failure,
@@ -119,10 +120,13 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/login", response_model=TokenPair)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenPair:
+async def login(
+    payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)
+) -> TokenPair:
     # 아이디(사업자번호 등)는 사무소 내 여러 계정이 공유할 수 있다(plan/14 §6.5) — 코드로 구분한다.
     # 코드 생략 시엔 그 아이디에 활성 계정이 정확히 1개일 때만 허용
     # (직원계정이 없는 기존 단일계정 사무소와의 호환. 여러 개면 코드 없이는 어느 계정인지 모호하다).
+    ip = request.client.host if request.client else None
     query = select(User).where(User.email == payload.email, User.is_active.is_(True))
     if payload.login_code:
         query = query.where(User.login_code == payload.login_code)
@@ -140,10 +144,14 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     if not user or not verify_password(payload.password, user.password_hash):
         if user:
             record_login_failure(user)
+            await log_access(
+                db, "LOGIN_FAILED", user_id=user.id, tax_office_id=user.tax_office_id, ip=ip
+            )
             await db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "아이디, 코드 또는 비밀번호가 올바르지 않습니다")
 
     record_login_success(user)
+    await log_access(db, "LOGIN", user_id=user.id, tax_office_id=user.tax_office_id, ip=ip)
     await db.commit()
 
     # 승인 대기 게이트는 해제 — 가입만 하면 로그인 가능. 거부된 사무소만 차단한다.

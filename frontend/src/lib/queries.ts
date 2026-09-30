@@ -9,6 +9,7 @@ import {
 import { api } from "./api";
 import { apiUpload } from "./api";
 import type {
+  AccessLogEntry,
   AdminOffice,
   AdminOfficeDetail,
   ArchivePeriod,
@@ -45,6 +46,13 @@ export function useMe() {
     queryKey: ["me"],
     queryFn: () => api<CurrentUser>("/api/v1/auth/me"),
     retry: false,
+  });
+}
+
+export function useAccessLog() {
+  return useQuery({
+    queryKey: ["access-log"],
+    queryFn: () => api<AccessLogEntry[]>("/api/v1/access-log"),
   });
 }
 

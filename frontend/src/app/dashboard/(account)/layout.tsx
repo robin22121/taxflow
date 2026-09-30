@@ -10,6 +10,7 @@ const ACCOUNT_SUBMENU = [
   { href: "/dashboard/staff", label: "직원계정 등록/변경", match: (p: string) => p.startsWith("/dashboard/staff") },
   { href: "/dashboard/settings", label: "사무실 설정", match: (p: string) => p.startsWith("/dashboard/settings") },
   { href: "/dashboard/assignments", label: "수임담당지정", match: (p: string) => p.startsWith("/dashboard/assignments") },
+  { href: "/dashboard/access-log", label: "접속기록", match: (p: string) => p.startsWith("/dashboard/access-log") },
 ] as const;
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
