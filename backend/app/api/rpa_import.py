@@ -174,6 +174,7 @@ async def agent_report_client_import(
             business_item=payload.business_item,
             business_address=payload.business_address,
             contact_phone=payload.contact_phone,
+            tax_jurisdiction=payload.tax_jurisdiction,
             employees=[ImportedEmployee(**e.model_dump()) for e in payload.employees],
         )
         try:

@@ -62,6 +62,7 @@ async def test_new_client_and_employees_are_created_with_encrypted_rrn():
                 business_name="임포트신규상사",
                 representative="엄순덕",
                 business_type="부동산업",
+                tax_jurisdiction="원주 세무서",
                 employees=[
                     ImportedEmployee("1", "한지민", rrn="600915-2000001", hired_at=date(2020, 1, 1)),
                     ImportedEmployee("2", "오세훈", resigned_at=date(2026, 1, 31)),
@@ -73,6 +74,7 @@ async def test_new_client_and_employees_are_created_with_encrypted_rrn():
 
         assert out.client_created and out.employees_created == 2 and not out.conflicts
         assert out.client.business_number == "224-02-38401"
+        assert out.client.tax_jurisdiction == "원주 세무서"
         emps = {
             e.name: e
             for e in (
