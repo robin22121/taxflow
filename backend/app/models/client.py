@@ -16,9 +16,13 @@ class Client(Base, IdMixin, TimestampMixin):
     __tablename__ = "clients"
     __table_args__ = (
         Index("ix_clients_tax_office", "tax_office_id"),
+        Index("ix_clients_assigned_user", "assigned_user_id"),
     )
 
     tax_office_id: Mapped[str] = mapped_column(ForeignKey("tax_offices.id"))
+    # 수임담당 배정 (plan/14-accounts-permissions.md §4) — NULL은 미배정.
+    # 스코핑 강제(§5)는 아직 어느 엔드포인트에도 적용하지 않았다 — 이번 단계는 컬럼·이력 테이블만 추가.
+    assigned_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     business_name: Mapped[str] = mapped_column(String(200))
     business_number: Mapped[str | None] = mapped_column(String(20))
     representative: Mapped[str | None] = mapped_column(String(100))
