@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, ForeignKey, Index, String
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models._base import Base, IdMixin, TimestampMixin
@@ -24,9 +26,13 @@ class User(Base, IdMixin, TimestampMixin):
     # role: OWNER(대표) | STAFF(담당직원). is_admin과 별개 축으로 당장은 함께 유지, is_admin은 백필 소스로만 쓴다.
     role: Mapped[str] = mapped_column(String(20), default="OWNER", server_default="OWNER")
     # 사무소 내부 개인 식별 코드(로그인 시 아이디(사업자번호)+코드+비밀번호 3필드 중 하나) — 대표=a, 이후 직원은 b,c,d… 순차 부여.
-    # 지금은 백필만 하고 로그인 엔드포인트는 아직 이 필드를 쓰지 않는다 — 프론트/로그인 API 변경은 후속 작업.
     login_code: Mapped[str | None] = mapped_column(String(1), nullable=True)
     # STAFF 전용 쓰기 권한 — OWNER는 항상 true로 취급(백엔드가 role로 강제, 이 값은 참고용).
     can_write: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # 최초 로그인 시 비밀번호 변경 강제 (plan/14 §6.2) — OWNER가 직원 등록 시 True로 생성.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # 로그인 시도 제한 (plan/14 §8 "일정 횟수 인증 실패 시 접근 제한") — portal PIN 잠금과 같은 패턴.
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     tax_office: Mapped[TaxOffice | None] = relationship()

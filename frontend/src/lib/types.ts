@@ -8,6 +8,7 @@ export type CurrentUser = {
   role: "OWNER" | "STAFF";
   login_code: string | null;
   can_write: boolean;
+  must_change_password: boolean;
   short_code: string | null;
   office_name: string | null;
   office_phone: string | null;

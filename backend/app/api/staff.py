@@ -85,6 +85,7 @@ async def create_staff(
         role="STAFF",
         login_code=login_code,
         can_write=payload.can_write,
+        must_change_password=True,  # 대표가 지정한 초기 비밀번호 — 최초 로그인 시 변경 강제 (plan/14 §6.2)
     )
     db.add(staff)
     await db.commit()

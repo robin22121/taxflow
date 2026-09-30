@@ -55,6 +55,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (isError) router.replace("/login");
   }, [isError, router]);
 
+  // 최초 로그인 비밀번호 변경 강제 — 로그인 화면 리다이렉트를 우회해 대시보드로 바로 와도 여기서 막는다.
+  useEffect(() => {
+    if (me?.must_change_password) router.replace("/change-password");
+  }, [me?.must_change_password, router]);
+
   function logout() {
     clearTokens();
     router.replace("/login");

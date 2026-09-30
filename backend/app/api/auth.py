@@ -18,6 +18,7 @@ from app.core.security import (
 )
 from app.models import OfficeApprovalStatus, TaxOffice, User
 from app.schemas.auth import (
+    ChangePasswordRequest,
     CurrentUser,
     LoginRequest,
     ProfileUpdate,
@@ -25,6 +26,11 @@ from app.schemas.auth import (
     RegisterRequest,
     RegisterResponse,
     TokenPair,
+)
+from app.services.login_lockout import (
+    login_locked_until,
+    record_login_failure,
+    record_login_success,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,8 +129,22 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     candidates = (await db.execute(query)).scalars().all()
     user = candidates[0] if len(candidates) == 1 else None
 
+    if user:
+        locked_until = login_locked_until(user)
+        if locked_until:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"로그인 시도가 너무 많습니다. {locked_until.strftime('%H:%M')} 이후 다시 시도해 주세요.",
+            )
+
     if not user or not verify_password(payload.password, user.password_hash):
+        if user:
+            record_login_failure(user)
+            await db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "아이디, 코드 또는 비밀번호가 올바르지 않습니다")
+
+    record_login_success(user)
+    await db.commit()
 
     # 승인 대기 게이트는 해제 — 가입만 하면 로그인 가능. 거부된 사무소만 차단한다.
     if not user.is_superadmin:
@@ -172,6 +192,7 @@ async def me(
         role=user.role,
         login_code=user.login_code,
         can_write=user.can_write,
+        must_change_password=user.must_change_password,
         short_code=office.short_code if office else None,
         office_name=office.name if office else None,
         office_phone=office.phone if office else None,
@@ -179,6 +200,20 @@ async def me(
         office_address=office.address if office else None,
         office_representative=office.representative if office else None,
     )
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """비밀번호 변경 — 최초 로그인 강제 변경(must_change_password)과 자발적 변경 둘 다 사용."""
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "현재 비밀번호가 올바르지 않습니다")
+    user.password_hash = hash_password(payload.new_password)
+    user.must_change_password = False
+    await db.commit()
 
 
 @router.patch("/me", response_model=CurrentUser)
@@ -210,6 +245,7 @@ async def update_me(
         role=user.role,
         login_code=user.login_code,
         can_write=user.can_write,
+        must_change_password=user.must_change_password,
         short_code=office.short_code if office else None,
         office_name=office.name if office else None,
         office_phone=office.phone if office else None,

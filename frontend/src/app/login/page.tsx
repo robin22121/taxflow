@@ -31,7 +31,11 @@ export default function LoginPage() {
       setTokens(res.access_token, res.refresh_token);
       const me = await api<CurrentUser>("/api/v1/auth/me");
       setLoginMode(mode);
-      router.push(me.is_superadmin ? "/admin" : "/dashboard?landing=1");
+      if (me.must_change_password) {
+        router.push("/change-password");
+      } else {
+        router.push(me.is_superadmin ? "/admin" : "/dashboard?landing=1");
+      }
     } catch (e) {
       setErr((e as Error).message);
     } finally {

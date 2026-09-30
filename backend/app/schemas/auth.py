@@ -64,6 +64,7 @@ class CurrentUser(BaseModel):
     role: str
     login_code: str | None = None
     can_write: bool = True
+    must_change_password: bool = False
     short_code: str | None = None
     office_name: str | None = None
     office_phone: str | None = None
@@ -78,3 +79,17 @@ class ProfileUpdate(BaseModel):
     office_email: str | None = None
     office_address: str | None = None
     office_representative: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("비밀번호는 6자리 이상이어야 합니다")
+        if not any(c in "!@#$%^&*()_+-=[]{}|;:',.<>?/~`" for c in v):
+            raise ValueError("비밀번호에 특수문자를 포함해야 합니다")
+        return v
