@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useBulkUploadClients, useClients, useCreateClient } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
@@ -10,11 +10,19 @@ import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
 
 export default function ClientsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const selectedClientId = searchParams.get("client_id");
   const { data, isLoading } = useClients();
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [wehagoOpen, setWehagoOpen] = useState(false);
   const [search, setSearch] = useState("");
+
+  // 2026-09-30 결정 — 좌측 전역 거래처 명단에서 특정 거래처를 선택한 채 이 세부메뉴로 오면,
+  // 전체 목록 대신 그 거래처의 상세/수정 화면으로 바로 이동한다.
+  useEffect(() => {
+    if (selectedClientId) router.replace(`/dashboard/clients/${selectedClientId}`);
+  }, [selectedClientId, router]);
 
   const clients = (data ?? []).filter((c) =>
     search
@@ -23,6 +31,8 @@ export default function ClientsPage() {
         (c.representative ?? "").includes(search)
       : true,
   );
+
+  if (selectedClientId) return null;
 
   return (
     <div className="space-y-6">
