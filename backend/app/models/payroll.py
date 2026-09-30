@@ -75,6 +75,13 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
     # 세액계산(일급 환산: total_amount÷work_days)에 쓴다. None이면 1일로 간주(안전한 기본값 —
     # 실제보다 적게 잡으면 일급이 과대 계산돼 세액이 더 나올 뿐, 과소징수는 안 됨).
     work_days: Mapped[int | None] = mapped_column(Integer)
+    # 기타소득(income_type=OTHER) 전용 — 위하고T 기타소득자료입력 업로드에 쓴다.
+    # necessary_expense(필요경비)는 금액으로 직접 넣는다(소득구분별 %율은 세무사가 이미
+    # 반영해 계산해 둔 값으로 가정 — 이지원천이 %를 대신 계산하지 않음, None이면 0으로 간주).
+    # other_income_code는 위하고 내부 소득구분 코드(예: "76"=강연료 등, "77"=종교인소득) —
+    # 국세청 A코드(a_code)·사업소득 업종코드(business_type_code)와는 별개 체계다.
+    necessary_expense: Mapped[int] = mapped_column(Integer, default=0)
+    other_income_code: Mapped[str | None] = mapped_column(String(10))
 
     match_status: Mapped[MatchStatus] = mapped_column(
         Enum(MatchStatus, native_enum=False, length=30),
