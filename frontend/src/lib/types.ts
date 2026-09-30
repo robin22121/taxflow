@@ -5,6 +5,9 @@ export type CurrentUser = {
   tax_office_id: string | null;
   is_admin: boolean;
   is_superadmin: boolean;
+  role: "OWNER" | "STAFF";
+  login_code: string | null;
+  can_write: boolean;
   short_code: string | null;
   office_name: string | null;
   office_phone: string | null;
