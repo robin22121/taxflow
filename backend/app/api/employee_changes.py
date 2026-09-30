@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_write
 from app.models import (
     ChangeRequestStatus,
     ChangeType,
@@ -57,14 +57,16 @@ def _out(request: EmployeeChangeRequest) -> ChangeRequestOut:
 async def _request_or_404(
     db: AsyncSession, request_id: str, user: User
 ) -> EmployeeChangeRequest:
-    request = (
-        await db.execute(
-            select(EmployeeChangeRequest)
-            .where(EmployeeChangeRequest.id == request_id)
-            .options(selectinload(EmployeeChangeRequest.client))
-        )
-    ).scalar_one_or_none()
-    if not request or request.client.tax_office_id != user.tax_office_id:
+    stmt = (
+        select(EmployeeChangeRequest)
+        .join(Client, Client.id == EmployeeChangeRequest.client_id)
+        .where(EmployeeChangeRequest.id == request_id, Client.tax_office_id == user.tax_office_id)
+        .options(selectinload(EmployeeChangeRequest.client))
+    )
+    if user.role == "STAFF":
+        stmt = stmt.where(Client.assigned_user_id == user.id)
+    request = (await db.execute(stmt)).scalar_one_or_none()
+    if not request:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "요청을 찾을 수 없습니다")
     return request
 
@@ -83,6 +85,8 @@ async def list_change_requests(
         .options(selectinload(EmployeeChangeRequest.client))
         .order_by(EmployeeChangeRequest.created_at.desc())
     )
+    if user.role == "STAFF":
+        stmt = stmt.where(Client.assigned_user_id == user.id)
     if status_filter != "ALL":
         try:
             wanted = ChangeRequestStatus(status_filter)
@@ -99,6 +103,7 @@ async def approve_change_request(
     request_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> ChangeRequestOut:
     """승인 — 이때 비로소 ``Employee`` 마스터가 바뀐다."""
     request = await _request_or_404(db, request_id, user)
@@ -135,6 +140,7 @@ async def reject_change_request(
     request_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> ChangeRequestOut:
     request = await _request_or_404(db, request_id, user)
     if request.status is not ChangeRequestStatus.PENDING:

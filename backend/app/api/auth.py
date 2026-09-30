@@ -74,13 +74,15 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     db.add(office)
     await db.flush()
 
-    # 관리자 계정 (아이디 = 사업자번호)
+    # 관리자 계정 (아이디 = 사업자번호). 대표 계정은 항상 코드 'a' — 직원은 이후 등록 시 b,c,d… 순차 부여.
     user = User(
         tax_office_id=office.id,
         email=payload.business_number,
         password_hash=hash_password(payload.password),
         name=payload.representative,
         is_admin=True,
+        role="OWNER",
+        login_code="a",
     )
     db.add(user)
     await db.commit()
@@ -112,11 +114,17 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 @router.post("/login", response_model=TokenPair)
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenPair:
-    user = (
-        await db.execute(select(User).where(User.email == payload.email))
-    ).scalar_one_or_none()
-    if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다")
+    # 아이디(사업자번호 등)는 사무소 내 여러 계정이 공유할 수 있다(plan/14 §6.5) — 코드로 구분한다.
+    # 코드 생략 시엔 그 아이디에 활성 계정이 정확히 1개일 때만 허용
+    # (직원계정이 없는 기존 단일계정 사무소와의 호환. 여러 개면 코드 없이는 어느 계정인지 모호하다).
+    query = select(User).where(User.email == payload.email, User.is_active.is_(True))
+    if payload.login_code:
+        query = query.where(User.login_code == payload.login_code)
+    candidates = (await db.execute(query)).scalars().all()
+    user = candidates[0] if len(candidates) == 1 else None
+
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "아이디, 코드 또는 비밀번호가 올바르지 않습니다")
 
     # 승인 대기 게이트는 해제 — 가입만 하면 로그인 가능. 거부된 사무소만 차단한다.
     if not user.is_superadmin:
@@ -161,6 +169,9 @@ async def me(
         tax_office_id=user.tax_office_id,
         is_admin=user.is_admin,
         is_superadmin=user.is_superadmin,
+        role=user.role,
+        login_code=user.login_code,
+        can_write=user.can_write,
         short_code=office.short_code if office else None,
         office_name=office.name if office else None,
         office_phone=office.phone if office else None,
@@ -196,6 +207,9 @@ async def update_me(
         tax_office_id=user.tax_office_id,
         is_admin=user.is_admin,
         is_superadmin=user.is_superadmin,
+        role=user.role,
+        login_code=user.login_code,
+        can_write=user.can_write,
         short_code=office.short_code if office else None,
         office_name=office.name if office else None,
         office_phone=office.phone if office else None,

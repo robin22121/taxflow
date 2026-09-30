@@ -3,31 +3,44 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 
-import { api, clearTokens, getToken } from "@/lib/api";
+import { clearTokens, getToken } from "@/lib/api";
 import { useMe } from "@/lib/queries";
-import { Button, Input, Modal } from "@/components/ui";
+import { Modal } from "@/components/ui";
 import { HeaderSlotContext } from "@/components/header-slot";
 import { ActivityBar } from "@/components/rpa/activity-bar";
 import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 
+// 2026-09-30 상단 탑 메뉴 전면 개편 (plan/08-action-items.md) — 거래처·직원 변동·문자발송은
+// 상단에서 없어지고 "원천세 신고"·"타세목 신고·납부"의 세부메뉴로 흡수된다
+// (세부메뉴 좌측 칼럼 레이아웃은 각 라우트 그룹의 layout.tsx: `(wht)/layout.tsx`, `(tax-other)/layout.tsx`).
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "월별 신고" },
-  { href: "/dashboard/clients", label: "거래처" },
-  { href: "/dashboard/employee-changes", label: "직원 변동" },
-  { href: "/dashboard/messages", label: "문자발송" },
+  {
+    href: "/dashboard",
+    label: "원천세 신고",
+    match: (p: string) =>
+      p === "/dashboard" ||
+      p.startsWith("/dashboard/requests") ||
+      p.startsWith("/dashboard/clients") ||
+      p.startsWith("/dashboard/employee-changes") ||
+      p.startsWith("/dashboard/filings"),
+  },
+  {
+    href: "/dashboard/messages",
+    label: "타세목 신고·납부",
+    match: (p: string) => p.startsWith("/dashboard/messages"),
+  },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const qc = useQueryClient();
   const { data: me, isError } = useMe();
   const [showMenu, setShowMenu] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
   // 증명원 발급 팝업 — 화면에서 선택된 거래처(?client_id)가 있으면 거래처 선택 단계를 건너뛴다
   const [certificate, setCertificate] = useState<{ clientId: string | null } | null>(null);
+  // AI 도우미 — 화면 이동 없이 팝업으로만 연다 (2026-09-30 결정)
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [infoSlot, setInfoSlot] = useState<HTMLDivElement | null>(null);
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   const headerSlots = useMemo(() => ({ info: infoSlot, actions: actionsSlot }), [infoSlot, actionsSlot]);
@@ -66,7 +79,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* Nav tabs */}
           <nav className="flex items-center gap-1 shrink-0">
             {NAV_ITEMS.map((item) => {
-              const active = pathname === item.href || pathname.startsWith(item.href + "/");
+              const active = item.match(pathname);
               return (
                 <Link
                   key={item.href}
@@ -88,11 +101,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             >
               증명원 발급
             </button>
+            {/* AI 도우미 — 클릭해도 화면 이동 없이 팝업으로만 열린다 (2026-09-30 결정) */}
             <button
-              onClick={() => alert("타세목 신고·납부 화면은 준비 중입니다.")}
+              onClick={() => setShowAiAssistant(true)}
               className="px-2.5 sm:px-3 py-1.5 rounded-full text-[12px] sm:text-[13px] font-medium transition-colors text-gray-600 hover:bg-gray-100"
             >
-              타세목 신고·납부
+              AI 도우미
             </button>
           </nav>
         </div>
@@ -125,11 +139,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div className="text-[11px] text-gray-500 mt-0.5">{me?.office_name ?? ""}</div>
                 <div className="text-[11px] text-gray-400">{me?.email}</div>
               </div>
-              <button onClick={() => { setShowMenu(false); setShowProfile(true); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                <span>내 정보</span>
-              </button>
-              <Link href="/dashboard/settings" onClick={() => setShowMenu(false)} className="block px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">
-                사무소 설정
+              {/* "내 정보" — 직원계정 등록/변경·사무실 설정·수임담당지정 3탭 화면으로 이동
+                  (plan/14-accounts-permissions.md §6.6). 사무소 설정은 이제 그 탭으로만 존재. */}
+              <Link href="/dashboard/staff" onClick={() => setShowMenu(false)} className="block px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">
+                내 정보
               </Link>
               <div className="border-t border-gray-100">
                 <button onClick={() => { setShowMenu(false); logout(); }} className="w-full text-left px-3 py-2 text-[12px] text-red-600 hover:bg-red-50">
@@ -158,87 +171,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <CertificateIssueModal initialClientId={certificate.clientId} onClose={() => setCertificate(null)} />
       )}
 
-      {/* Profile modal */}
-      {showProfile && me && (
-        <ProfileModal me={me} onClose={() => setShowProfile(false)} onSaved={() => { qc.invalidateQueries({ queryKey: ["me"] }); setShowProfile(false); }} />
-      )}
+      {showAiAssistant && <AiAssistantModal onClose={() => setShowAiAssistant(false)} />}
     </div>
   );
 }
 
-function ProfileModal({ me, onClose, onSaved }: { me: NonNullable<ReturnType<typeof useMe>["data"]>; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({
-    name: me.name,
-    office_representative: me.office_representative ?? "",
-    office_phone: me.office_phone ?? "",
-    office_email: me.office_email ?? "",
-    office_address: me.office_address ?? "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  async function save() {
-    setSaving(true);
-    setErr(null);
-    try {
-      await api("/api/v1/auth/me", { method: "PATCH", json: form });
-      onSaved();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function copyCode() {
-    if (!me.short_code) return;
-    navigator.clipboard.writeText(me.short_code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
+function AiAssistantModal({ onClose }: { onClose: () => void }) {
   return (
-    <Modal open onClose={onClose} title="내 정보">
-      <div className="space-y-4">
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center justify-between">
-          <div>
-            <div className="text-[10px] text-gray-400 uppercase tracking-wider">사무소 인가코드</div>
-            <div className="text-[20px] font-bold tracking-[0.12em] text-gray-900 font-mono">{me.short_code ?? "—"}</div>
-          </div>
-          <button onClick={copyCode} className="text-[11px] text-blue-600 font-medium hover:underline">{copied ? "복사됨" : "복사"}</button>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-1">담당자명</label>
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-1">대표자명</label>
-            <Input value={form.office_representative} onChange={(e) => setForm({ ...form, office_representative: e.target.value })} />
-          </div>
-        </div>
-        <div>
-          <label className="block text-[11px] font-medium text-gray-600 mb-1">사무소 전화번호</label>
-          <Input value={form.office_phone} onChange={(e) => setForm({ ...form, office_phone: e.target.value })} />
-        </div>
-        <div>
-          <label className="block text-[11px] font-medium text-gray-600 mb-1">사무소 이메일</label>
-          <Input type="email" value={form.office_email} onChange={(e) => setForm({ ...form, office_email: e.target.value })} />
-        </div>
-        <div>
-          <label className="block text-[11px] font-medium text-gray-600 mb-1">사무소 주소</label>
-          <Input value={form.office_address} onChange={(e) => setForm({ ...form, office_address: e.target.value })} />
-        </div>
-        <div className="text-[11px] text-gray-400">
-          아이디 (사업자번호): <span className="font-medium text-gray-600">{me.email}</span> · 사무소명: <span className="font-medium text-gray-600">{me.office_name}</span>
-        </div>
-        {err && <p className="text-[12px] text-red-600">{err}</p>}
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>취소</Button>
-          <Button onClick={save} disabled={saving}>{saving ? "저장중..." : "저장"}</Button>
-        </div>
-      </div>
+    <Modal open onClose={onClose} title="AI 도우미">
+      <p className="text-[13px] text-gray-500">준비 중입니다.</p>
     </Modal>
   );
 }
+

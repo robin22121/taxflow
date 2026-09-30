@@ -16,7 +16,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, get_scoped_client, require_write
 from app.models import (
     Client,
     CollectionEvent,
@@ -169,13 +169,10 @@ async def import_employees(
     client_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    client: Client = Depends(get_scoped_client),
+    _writer: User = Depends(require_write),
 ) -> ImportEmployeeResult:
     """직원 마스터 일괄 임포트 (위하고T 인적사항 엑셀 or 자유 양식)."""
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
-
     content = await file.read()
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 파일입니다")
@@ -279,12 +276,10 @@ async def import_payroll(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    client: Client = Depends(get_scoped_client),
+    _writer: User = Depends(require_write),
 ) -> ImportPayrollResult:
     """전월 급여 이력 일괄 임포트."""
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
-
     content = await file.read()
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 파일입니다")

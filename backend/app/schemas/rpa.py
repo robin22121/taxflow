@@ -196,6 +196,8 @@ class WehagoImportEmployeeIn(BaseModel):
     department: str | None = Field(default=None, max_length=50)
     position: str | None = Field(default=None, max_length=50)
     job_type: str | None = Field(default=None, max_length=50)
+    income_type: str | None = Field(default=None, max_length=20)  # WAGE(기본)/BUSINESS/OTHER/DAILY
+    business_type_code: str | None = Field(default=None, max_length=10)  # 사업소득 업종코드
 
 
 class WehagoImportClientIn(BaseModel):

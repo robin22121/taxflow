@@ -37,6 +37,7 @@ import type {
   Promotion,
   SessionAttachment,
   SessionTimelineEvent,
+  Staff,
 } from "./types";
 
 export function useMe() {
@@ -44,6 +45,20 @@ export function useMe() {
     queryKey: ["me"],
     queryFn: () => api<CurrentUser>("/api/v1/auth/me"),
     retry: false,
+  });
+}
+
+export function useUpdateMe() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      name?: string;
+      office_phone?: string;
+      office_email?: string;
+      office_address?: string;
+      office_representative?: string;
+    }) => api<CurrentUser>("/api/v1/auth/me", { method: "PATCH", json: payload }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
   });
 }
 
@@ -142,6 +157,50 @@ export function useCreateClient() {
     }) =>
       api<Client>("/api/v1/clients", { method: "POST", json: payload }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
+  });
+}
+
+export function useAssignClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { clientId: string; userId: string | null }) =>
+      api<Client>(`/api/v1/clients/${vars.clientId}/assign`, {
+        method: "POST",
+        json: { user_id: vars.userId },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
+  });
+}
+
+export function useStaff() {
+  return useQuery({
+    queryKey: ["staff"],
+    queryFn: () => api<Staff[]>("/api/v1/staff"),
+  });
+}
+
+export function useCreateStaff() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { name: string; password: string; can_write?: boolean }) =>
+      api<Staff>("/api/v1/staff", { method: "POST", json: payload }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["staff"] }),
+  });
+}
+
+export function useUpdateStaff() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      id: string;
+      name?: string;
+      can_write?: boolean;
+      is_active?: boolean;
+    }) => {
+      const { id, ...payload } = vars;
+      return api<Staff>(`/api/v1/staff/${id}`, { method: "PATCH", json: payload });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["staff"] }),
   });
 }
 

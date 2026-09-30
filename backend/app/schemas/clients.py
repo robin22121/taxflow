@@ -29,8 +29,16 @@ class ClientOut(BaseModel):
     sincere_filing: bool = False
     collect_email: str | None = None
     invite_sent: bool = False
+    # 담당자 이름은 별도 조인 없이 프론트에서 /api/v1/staff 목록과 대조해 표시한다
+    # (plan/14-accounts-permissions.md §6.6.2) — Client 모델에 relationship을 새로
+    # 얹지 않기 위한 선택.
+    assigned_user_id: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class ClientAssign(BaseModel):
+    user_id: str | None  # None = 미배정으로 전환
 
 
 class ClientUpdate(BaseModel):

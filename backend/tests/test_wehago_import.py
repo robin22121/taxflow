@@ -133,6 +133,47 @@ async def test_existing_values_are_kept_and_differences_reported():
                           ("윤미래", "부서")}
 
 
+@pytest.mark.asyncio
+async def test_employee_code_is_scoped_by_income_type():
+    """사업소득자등록의 코드 "1"과 사원등록(근로)의 코드 "1"은 남남 — 서로 안 섞인다."""
+    from app.db import SessionLocal
+    from app.models import Client, Employee
+    from app.services.wehago_import import ImportedClient, ImportedEmployee, apply_client_import
+
+    office_id = await _office_id()
+    async with SessionLocal() as db:
+        client = Client(tax_office_id=office_id, business_name="겸업상사", business_number="224-02-38406")
+        db.add(client)
+        await db.flush()
+        wage_emp = Employee(client_id=client.id, name="박겸업", employee_code="1")  # 기본값 WAGE
+        db.add(wage_emp)
+        await db.commit()
+
+        out = await apply_client_import(
+            db,
+            office_id,
+            ImportedClient(
+                business_number="224-02-38406",
+                business_name="겸업상사",
+                employees=[
+                    ImportedEmployee("1", "박겸업", income_type="BUSINESS", business_type_code="940909"),
+                ],
+            ),
+        )
+        await db.commit()
+
+        assert out.employees_created == 1 and out.employees_updated == 0
+        rows = (
+            await db.execute(select(Employee).where(Employee.client_id == client.id))
+        ).scalars().all()
+        assert len(rows) == 2
+        business_emp = next(e for e in rows if e.id != wage_emp.id)
+        assert business_emp.employee_code == "1"
+        assert business_emp.income_type.value == "BUSINESS"
+        assert business_emp.business_type_code == "940909"
+        assert wage_emp.employee_code == "1"  # 기존 근로소득 사원은 그대로
+
+
 # --- 작업 흐름 (API) ---------------------------------------------------------
 
 

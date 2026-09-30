@@ -2,6 +2,7 @@ from app.models.beta_signup import BetaSignup
 from app.models.business_type import BUSINESS_TYPE_CODES, BusinessTypeCode
 from app.models.certificate import CertificateIssue, CertificateStatus
 from app.models.client import Client
+from app.models.client_assignment_history import ClientAssignmentHistory
 from app.models.client_payroll_default import ClientPayrollDefault
 from app.models.collection import (
     CollectionEvent,
@@ -42,6 +43,7 @@ __all__ = [
     "ChangeRequestStatus",
     "ChangeType",
     "Client",
+    "ClientAssignmentHistory",
     "ClientFilingResult",
     "ClientPayrollDefault",
     "CollectionEvent",

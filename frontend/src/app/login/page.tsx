@@ -11,6 +11,7 @@ import { type LoginMode, setLoginMode } from "@/lib/login-mode";
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  const [loginCode, setLoginCode] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<LoginMode>("demo");
   const [err, setErr] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export default function LoginPage() {
       const loginId = email.includes("@") ? email.trim() : email.replace(/[^0-9]/g, "");
       const res = await api<TokenPair>("/api/v1/auth/login", {
         method: "POST",
-        json: { email: loginId, password },
+        json: { email: loginId, login_code: loginCode.trim() || null, password },
       });
       setTokens(res.access_token, res.refresh_token);
       const me = await api<CurrentUser>("/api/v1/auth/me");
@@ -101,6 +102,19 @@ export default function LoginPage() {
                 placeholder="0000000000"
                 autoComplete="username"
                 required
+              />
+            </div>
+            <div>
+              <label className="block text-[12px] font-medium text-gray-700 mb-1.5">
+                코드 <span className="text-gray-400 font-normal">(직원계정만 — 대표는 비워두세요)</span>
+              </label>
+              <Input
+                type="text"
+                value={loginCode}
+                onChange={(e) => setLoginCode(e.target.value.slice(0, 1))}
+                placeholder="a, b, c…"
+                autoComplete="off"
+                maxLength={1}
               />
             </div>
             <div>

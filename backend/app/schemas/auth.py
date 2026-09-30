@@ -4,6 +4,10 @@ from pydantic import BaseModel, EmailStr, field_validator
 class LoginRequest(BaseModel):
     email: str
     password: str
+    # 사무소 내 개인 코드 (a/b/c/d…, plan/14-accounts-permissions.md §6.5). 생략 시 해당
+    # 아이디로 매칭되는 활성 계정이 정확히 1개일 때만 로그인 허용(과거 단일계정 사무소 호환).
+    # 직원계정이 여러 개인 사무소는 코드 없이는 어느 계정인지 모호해 로그인이 거부된다.
+    login_code: str | None = None
 
 
 class RegisterRequest(BaseModel):
@@ -57,6 +61,9 @@ class CurrentUser(BaseModel):
     tax_office_id: str | None = None
     is_admin: bool
     is_superadmin: bool = False
+    role: str
+    login_code: str | None = None
+    can_write: bool = True
     short_code: str | None = None
     office_name: str | None = None
     office_phone: str | None = None

@@ -1654,6 +1654,33 @@ class WehagoUploader:
         return text
 
     # ------------------------------------------------------------------
+    # 소득자 명단 읽기 (plan/16 §13-3-5, 2026-09-30) — RealGrid `_gridView`를 직접 읽는다.
+    # 사업소득자등록(SWBU0101)엔 엑셀 다운로드가 없다(실측 확인, 우측 상단 메뉴에
+    # "엑셀 내려받기" 없음) — `_REALGRID_ROWS_JS`(이미 급여자료입력 그리드에서 쓰던 패턴)로
+    # 화면 UI 조작 없이 캔버스 그리드 전체 행을 그대로 뽑는다.
+    # ------------------------------------------------------------------
+
+    def list_business_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+        """사업소득자등록(SWBU0101) 전체 명단 — 읽기 전용.
+
+        반환값은 backend `wehago_import.ImportedEmployee`(income_type="BUSINESS")에 바로
+        넣을 수 있는 dict 리스트다. 실측 필드(2026-09-30, `#Leftgird`): `cd_buemp`(위하고
+        사원코드) · `nm_krname`(이름) · `no_social`(주민번호, 하이픈 없음) ·
+        `cd_income`(사업소득 업종코드) · `da_retire`(퇴사일, 빈 문자열이면 재직중).
+
+        진입은 `_open_closing_menu`(id 기반)가 아니라 `open_business_income_screen`과 같은
+        "사업소득관리 / 기타(이자 / 배당)소득관리" 카테고리 공통 로직(`_open_business_category_menu`)을
+        쓴다 — 이 카테고리는 서브메뉴가 화면코드가 아니라 내부 생성 숫자 id라 텍스트로 찾아야 한다.
+        """
+        smarta, _name, _number = self._open_smarta(business_number)
+        self._smarta_page = smarta
+        self._open_business_category_menu(smarta, "사업소득자등록")
+        self.step = "사업소득자 명단 읽기"
+        think("wehago")
+        rows = smarta.locator("#Leftgird").evaluate(_REALGRID_ROWS_JS)
+        return _parse_business_income_rows(rows)
+
+    # ------------------------------------------------------------------
     # 소득자등록 (§4-4 확장 — 사업/기타/일용소득 자동화, 2026-09-29 실측 진행 중)
     #
     # 사업소득자료입력(SWBU0102, `upload_business_income`)은 이미 엑셀 업로드로 구현돼
@@ -2221,6 +2248,41 @@ class WehagoUploader:
             }"""
         )
         return _clean_business_number(raw)
+
+
+def _parse_business_income_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """사업소득자등록(SWBU0101) `#Leftgird`의 `_REALGRID_ROWS_JS` 결과 → 임포트 페이로드.
+
+    빈 자리표시 행(신규 입력용 마지막 빈 줄, `cd_buemp`/`nm_krname` 둘 다 빈 문자열)은
+    제외한다. `WehagoUploader.list_business_income_earners`에서만 쓴다 — 브라우저 없이
+    단위 테스트하려고 분리했다.
+    """
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        code = str(r.get("cd_buemp") or "").strip()
+        name = str(r.get("nm_krname") or "").strip()
+        if not code or not name:
+            continue
+        rrn = str(r.get("no_social") or "").strip()
+        resigned_at = None
+        resigned_raw = str(r.get("da_retire") or "").strip()
+        if resigned_raw:
+            try:
+                resigned_at = date.fromisoformat(resigned_raw[:10])
+            except ValueError:
+                resigned_at = None
+        income_code = str(r.get("cd_income") or "").strip()
+        out.append(
+            {
+                "employee_code": code,
+                "name": name,
+                "rrn": rrn or None,
+                "resigned_at": resigned_at,
+                "income_type": "BUSINESS",
+                "business_type_code": income_code or None,
+            }
+        )
+    return out
 
 
 def _report_type_code(period: str, today: date | None = None) -> str:
