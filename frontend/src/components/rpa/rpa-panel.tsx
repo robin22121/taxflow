@@ -94,9 +94,9 @@ export function RpaPanel({ filingId, clientIds, filingResults, onChange }: Props
 
   const stages = useMemo(() => {
     return clientIds.map((cid) => {
-      const bucket = byClient[cid] ?? {};
+      const bucket = byClient[cid] ?? { inputs: [] };
       const result = filingResults?.[cid];
-      return { clientId: cid, input: bucket.input, production: bucket.production, result, stage: gateStage(bucket.input, bucket.production, result) };
+      return { clientId: cid, inputs: bucket.inputs, production: bucket.production, result, stage: gateStage(bucket.inputs, bucket.production, result) };
     });
   }, [clientIds, byClient, filingResults]);
 
@@ -185,7 +185,7 @@ export function RpaPanel({ filingId, clientIds, filingResults, onChange }: Props
           </thead>
           <tbody className="divide-y divide-gray-200">
             {stages.map((s) => {
-              const job = s.production ?? s.input;
+              const job = s.production ?? s.inputs[s.inputs.length - 1];
               return (
                 <tr key={s.clientId}>
                   <td className="px-3 py-2 text-gray-800">

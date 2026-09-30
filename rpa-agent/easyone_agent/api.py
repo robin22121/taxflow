@@ -12,6 +12,7 @@ import httpx
 IMPORT_ALL = "WEHAGO_MASTER_IMPORT_ALL"
 IMPORT_CLIENT = "WEHAGO_CLIENT_IMPORT"
 MONTHLY_PRODUCTION = "MONTHLY_PRODUCTION"
+WEHAGO_BUSINESS_INPUT = "WEHAGO_BUSINESS_INPUT"  # 게이트 1 — 사업소득자료입력 (plan/16 §13-3-4)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,13 @@ class EasyoneApi:
         r = self._http.get(f"/api/v1/rpa/agent/jobs/{job_id}/payroll-excel")
         if r.status_code == 409:
             raise RuntimeError(f"서버가 급여파일 제공을 거부했습니다: {r.json().get('detail')}")
+        r.raise_for_status()
+        return r.content
+
+    def download_business_income_excel(self, job_id: str) -> bytes:
+        r = self._http.get(f"/api/v1/rpa/agent/jobs/{job_id}/business-income-excel")
+        if r.status_code == 409:
+            raise RuntimeError(f"서버가 사업소득 파일 제공을 거부했습니다: {r.json().get('detail')}")
         r.raise_for_status()
         return r.content
 

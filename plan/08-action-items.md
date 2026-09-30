@@ -139,6 +139,14 @@
   `register_other_income_earner`/`register_daily_worker`는 좌표 기반 미검증 스켈레톤).
   2026-09-29에 Playwright Inspector 녹화로 한 번 훑었지만 RealGrid 좌표 클릭 위주의
   시행착오라 코드화하지 않았다 — 깔끔하게 재실측 필요. RealGrid는 좌표 기반이라 특히 신중히.
+- [x] **게이트 1 "위하고 전송"에 사업소득 배선** (2026-09-30 완료, `plan/16-wehago-rpa.md`
+  §13-3-5) — `upload_business_income`은 §13-3에서 이미 구현됐지만 전송 버튼 파이프라인
+  (`RpaJobKind`→API→에이전트 runner)이 근로소득 하나로만 배선돼 있어 실제로는 호출된 적이
+  없었다. `RpaJobKind.WEHAGO_BUSINESS_INPUT` 추가, `create_wehago_uploads`가 소득유형별로
+  job을 나눠 만들도록, **게이트 2 "제작" 적격성 검사를 거래처의 모든 자동화 소득유형이
+  성공해야 통과하도록 재작성**(하나만 확인하면 아직 안 올라간 소득을 마감하는 사고 위험),
+  프론트 `indexJobsByClient`도 `input?: RpaJob` → `inputs: RpaJob[]`로 확장. 기타·일용소득은
+  자료입력이 아직 불안정해(§13-3-1/13-3-3) 제외.
 - [ ] **일용·사업·기타소득 "전송 완료" 판정에 명세서 추가입력 포함** (2026-09-30 로직 변경,
   `plan/16-wehago-rpa.md` §4-1 "2026-09-30 결정") — 근로소득은 급여입력만으로 전송 완료지만,
   일용·사업·기타소득은 국세청 지급명세서(간이지급명세서) 제출 대상이라 위 자료입력 화면
