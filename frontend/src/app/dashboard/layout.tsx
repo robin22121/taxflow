@@ -11,19 +11,15 @@ import { HeaderSlotContext } from "@/components/header-slot";
 import { ActivityBar } from "@/components/rpa/activity-bar";
 import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 
-// 2026-09-30 상단 탑 메뉴 재개편 (plan/08-action-items.md) — 자료요청·거래처정보·사원정보를
+// 2026-09-30 상단 탑 메뉴 재개편 (plan/08-action-items.md) — 거래처정보·사원정보를
 // "원천세 신고" 세부메뉴에서 다시 꺼내 평평한 상단 탭으로 배치(사용자 확정, 회귀).
+// "자료요청"은 실제 발송 로직이 없는 플레이스홀더였는데 상단 탭에서 제거(2026-09-30).
 // "타세목 신고·납부"는 문자발송 세부메뉴를 그대로 유지한다((tax-other)/layout.tsx).
 const NAV_ITEMS = [
   {
     href: "/dashboard",
     label: "원천세 신고",
     match: (p: string) => p === "/dashboard" || p.startsWith("/dashboard/filings"),
-  },
-  {
-    href: "/dashboard/requests",
-    label: "자료요청",
-    match: (p: string) => p.startsWith("/dashboard/requests"),
   },
   {
     href: "/dashboard/clients",
