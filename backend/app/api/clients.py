@@ -11,7 +11,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db, require_owner
+from app.core.deps import (
+    get_current_user,
+    get_db,
+    get_scoped_client,
+    require_owner,
+    require_write,
+    visible_clients,
+)
 from app.models import (
     CertificateIssue,
     Client,
@@ -89,9 +96,7 @@ async def list_clients(
     user: User = Depends(get_current_user),
 ) -> list[Client]:
     rows = (
-        await db.execute(
-            select(Client).where(Client.tax_office_id == user.tax_office_id).order_by(Client.business_name)
-        )
+        await db.execute(visible_clients(user).order_by(Client.business_name))
     ).scalars().all()
     return list(rows)
 
@@ -252,27 +257,17 @@ async def bulk_upload_clients(
 
 
 @router.get("/{client_id}", response_model=ClientOut)
-async def get_client(
-    client_id: str,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> Client:
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
+async def get_client(client: Client = Depends(get_scoped_client)) -> Client:
     return client
 
 
 @router.patch("/{client_id}", response_model=ClientOut)
 async def update_client(
-    client_id: str,
     payload: ClientUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    client: Client = Depends(get_scoped_client),
+    _writer: User = Depends(require_write),
 ) -> Client:
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     patch = payload.model_dump(exclude_unset=True)
     for field_name, value in patch.items():
         if field_name == "contact_email" and value is not None:
@@ -374,8 +369,10 @@ class PortalLinkOut(BaseModel):
 
 
 async def _client_or_404(db: AsyncSession, client_id: str, user: User) -> Client:
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
+    client = (
+        await db.execute(visible_clients(user).where(Client.id == client_id))
+    ).scalar_one_or_none()
+    if client is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     return client
 
@@ -613,15 +610,12 @@ async def issue_portal_pin(
 
 @router.post("/{client_id}/invite", response_model=ClientInviteResult)
 async def invite_client(
-    client_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    client: Client = Depends(get_scoped_client),
+    _writer: User = Depends(require_write),
 ) -> ClientInviteResult:
     """단일 거래처에 초대장 발송 — 최신 신고 기간 기준 알림톡/SMS/이메일 발송."""
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
-
     if not client.contact_phone and not client.contact_email:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -662,15 +656,11 @@ async def invite_client(
 
 @router.get("/{client_id}/employees", response_model=list[EmployeeOut])
 async def list_employees(
-    client_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    client: Client = Depends(get_scoped_client),
 ) -> list[Employee]:
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     rows = (
-        await db.execute(select(Employee).where(Employee.client_id == client_id).order_by(Employee.name))
+        await db.execute(select(Employee).where(Employee.client_id == client.id).order_by(Employee.name))
     ).scalars().all()
     return list(rows)
 
@@ -732,8 +722,10 @@ async def _get_or_none(db: AsyncSession, client_id: str) -> ClientPayrollDefault
 
 
 async def _authorize_client(db: AsyncSession, client_id: str, user: User) -> Client:
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
+    client = (
+        await db.execute(visible_clients(user).where(Client.id == client_id))
+    ).scalar_one_or_none()
+    if client is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     return client
 
@@ -800,14 +792,11 @@ async def reset_payroll_default(
 
 @router.post("/{client_id}/employees", response_model=EmployeeOut, status_code=status.HTTP_201_CREATED)
 async def create_employee(
-    client_id: str,
     payload: EmployeeCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    client: Client = Depends(get_scoped_client),
+    _writer: User = Depends(require_write),
 ) -> Employee:
-    client = await db.get(Client, client_id)
-    if not client or client.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     rrn_encrypted = encrypt_rrn(payload.rrn) if payload.rrn else None
     rrn_last4 = _rrn_last4(payload.rrn) if payload.rrn else None
     if payload.income_type is not None:
@@ -817,11 +806,11 @@ async def create_employee(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "잘못된 소득구분입니다") from None
     else:
         income_type = IncomeType.WAGE
-    code = (payload.employee_code or "").strip() or await next_employee_code(db, client_id, income_type)
-    if await employee_code_taken(db, client_id, income_type, code):
+    code = (payload.employee_code or "").strip() or await next_employee_code(db, client.id, income_type)
+    if await employee_code_taken(db, client.id, income_type, code):
         raise HTTPException(status.HTTP_409_CONFLICT, f"사원코드 {code}는 이미 같은 소득구분에서 쓰고 있습니다")
     emp = Employee(
-        client_id=client_id,
+        client_id=client.id,
         name=payload.name,
         rrn_encrypted=rrn_encrypted,
         rrn_last4=rrn_last4,
