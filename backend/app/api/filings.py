@@ -85,6 +85,36 @@ async def _visible_client_ids(db: AsyncSession, user: User) -> set[str] | None:
     )
 
 
+async def _scoped_filing_and_clients(
+    db: AsyncSession, filing_id: str, user: User, client_id: str | None
+) -> tuple[MonthlyFiling, str | None, list[str] | None]:
+    """다운로드/발송류 엔드포인트 공통 — 신고 건 컨테이너 확인 + client_id 쿼리파라미터가
+    STAFF 담당 범위 밖이면 404 + client_id 없이 "전체" 요청한 STAFF는 담당 거래처로 좁힌다.
+    반환: (filing, 검증된 client_id, "전체" 요청일 때 STAFF 담당 거래처 id 목록 — OWNER면 None)
+    """
+    filing = await _scoped_filing(db, filing_id, user)
+    visible_ids = await _visible_client_ids(db, user)
+    if client_id and visible_ids is not None and client_id not in visible_ids:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
+    only_ids = list(visible_ids) if (visible_ids is not None and not client_id) else None
+    return filing, client_id, only_ids
+
+
+async def _scoped_session(
+    db: AsyncSession, filing_id: str, session_id: str, user: User
+) -> CollectionSession:
+    """수집 세션 단건 — 신고 건 소속 + (STAFF는) 담당 거래처 소속까지 확인(plan/14 §5.2)."""
+    session = await db.get(
+        CollectionSession, session_id, options=[selectinload(CollectionSession.client)]
+    )
+    if not session or session.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    await _scoped_filing(db, filing_id, user)
+    if user.role == "STAFF" and session.client.assigned_user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    return session
+
+
 async def _scoped_entry(db: AsyncSession, filing_id: str, entry_id: str, user: User) -> PayrollEntry:
     """급여항목 단건 — 신고 건 소속 + (STAFF는) 담당 거래처 소속까지 확인(plan/14 §5.2)."""
     entry = await db.get(PayrollEntry, entry_id)
@@ -158,17 +188,13 @@ async def request_collection(
     filing_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> list[CollectionSessionOut]:
     """Create a CollectionSession per client + send alimtalk to ALL clients."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
 
-    clients = (
-        await db.execute(
-            select(Client).where(Client.tax_office_id == user.tax_office_id)
-        )
-    ).scalars().all()
+    # STAFF는 자기 담당 거래처에만 발송 — 사무소 전체 발송은 OWNER만.
+    clients = (await db.execute(visible_clients(user))).scalars().all()
 
     out: list[CollectionSessionOut] = []
     for client in clients:
@@ -177,7 +203,9 @@ async def request_collection(
         out.append(_session_out(session, client))
 
     filing.status = MonthlyFilingStatus.COLLECTING
-    filing.total_clients = len(out)
+    # STAFF의 부분 발송으로 사무소 전체 통계를 덮어쓰지 않는다 — 전체 집계는 OWNER 발송 때만.
+    if user.role != "STAFF":
+        filing.total_clients = len(out)
     await db.commit()
     return out
 
@@ -188,11 +216,10 @@ async def request_collection_single(
     session_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> CollectionSessionOut:
     """Send invite (알림톡 → SMS fallback + 이메일) to a single client."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
 
     session = await db.get(
         CollectionSession,
@@ -200,6 +227,8 @@ async def request_collection_single(
         options=[selectinload(CollectionSession.client)],
     )
     if not session or session.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    if user.role == "STAFF" and session.client.assigned_user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
 
     from app.models import TaxOffice
@@ -260,22 +289,14 @@ async def confirm_with_client(
     channel: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> dict:
     """AI 인식 결과를 거래처에 같은 채널로 회신해 검증 요청.
 
     channel: "auto"(기본) | "email" | "kakao" | "sms"
     """
+    session = await _scoped_session(db, filing_id, session_id, user)
     filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
-
-    session = await db.get(
-        CollectionSession,
-        session_id,
-        options=[selectinload(CollectionSession.client)],
-    )
-    if not session or session.monthly_filing_id != filing_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
 
     entries = (
         await db.execute(
@@ -318,13 +339,7 @@ async def list_session_attachments(
     user: User = Depends(get_current_user),
 ) -> list[dict]:
     """세션에 누적된 첨부파일 메타 목록 — 세무사가 AI 결과와 대조 검증할 수 있도록."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
-
-    session = await db.get(CollectionSession, session_id)
-    if not session or session.monthly_filing_id != filing_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    await _scoped_session(db, filing_id, session_id, user)
 
     events = (
         await db.execute(
@@ -376,13 +391,7 @@ async def session_timeline(
 
     direction: out=프로덕트/세무사→고객, in=고객사→서버, system=내부처리.
     """
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
-
-    session = await db.get(CollectionSession, session_id)
-    if not session or session.monthly_filing_id != filing_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    await _scoped_session(db, filing_id, session_id, user)
 
     events = (
         await db.execute(
@@ -441,9 +450,7 @@ async def get_attachment(
     user: User = Depends(get_current_user),
 ) -> Response:
     """첨부파일 원본 스트림 — storage_key가 이 세션에 속하는지 확인 후 반환."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    await _scoped_session(db, filing_id, session_id, user)
 
     # storage_key가 이 세션의 어느 이벤트 첨부에 실제로 등록돼 있는지 확인 (테넌트 가드)
     events = (
@@ -481,11 +488,10 @@ async def delete_attachment(
     deleted_by: str = "",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> dict:
     """첨부파일 soft-delete — 이벤트의 raw_payload에서 해당 attachment를 제거."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    await _scoped_session(db, filing_id, session_id, user)
 
     events = (
         await db.execute(
@@ -540,11 +546,10 @@ async def delete_event(
     deleted_by: str = "",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> dict:
     """텍스트 이벤트 삭제 — 이벤트 + 연결된 PayrollEntry 삭제."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    await _scoped_session(db, filing_id, session_id, user)
 
     event = await db.get(CollectionEvent, event_id)
     if not event or event.session_id != session_id:
@@ -908,21 +913,19 @@ async def download_wehago_excel(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
+    only_ids = await _visible_client_ids(db, user)
 
+    entries_q = select(PayrollEntry).where(
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.approved.is_(True),
+        PayrollEntry.employee_id.isnot(None),
+        PayrollEntry.deleted.is_(False),
+    )
+    if only_ids is not None:
+        entries_q = entries_q.where(PayrollEntry.client_id.in_(only_ids))
     entries = (
-        await db.execute(
-            select(PayrollEntry)
-            .where(
-                PayrollEntry.monthly_filing_id == filing_id,
-                PayrollEntry.approved.is_(True),
-                PayrollEntry.employee_id.isnot(None),
-                PayrollEntry.deleted.is_(False),
-            )
-            .options(selectinload(PayrollEntry.employee))
-        )
+        await db.execute(entries_q.options(selectinload(PayrollEntry.employee)))
     ).scalars().all()
     if not entries:
         raise HTTPException(
@@ -954,11 +957,9 @@ async def download_payroll_excel(
     user: User = Depends(get_current_user),
 ) -> Response:
     """급여대장 엑셀 다운로드. client_id가 있으면 해당 업체만."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing, client_id, only_ids = await _scoped_filing_and_clients(db, filing_id, user, client_id)
 
-    entries = await _payroll_entries_for_filing(filing_id, db, client_id)
+    entries = await _payroll_entries_for_filing(filing_id, db, client_id, only_ids)
     if not entries:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -995,23 +996,19 @@ async def download_wage_statement(
     user: User = Depends(get_current_user),
 ) -> Response:
     """간이지급명세서(근로소득) 엑셀 다운로드."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
+    only_ids = await _visible_client_ids(db, user)
 
+    stmt_q = select(PayrollEntry).where(
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.income_type == "WAGE",
+        PayrollEntry.employee_id.isnot(None),
+        PayrollEntry.deleted.is_(False),
+    )
+    if only_ids is not None:
+        stmt_q = stmt_q.where(PayrollEntry.client_id.in_(only_ids))
     entries = list(
-        (
-            await db.execute(
-                select(PayrollEntry)
-                .where(
-                    PayrollEntry.monthly_filing_id == filing_id,
-                    PayrollEntry.income_type == "WAGE",
-                    PayrollEntry.employee_id.isnot(None),
-                    PayrollEntry.deleted.is_(False),
-                )
-                .options(selectinload(PayrollEntry.employee))
-            )
-        ).scalars().all()
+        (await db.execute(stmt_q.options(selectinload(PayrollEntry.employee)))).scalars().all()
     )
     if not entries:
         raise HTTPException(status.HTTP_409_CONFLICT, "근로소득 항목이 없습니다.")
@@ -1033,23 +1030,19 @@ async def download_business_statement(
     user: User = Depends(get_current_user),
 ) -> Response:
     """간이지급명세서(사업소득) 엑셀 다운로드."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
+    only_ids = await _visible_client_ids(db, user)
 
+    stmt_q = select(PayrollEntry).where(
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.income_type == "BUSINESS",
+        PayrollEntry.employee_id.isnot(None),
+        PayrollEntry.deleted.is_(False),
+    )
+    if only_ids is not None:
+        stmt_q = stmt_q.where(PayrollEntry.client_id.in_(only_ids))
     entries = list(
-        (
-            await db.execute(
-                select(PayrollEntry)
-                .where(
-                    PayrollEntry.monthly_filing_id == filing_id,
-                    PayrollEntry.income_type == "BUSINESS",
-                    PayrollEntry.employee_id.isnot(None),
-                    PayrollEntry.deleted.is_(False),
-                )
-                .options(selectinload(PayrollEntry.employee))
-            )
-        ).scalars().all()
+        (await db.execute(stmt_q.options(selectinload(PayrollEntry.employee)))).scalars().all()
     )
     if not entries:
         raise HTTPException(status.HTTP_409_CONFLICT, "사업소득 항목이 없습니다.")
@@ -1065,7 +1058,10 @@ async def download_business_statement(
 
 
 async def _wage_entries_for_filing(
-    filing_id: str, db: AsyncSession, client_id: str | None = None
+    filing_id: str,
+    db: AsyncSession,
+    client_id: str | None = None,
+    only_client_ids: list[str] | None = None,
 ) -> list[PayrollEntry]:
     filters = [
         PayrollEntry.monthly_filing_id == filing_id,
@@ -1075,6 +1071,8 @@ async def _wage_entries_for_filing(
     ]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
+    elif only_client_ids is not None:
+        filters.append(PayrollEntry.client_id.in_(only_client_ids))
     return list(
         (
             await db.execute(
@@ -1089,7 +1087,10 @@ async def _wage_entries_for_filing(
 
 
 async def _business_entries_for_filing(
-    filing_id: str, db: AsyncSession, client_id: str | None = None
+    filing_id: str,
+    db: AsyncSession,
+    client_id: str | None = None,
+    only_client_ids: list[str] | None = None,
 ) -> list[PayrollEntry]:
     filters = [
         PayrollEntry.monthly_filing_id == filing_id,
@@ -1099,6 +1100,8 @@ async def _business_entries_for_filing(
     ]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
+    elif only_client_ids is not None:
+        filters.append(PayrollEntry.client_id.in_(only_client_ids))
     return list(
         (
             await db.execute(
@@ -1122,7 +1125,10 @@ _UNSUPPORTED_UPLOAD_INCOME_LABELS = {
 
 
 async def _unsupported_upload_entries_for_filing(
-    filing_id: str, db: AsyncSession, client_id: str | None = None
+    filing_id: str,
+    db: AsyncSession,
+    client_id: str | None = None,
+    only_client_ids: list[str] | None = None,
 ) -> list[PayrollEntry]:
     filters = [
         PayrollEntry.monthly_filing_id == filing_id,
@@ -1131,6 +1137,8 @@ async def _unsupported_upload_entries_for_filing(
     ]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
+    elif only_client_ids is not None:
+        filters.append(PayrollEntry.client_id.in_(only_client_ids))
     return list(
         (await db.execute(select(PayrollEntry).where(*filters))).scalars().all()
     )
@@ -1150,12 +1158,17 @@ def _unique_folder(business_name: str, used: set[str]) -> str:
 
 
 async def _payroll_entries_for_filing(
-    filing_id: str, db: AsyncSession, client_id: str | None = None
+    filing_id: str,
+    db: AsyncSession,
+    client_id: str | None = None,
+    only_client_ids: list[str] | None = None,
 ) -> list[PayrollEntry]:
     """급여대장용 엔트리. 승인된 항목 우선, 없으면 전체로 fallback."""
     filters = [PayrollEntry.monthly_filing_id == filing_id, PayrollEntry.deleted.is_(False)]
     if client_id:
         filters.append(PayrollEntry.client_id == client_id)
+    elif only_client_ids is not None:
+        filters.append(PayrollEntry.client_id.in_(only_client_ids))
     all_entries = list(
         (
             await db.execute(
@@ -1179,11 +1192,9 @@ async def download_insurance_acquisition(
     user: User = Depends(get_current_user),
 ) -> Response:
     """4대 보험 자격취득 신고서 엑셀 다운로드. client_id 시 해당 거래처만."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing, client_id, only_ids = await _scoped_filing_and_clients(db, filing_id, user, client_id)
 
-    entries = await _wage_entries_for_filing(filing_id, db, client_id)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     blob = generate_acquisition_report(entries, period=filing.period)
     return Response(
         content=blob,
@@ -1204,11 +1215,9 @@ async def download_insurance_loss(
     user: User = Depends(get_current_user),
 ) -> Response:
     """4대 보험 자격상실 신고서 엑셀 다운로드. client_id 시 해당 거래처만."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing, client_id, only_ids = await _scoped_filing_and_clients(db, filing_id, user, client_id)
 
-    entries = await _wage_entries_for_filing(filing_id, db, client_id)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     blob = generate_loss_report(entries, period=filing.period)
     return Response(
         content=blob,
@@ -1229,11 +1238,9 @@ async def download_insurance_change(
     user: User = Depends(get_current_user),
 ) -> Response:
     """4대 보험 보수월액 변경 신고서 엑셀 다운로드. client_id 시 해당 거래처만."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing, client_id, only_ids = await _scoped_filing_and_clients(db, filing_id, user, client_id)
 
-    entries = await _wage_entries_for_filing(filing_id, db, client_id)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     blob = generate_remuneration_change_report(entries, period=filing.period)
     return Response(
         content=blob,
@@ -1254,11 +1261,9 @@ async def download_insurance_combined(
     user: User = Depends(get_current_user),
 ) -> Response:
     """4대 보험 통합 — 3시트 단일 워크북. client_id 시 해당 거래처만."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing, client_id, only_ids = await _scoped_filing_and_clients(db, filing_id, user, client_id)
 
-    entries = await _wage_entries_for_filing(filing_id, db, client_id)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     blob = generate_combined_insurance_report(entries, period=filing.period)
     return Response(
         content=blob,
@@ -1296,9 +1301,7 @@ async def download_unified(
     브라우저가 다중 자동 다운로드를 차단하므로 단일 ZIP으로 내려준다.
     사업소득 항목이 없는 거래처는 해당 파일을 포함하지 않는다.
     """
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
 
     if client_ids:
         requested = [c.strip() for c in client_ids.split(",") if c.strip()]
@@ -1319,6 +1322,11 @@ async def download_unified(
             .scalars()
             .all()
         )
+    # STAFF는 명시 지정이든 "전체" 기본값이든 자기 담당 거래처만 — 남은 항목은
+    # 조용히 걸러낸다(존재 자체를 노출하지 않는다, plan/14 §5.1).
+    visible_ids = await _visible_client_ids(db, user)
+    if visible_ids is not None:
+        requested = [c for c in requested if c in visible_ids]
     if not requested:
         raise HTTPException(status.HTTP_409_CONFLICT, "거래처가 없습니다.")
 
@@ -1478,11 +1486,9 @@ async def get_insurance_summary(
     (insurance_excel._is_*_target / _change_judgment) 단일 소스에서 파생.
     화면용이므로 RRN 은 마지막 4자리만 노출.
     """
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing, client_id, only_ids = await _scoped_filing_and_clients(db, filing_id, user, client_id)
 
-    entries = await _wage_entries_for_filing(filing_id, db, client_id)
+    entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     summary = build_insurance_summary(entries, period=filing.period)
     return InsuranceSummaryOut.model_validate(summary)
 
@@ -1494,21 +1500,21 @@ async def download_payslips(
     user: User = Depends(get_current_user),
 ) -> Response:
     """급여(임금)명세서 — 근로기준법 §48, 직원별 시트 단일 워크북. 다운로드 전용."""
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
+    only_ids = await _visible_client_ids(db, user)
 
+    payslip_q = select(PayrollEntry).where(
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.income_type == "WAGE",
+        PayrollEntry.employee_id.isnot(None),
+        PayrollEntry.deleted.is_(False),
+    )
+    if only_ids is not None:
+        payslip_q = payslip_q.where(PayrollEntry.client_id.in_(only_ids))
     entries = list(
         (
             await db.execute(
-                select(PayrollEntry)
-                .where(
-                    PayrollEntry.monthly_filing_id == filing_id,
-                    PayrollEntry.income_type == "WAGE",
-                    PayrollEntry.employee_id.isnot(None),
-                    PayrollEntry.deleted.is_(False),
-                )
-                .options(
+                payslip_q.options(
                     selectinload(PayrollEntry.employee),
                     selectinload(PayrollEntry.client),
                 )
@@ -1534,26 +1540,22 @@ async def send_invite(
     filing_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> list[CollectionSessionOut]:
     """거래처에 초대장 발송 — 알림톡 + 이메일로 전용 수신 주소 안내.
 
     기존 request_collection과 달리, 거래처에 전용 이메일 주소(collect+xxx@taxflow.ai)를
     안내하고, 카카오톡/URL 입력폼 링크도 함께 제공.
     """
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
 
     # 세무사사무소 이름 조회
     from app.models import TaxOffice
     office = await db.get(TaxOffice, user.tax_office_id)
     office_name = office.name if office else "세무사사무소"
 
-    clients = (
-        await db.execute(
-            select(Client).where(Client.tax_office_id == user.tax_office_id)
-        )
-    ).scalars().all()
+    # STAFF는 자기 담당 거래처에만 발송 — 사무소 전체 발송은 OWNER만.
+    clients = (await db.execute(visible_clients(user))).scalars().all()
 
     out: list[CollectionSessionOut] = []
     for client in clients:
@@ -1561,6 +1563,8 @@ async def send_invite(
         out.append(_session_out(session, client))
 
     filing.status = MonthlyFilingStatus.COLLECTING
-    filing.total_clients = len(out)
+    # STAFF의 부분 발송으로 사무소 전체 통계를 덮어쓰지 않는다 — 전체 집계는 OWNER 발송 때만.
+    if user.role != "STAFF":
+        filing.total_clients = len(out)
     await db.commit()
     return out
