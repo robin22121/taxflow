@@ -47,6 +47,7 @@ _COND_BAR = "div.basic_condition"  # div.item 순서: 귀속연월·구분·지�
 # 코드가 아니라 내부 생성 숫자라 텍스트로 찾는다 (2026-09-30 Chrome Recorder 녹화 확인).
 _BUSINESS_INCOME_CATEGORY = "사업소득관리 / 기타(이자 / 배당)소득관리"
 _BUSINESS_INCOME_MENU_LABEL = "사업소득자료입력"
+_BUSINESS_INCOME_REPORT_MENU_LABEL = "거주자 사업소득간이지급명세서"  # SWHM0103 — 같은 카테고리, 같은 id 문제
 _MORE_BUTTON = "button#collect"  # 더보기(⋮) — 급여자료입력과 같은 id, 실제 HTML로 확인됨
 _EXCEL_UPLOAD_MENU_ITEM = "엑셀서식 불러오기"  # 더보기 메뉴 항목 (공백 있음)
 _EXCEL_UPLOAD_CONFIRM_BUTTON = "엑셀서식불러오기"  # 옵션 다이얼로그 최종 버튼 (공백 없음 — 항목명과 다름, 실측 확인)
@@ -666,7 +667,18 @@ class WehagoUploader:
         """
         smarta, name, number = self._open_smarta(business_number)
         self._smarta_page = smarta
-        self.step = "사업소득관리 카테고리 열기"
+        self._open_business_category_menu(smarta, _BUSINESS_INCOME_MENU_LABEL)
+        return name, number
+
+    def _open_business_category_menu(self, smarta, menu_label: str) -> None:
+        """"사업소득관리 / 기타(이자 / 배당)소득관리" 카테고리 안의 화면 진입 공통 로직.
+
+        이 카테고리의 서브메뉴(`div.right_menu`) 항목은 화면 코드가 아니라 내부 생성
+        숫자 id를 쓴다(예: "444100202000004") — `a#{code}.text_link`로는 못 찾아 텍스트로
+        찾는다(사용자 Chrome Recorder 녹화로 확인, 2026-09-30). `_open_closing_menu`의
+        id 기반 방식은 이 카테고리엔 안 맞는다 — SWBU0102·SWHM0103 둘 다 같은 문제였다.
+        """
+        self.step = f"사업소득관리 카테고리 열기 ({menu_label})"
         category = smarta.get_by_text(_BUSINESS_INCOME_CATEGORY, exact=True)
         try:
             category.wait_for(state="visible", timeout=5_000)
@@ -675,13 +687,12 @@ class WehagoUploader:
             category.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
         category.click()
-        self.step = "사업소득자료입력 메뉴 클릭"
-        menu = smarta.get_by_text(_BUSINESS_INCOME_MENU_LABEL, exact=True)
+        self.step = f"{menu_label} 메뉴 클릭"
+        menu = smarta.get_by_text(menu_label, exact=True)
         menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
         menu.click()
         self._dismiss_notice(smarta)
-        return name, number
 
     def _business_income_page(self):
         """SmartA 사업소득자료입력(SWBU0102) 탭 — open_business_income_screen 이 연 탭."""
@@ -857,22 +868,21 @@ class WehagoUploader:
     # ------------------------------------------------------------------
 
     _WHT_RETURN_MENU_ID = "SWTA0101"
-    _BUSINESS_INCOME_REPORT_MENU_ID = "SWHM0103"
     _WHT_EFILE_MENU_ID = "SWER0101"
     _LOCAL_TAX_PAYMENT_MENU_ID = "SWTA0112"
     _LOCAL_TAX_EFILE_MENU_ID = "SWER0109"
 
-    # 메뉴 ID → 전체메뉴 왼쪽 카테고리 라벨 (2026-09-29 실측: SWTA0101·SWHM0103 확정,
+    # 메뉴 ID → 전체메뉴 왼쪽 카테고리 라벨 (2026-09-29 실측: SWTA0101 확정,
     # SWER0101·SWTA0112·SWER0109는 SWTA0101과 같은 "세무신고관리..." 카테고리일 것으로
     # 추정 — plan/16 §4-4 표에서도 넷 다 원천세/지방세 신고 계열이라 같이 묶여 있었다,
-    # 실측으로 재확인 필요).
+    # 실측으로 재확인 필요). "사업소득관리..." 카테고리(SWBU0101·SWBU0102·SWHM0103)는
+    # 이 id 기반 방식이 안 맞아(서브메뉴 항목이 내부 생성 숫자 id) 여기 넣지 않는다 —
+    # `_open_business_category_menu`(텍스트 기반)를 대신 쓴다 (2026-09-30 확인).
     _CLOSING_MENU_CATEGORY = {
         "SWTA0101": "세무신고관리 / 전자신고 / AI원천세",
-        "SWHM0103": "사업소득관리 / 기타(이자 / 배당)소득관리",
         "SWER0101": "세무신고관리 / 전자신고 / AI원천세",
         "SWTA0112": "세무신고관리 / 전자신고 / AI원천세",
         "SWER0109": "세무신고관리 / 전자신고 / AI원천세",
-        "SWBU0101": "사업소득관리 / 기타(이자 / 배당)소득관리",  # 사업소득자등록
     }
     _ALL_MENU_BUTTON = "button#allmenu"  # "전체메뉴" 패널을 (다시) 여는 버튼 — 실측: 우측 상단 아이콘
 
@@ -1015,11 +1025,26 @@ class WehagoUploader:
         return text
 
     def close_business_income_report(self, business_number: str, period: str) -> str:
-        """거주자사업소득간이지급명세서(SWHM0103) 마감 (§4-4 ⑨-b).
+        """거주자사업소득간이지급명세서(SWHM0103) 새로불러오기 → 마감 (§4-4 ⑨-b).
 
-        2026-09-29 Playwright Inspector 녹화로 실측. SWTA0101과 달리 지급기간이 연/월 낱개
-        칸이 아니라 "달력 열기" → 팝업에서 월 버튼 클릭 방식이다 (`_payroll_select_period`의
-        귀속연월 캘린더와 같은 패턴, 연도는 SmartA 귀속 연도로 고정돼 별도 선택 안 함).
+        2026-09-30 서도·김태호 건으로 **전 구간 실기 검증 완료** (새로불러오기 확인창 →
+        마감 확인(enter) 모달 → "마감이 완료되었습니다." 까지 자동 실행 성공).
+
+        2026-09-29 Playwright Inspector 녹화 + 2026-09-30 Chrome Recorder 녹화로 실측.
+        SWTA0101과 달리 지급기간이 연/월 낱개 칸이 아니라 "달력 열기" → 팝업에서 월 버튼
+        클릭 방식이다 (`_payroll_select_period`의 귀속연월 캘린더와 같은 패턴, 연도는
+        SmartA 귀속 연도로 고정돼 별도 선택 안 함). "신고구분"은 기본값 "1. 정기신고"를
+        그대로 둔다(§4-8 정기신고만 자동화 원칙과 일치, 2026-09-30 화면 확인).
+
+        화면 진입은 사업소득자료입력(SWBU0102)과 같은 "사업소득관리..." 카테고리라 같은
+        id 문제가 있다 — `_open_business_category_menu`로 텍스트 기반 진입한다(기존
+        `_open_closing_menu`의 `a#SWHM0103.text_link` 검색은 이 카테고리엔 안 맞는다).
+
+        **[새로불러오기]가 조회 다음·마감 전에 반드시 필요하다** (2026-09-30 사용자
+        Chrome Recorder 녹화로 확인 — 이전엔 이 단계가 없어 "마감할 데이터가 존재하지
+        않습니다"가 계속 떴을 가능성이 높다). 클릭하면 "OO월 사원 및 사업소득자료입력에
+        입력된 소득을 모두 불러 오시겠습니까?" 확인창이 뜨고 [확인]을 눌러야 사업소득
+        자료입력(SWBU0102)에 이미 입력된 소득이 이 화면 그리드로 들어온다.
 
         [마감] → 확인(enter) 모달 다음, 사업소득자료입력과 이 화면 데이터가 안 맞으면
         "오류항목" 모달(표: Code·사원명·오류내용, [강제마감]/[취소(esc)])이 뜬다
@@ -1028,14 +1053,15 @@ class WehagoUploader:
         고친 뒤 다시 시도해야 한다.
 
         Returns:
-            정상 마감 시 완료 팝업의 원문 텍스트.
+            정상 마감 시 완료 팝업의 원문 텍스트. 이미 마감된 달이면(버튼이 [마감해제]로
+            바뀐 상태) 새로 마감하지 않고 "이미 마감되어 있습니다 (건너뜀)"을 돌려준다.
 
         Raises:
             WehagoError: "오류항목" 모달이 떴음(§8-1 — 강제마감 금지, 사업소득자료입력 재확인 필요).
         """
-        smarta, _name, _number = self._open_closing_menu(
-            business_number, self._BUSINESS_INCOME_REPORT_MENU_ID
-        )
+        smarta, _name, _number = self._open_smarta(business_number)
+        self._smarta_page = smarta
+        self._open_business_category_menu(smarta, _BUSINESS_INCOME_REPORT_MENU_LABEL)
 
         self.step = "사업소득 간이지급명세서 조회 조건 입력"
         item = smarta.locator(_COND_BAR).locator("div.item").first
@@ -1051,7 +1077,29 @@ class WehagoUploader:
         smarta.get_by_role("button", name="조회", exact=True).click()
         self._wait_for_no_dimmed(smarta)
 
+        self.step = "사업소득 간이지급명세서 새로불러오기"
+        think("wehago")
+        smarta.get_by_role("button", name="새로불러오기", exact=True).click()
+        reload_confirm = smarta.locator(
+            "div._isDialog:visible", has_text="사원 및 사업소득자료입력에 입력된 소득을 모두 불러 오시겠습니까?"
+        )
+        # 이미 최신 상태(예: 직전에 한 번 불러왔거나 마감 후 재실행)면 확인창 없이 그냥
+        # 넘어가는 것으로 보인다(2026-09-30 실기 확인) — 새 데이터가 있을 때만 뜨는 듯.
+        try:
+            reload_confirm.wait_for(state="visible", timeout=5_000)
+        except Exception:
+            pass
+        else:
+            think("wehago")
+            reload_confirm.get_by_role("button", name="확인", exact=True).click()
+            self._wait_for_no_dimmed(smarta)
+
         self.step = "사업소득 마감"
+        # 이미 마감된 달은 버튼이 [마감해제]로 바뀐다(재실행 판별용, close_wht_return과 동일
+        # 원칙) — 이 경우 새로 마감할 필요 없이 이미 끝난 것으로 간주하고 건너뛴다
+        # (2026-09-30 실기 확인: 사용자가 같은 달을 수동으로 먼저 마감해 둔 상태에서 발견).
+        if smarta.get_by_role("button", name="마감해제", exact=True).count():
+            return "이미 마감되어 있습니다 (건너뜀)"
         think("wehago")
         smarta.get_by_role("button", name="마감", exact=True).click()
 
@@ -1093,8 +1141,8 @@ class WehagoUploader:
                 + " / ".join(r.strip() for r in rows if r.strip())
             )
 
-        # TODO 실측: 오류 없이 정상 마감됐을 때 완료 팝업의 정확한 문구·구조 — 이번 실측은
-        # 오류 케이스만 확인했다 (사업소득자료입력과 데이터가 맞는 거래처로 재검증 필요).
+        # 정상 마감 완료 팝업: "마감이 완료되었습니다." + [확인] (2026-09-30 서도·김태호
+        # 건으로 실기 검증 완료 — 새로불러오기까지 포함한 전 구간 자동 실행 성공).
         result = smarta.locator("div._isDialog:visible", has_text="완료")
         result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         text = result.inner_text().strip()
