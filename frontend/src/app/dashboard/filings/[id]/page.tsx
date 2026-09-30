@@ -1797,12 +1797,21 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
     );
   }
 
+  // 값 변경(approved/edit_reason 자체는 제외)이 하나라도 있으면 수정 사유 입력을 강제한다.
+  function requiresEditReason(patch: Partial<PayrollEntry>): boolean {
+    return Object.keys(patch).some((k) => k !== "approved" && k !== "edit_reason");
+  }
+
   // 검토 대상(미승인) 항목의 "승인" — 펼쳐서 값을 고쳤으면 그 값까지 함께 반영하고 승인 처리한다.
   function approveEntry(e: PayrollEntry) {
     const d = getDraft(e);
     const patch: Partial<PayrollEntry> = { approved: true };
     for (const f of DETAIL_FIELDS) {
       if (d[f] !== undefined && d[f] !== e[f]) (patch as Record<string, unknown>)[f] = d[f];
+    }
+    if (requiresEditReason(patch) && !String(d.edit_reason ?? "").trim()) {
+      alert("값을 수정했습니다. 수정 사유를 입력해주세요.");
+      return;
     }
     update.mutate({ id: e.id, patch }, {
       onSuccess: () => { setExpandedId(null); setEditingId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
@@ -1818,6 +1827,10 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       if (d[f] !== undefined && d[f] !== e[f]) (patch as Record<string, unknown>)[f] = d[f];
     }
     if (Object.keys(patch).length === 0) { setExpandedId(null); setEditingId(null); return; }
+    if (requiresEditReason(patch) && !String(d.edit_reason ?? "").trim()) {
+      alert("값을 수정했습니다. 수정 사유를 입력해주세요.");
+      return;
+    }
     update.mutate({ id: e.id, patch }, {
       onSuccess: () => { setExpandedId(null); setEditingId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
       onError: (err) => alert((err as Error).message),
@@ -2678,7 +2691,11 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
               <button onClick={() => update.mutate({ id: e.id, patch: { deleted: false } })} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50" disabled={update.isPending}>복구</button>
             ) : mode === "pending" ? (<>
               <button onClick={onApprove} className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 disabled:opacity-50" disabled={update.isPending}>승인</button>
-              <button onClick={onToggleEdit} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">{editing ? "접기" : "수정"}</button>
+              {editing ? (
+                <button onClick={onSave} disabled={update.isPending} className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 disabled:opacity-50">{update.isPending ? "저장 중..." : "저장"}</button>
+              ) : (
+                <button onClick={onToggleEdit} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">수정</button>
+              )}
               <button onClick={onDelete} className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-full hover:bg-red-50">삭제</button>
             </>) : (<>
               {/* 승인된 항목은 [수정]을 눌러도 편집모드로 안 들어가고 안내만 뜬다 — 승인취소 후에만 실제 수정 가능 */}
@@ -2702,10 +2719,8 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
               calcDiffs={calcDiffs}
               mode={mode}
               readOnly={readOnly || e.deleted || !editing}
-              onSave={onSave}
               onCancel={onToggleExpand}
               onRecalc={onRecalc}
-              saving={update.isPending}
             />
           </td>
         </tr>
@@ -2725,10 +2740,8 @@ function V3Spreadsheet({
   calcDiffs,
   mode,
   readOnly,
-  onSave,
   onCancel,
   onRecalc,
-  saving,
 }: {
   draft: Partial<PayrollEntry>;
   setDraft: (d: Partial<PayrollEntry>) => void;
@@ -2736,10 +2749,8 @@ function V3Spreadsheet({
   calcDiffs: Record<string, { actual: number; computed: number }> | null;
   mode: "pending" | "approved";
   readOnly: boolean;
-  onSave: () => void;
   onCancel: () => void;
   onRecalc: () => void;
-  saving: boolean;
 }) {
   // 받은 자료(readOnly) = 원시 파싱값 그대로 조회만. 값 조정·재계산·사유 기록·저장(=승인)은 원천세관리에서만.
   const editing = !readOnly;
@@ -2841,7 +2852,7 @@ function V3Spreadsheet({
       {editing && (
         <div className="flex items-center gap-2 px-5 py-2 text-[12px] text-amber-800 bg-amber-50 border-b border-amber-100">
           <span className="font-semibold">편집 모드</span>
-          <span>— 노란색 칸을 클릭해 값을 수정한 뒤 {mode === "approved" ? "저장" : "승인"} 버튼을 누르세요.</span>
+          <span>— 노란색 칸을 클릭해 값을 수정하고 수정 사유를 입력한 뒤 {mode === "approved" ? "저장" : "승인 또는 저장"} 버튼을 누르세요.</span>
         </div>
       )}
 
@@ -2972,39 +2983,26 @@ function V3Spreadsheet({
         </div>
       </div>
 
-      {/* 수정 사유 — 저장 전 간단히 남기는 작은 별도 입력 (선택). 원천세관리(편집 가능)에서만 노출 */}
+      {/* 수정 사유 — 값이 바뀐 채로 저장/승인하려면 필수. 원천세관리(편집 가능)에서만 노출 */}
       {editing && (
         <div className="flex items-center gap-2 px-5 py-1.5 bg-white border-t border-gray-100">
-          <label className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wider shrink-0">수정 사유</label>
+          <label className="text-[10.5px] font-semibold text-red-500 uppercase tracking-wider shrink-0">수정 사유 *</label>
           <input
             type="text"
             value={(draft.edit_reason as string) ?? ""}
             onChange={(e) => setDraft({ ...draft, edit_reason: e.target.value })}
-            placeholder="(선택) 무엇을 왜 수정했는지 간단히"
-            className="flex-1 text-[12px] text-gray-700 bg-gray-50 border border-gray-200 focus:bg-white focus:border-blue-300 rounded px-2 py-1 outline-none"
+            placeholder="무엇을 왜 수정했는지 반드시 입력하세요"
+            className={`flex-1 text-[12px] text-gray-700 rounded px-2 py-1 outline-none border ${
+              String(draft.edit_reason ?? "").trim()
+                ? "bg-gray-50 border-gray-200 focus:bg-white focus:border-blue-300"
+                : "bg-red-50 border-red-300 focus:bg-white focus:border-red-400"
+            }`}
           />
         </div>
       )}
 
-      {/* 하단 액션: 저장/취소 — 수정 버튼을 눌러 편집 모드에 들어간 경우에만 노출.
-          검토 대상(pending)도 위쪽 "승인"과는 별개로 여기 "저장"으로 승인 없이 값만 저장 가능. */}
+      {/* 하단 액션: 저장은 위쪽 행 버튼(수정→저장)으로 옮겨져 여기 별도 저장/취소는 없다. */}
       <div className="flex items-center gap-1.5 px-5 py-2 bg-white border-t border-gray-200">
-        {editing && (<>
-          <button
-            onClick={onSave}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saving ? "저장 중..." : "저장"}
-          </button>
-          <button
-            onClick={onCancel}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
-          >
-            취소
-          </button>
-          <span className="w-px h-4 bg-gray-200 mx-1" />
-        </>)}
         <button className="text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded">
           명세서 PDF
         </button>
