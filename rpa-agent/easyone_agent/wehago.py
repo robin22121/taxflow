@@ -52,11 +52,19 @@ _MORE_BUTTON = "button#collect"  # 더보기(⋮) — 급여자료입력과 같�
 _EXCEL_UPLOAD_MENU_ITEM = "엑셀서식 불러오기"  # 더보기 메뉴 항목 (공백 있음)
 _EXCEL_UPLOAD_CONFIRM_BUTTON = "엑셀서식불러오기"  # 옵션 다이얼로그 최종 버튼 (공백 없음 — 항목명과 다름, 실측 확인)
 
+# SmartA 기타소득자료입력(SWET0102) — 같은 "사업소득관리..." 카테고리 (2026-09-30 실측).
+# 이 화면은 button#collect 더보기가 없고, 화면 우측 상단 스프라이트 아이콘에 **클릭이 아니라
+# 마우스 오버(hover)** 해야 캐스케이드 메뉴("설정/연동/편집/기타/기능모음")가 열린다 — 그 중
+# "기능모음 > 엑셀서식 불러오기"가 있다(사용자가 실제 화면 hover 스크린샷으로 확인).
+_OTHER_INCOME_MENU_LABEL = "기타소득자료입력"
+_HOVER_MENU_ICON = 'span[style*="-129px"][style*="-505px"]'
+
 # SmartA 일용직급여자료입력 (2026-09-30 사용자 Chrome Recorder 녹화 확인)
 # 사업소득과 달리 카테고리 클릭 없이 바로 메뉴가 보였다 — 메뉴 링크 실제 id도 내부 생성
 # 숫자(예: "444100101000007", 사업소득 카테고리의 "4441002..."와 접두어가 다름)라
 # 기본 카테고리("근로소득관리 / 연말정산관리") 안의 서브메뉴로 추정된다. 텍스트로 찾는다.
 _DAILY_INCOME_MENU_LABEL = "일용직 급여자료입력"  # 공백 있음 — 실측 텍스트 그대로
+_DAILY_INCOME_REPORT_MENU_LABEL = "일용근로소득지급명세"  # SWSA0108, 2026-09-30 Chrome Recorder 녹화
 # 합계 열은 위하고가 다시 계산하므로 연결하지 않아도 된다
 _TOTAL_COLUMNS = {"지급액계", "공제액계", "차인지급액"}
 _EMPLOYEE_GRID = "Left_grid"  # 왼쪽 사원 목록 (cd_emp 사원코드 · nm_krname 이름)
@@ -1208,6 +1216,114 @@ class WehagoUploader:
             raise WehagoError(f"원천세 마감 실패 — 위하고 응답: {text}")
         return text
 
+    def open_other_income_screen(self, business_number: str) -> tuple[str, str]:
+        """수임처 → SmartA 기타소득자료입력(SWET0102) 진입 (2026-09-30 실측).
+
+        사업소득(SWBU0102)과 같은 "사업소득관리 / 기타(이자 / 배당)소득관리" 카테고리라
+        `_open_business_category_menu`를 그대로 재사용한다.
+
+        Returns:
+            (위하고 상호, 사업자번호) — 호출자가 작업의 거래처와 대조한다.
+        """
+        smarta, name, number = self._open_smarta(business_number)
+        self._smarta_page = smarta
+        self._open_business_category_menu(smarta, _OTHER_INCOME_MENU_LABEL)
+        return name, number
+
+    def _other_income_page(self):
+        """SmartA 기타소득자료입력 탭 — open_other_income_screen 이 연 탭."""
+        if self._smarta_page is None or self._smarta_page.is_closed():
+            raise WehagoError("기타소득자료입력 화면이 열려 있지 않습니다 (open_other_income_screen 먼저 호출)")
+        self._smarta_page.bring_to_front()
+        return self._smarta_page
+
+    def _other_income_select_period(self, page, period: str) -> None:
+        """지급년월(단일 필드) → [조회] (2026-09-30 실측).
+
+        조회조건이 지급년월 하나뿐이다(`#SearchMain` item 1개) — 사업소득(`_COND_BAR`,
+        div.fakebutton 위젯)과 달리 일용근로소득지급명세(SWSA0108)와 같은
+        `div.fake_inputbox > div > span` 위젯을 쓴다.
+        """
+        self.step = "지급년월 입력"
+        item = page.locator("#SearchMain").locator("div.item").first
+        think("wehago")
+        item.locator("div.fake_inputbox > div > span").first.click()
+        months = page.locator("div.date_tbl td.date_day button")
+        months.first.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        month = int(period.split("-")[1])
+        think("wehago")
+        months.filter(has_text=re.compile(rf"^{month}월$")).click()
+        think("wehago")
+        page.locator("#SearchMain").get_by_role("button", name="조회", exact=True).click()
+        self._wait_for_no_dimmed(page)
+
+    def upload_other_income(
+        self, period: str, xlsx_path: Path, *, replace_existing: bool = False,
+    ) -> str:
+        """기타소득자료입력(SWET0102) → 지급년월 조회 → 엑셀서식 불러오기 (2026-09-30 실측).
+
+        ⚠️ **엑셀 업로드 옵션 다이얼로그까지만 실기 확인됨** — 실제 파일 업로드·완료 처리는
+        아직 검증하지 못했다(엑셀 생성기·실제 다운로드 템플릿 미확보). [완료] 버튼 처리
+        흐름은 사업소득/일용소득과 같은 패턴으로 추정만 하고 아직 코드에 넣지 않았다 —
+        호출자가 화면에서 직접 [완료]까지 눌러야 한다.
+
+        이 화면은 `button#collect` 더보기가 없다 — 화면 우측 상단 스프라이트 아이콘
+        (`_HOVER_MENU_ICON`)에 **클릭이 아니라 마우스 오버**해야 "설정/연동/편집/기타/
+        기능모음" 캐스케이드 메뉴가 열리고, 그 안 "기능모음 > 엑셀서식 불러오기"를 눌러야
+        한다(사용자가 실제 hover 상태 스크린샷으로 확인, 2026-09-30). 옵션 다이얼로그
+        자체는 사업소득·일용소득과 완전히 같은 구조("불러오기 방법선택" 라디오 +
+        [엑셀서식불러오기]/[취소]).
+
+        SmartA 기타소득자료입력 탭이 이미 열려 있어야 한다 (`open_other_income_screen` 먼저 호출).
+
+        Args:
+            period: "YYYY-MM" 지급년월.
+            xlsx_path: 업로드용 엑셀 — 이 화면 전용 생성기는 아직 없다.
+            replace_existing: True면 "기존 데이터 삭제하고 불러오기", False(기본)면
+                "기존 데이터 삭제안하고 추가불러오기".
+
+        Returns:
+            완료 팝업의 원문 메시지.
+
+        Raises:
+            WehagoError: 화면이 열려 있지 않거나, 조회·hover 메뉴·옵션 다이얼로그·파일선택창·
+                완료 팝업 중 하나라도 예상과 다르거나, 위하고가 입력 오류를 회신함.
+        """
+        smarta = self._other_income_page()
+        self._other_income_select_period(smarta, period)
+
+        self.step = "기능모음 메뉴 열기 (hover)"
+        think("wehago")
+        smarta.locator(_HOVER_MENU_ICON).first.hover()
+        smarta.wait_for_timeout(300)  # 캐스케이드 메뉴 렌더 대기
+        think("wehago")
+        smarta.get_by_text(_EXCEL_UPLOAD_MENU_ITEM, exact=True).click()
+
+        self.step = "엑셀서식 불러오기 옵션 선택"
+        dialog = smarta.locator("div._isDialog:visible", has_text="엑셀서식 불러오기")
+        dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        option_label = (
+            "기존 데이터 삭제하고 불러오기" if replace_existing else "기존 데이터 삭제안하고 추가불러오기"
+        )
+        think("wehago")
+        dialog.get_by_text(option_label, exact=True).click()
+
+        self.step = "엑셀 파일 선택"
+        with smarta.expect_file_chooser(timeout=UPLOAD_WAIT_MS) as chooser:
+            think("wehago")
+            dialog.get_by_role("button", name=_EXCEL_UPLOAD_CONFIRM_BUTTON, exact=True).click()
+        chooser.value.set_files(str(xlsx_path))
+
+        self.step = "엑셀 불러오기 완료 대기"
+        result = smarta.locator("div._isDialog:visible")
+        result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        text = result.inner_text().strip()
+        think("wehago")
+        result.get_by_role("button", name="확인", exact=True).click()
+        if "완료" not in text:
+            raise WehagoError(f"기타소득 엑셀서식 불러오기 실패 — 위하고 응답: {text}")
+        return text
+
     def close_business_income_report(self, business_number: str, period: str) -> str:
         """거주자사업소득간이지급명세서(SWHM0103) 새로불러오기 → 마감 (§4-4 ⑨-b).
 
@@ -1333,6 +1449,142 @@ class WehagoUploader:
         think("wehago")
         result.get_by_role("button", name="확인", exact=True).click()
         return text
+
+    def close_daily_income_report(self, business_number: str, period: str) -> str:
+        """일용근로소득지급명세(SWSA0108) 전체소득 불러오기 → 마감 (2026-09-30 실기 검증).
+
+        사업소득(SWHM0103)과 달리 카테고리 클릭이 필요 없다(`open_daily_income_screen`과
+        같은 기본 카테고리). 조회조건도 단일 "지급기간"(`#SearchMain` items 순서:
+        구분·지급기간·신고구분·차수) 하나뿐이라 `_business_income_select_period`의
+        `_COND_BAR`(div.basic_condition)가 아니라 `#SearchMain`을 쓴다.
+
+        [전체소득 불러오기]는 사업소득의 [새로불러오기]와 같은 역할 — "전체사원의 일용직
+        급여자료입력에 입력된 소득을 불러오시겠습니까?" 확인 후 눌러야 일용직급여자료입력
+        (SWSA0107)의 [완료]된 데이터가 이 화면 그리드로 들어온다. 안 누르면 조회해도
+        "데이터가 없습니다"로 보인다(2026-09-30 실기 확인 — 데이터가 실제로 있는데도).
+
+        [마감] 클릭 시 인원수 확인("N명의 사원을 마감하시겠습니까?") → 법적 고지
+        디스클레이머("지급명세서 신고" + [확인(Tab)]) 순서로 진행된다.
+
+        "오류항목" 모달(예: "납세지관할 세무서코드가 비어있습니다" — 회사 등록정보에
+        세무서코드가 없을 때, 2026-09-30 실기 확인)이 뜨면 §8-1 원칙대로 **[강제마감]을
+        절대 누르지 않는다** — 사용자가 한 번은 이 특정 오류에 한해 강제마감을 지시했으나
+        (2026-09-30), 이후 "강제마감 금지, 오류메시지 사용자에게 알릴 것"으로 번복했다
+        (같은 날) — 어떤 오류 문구든 강제마감하지 않고 그대로 표면화한다.
+
+        Returns:
+            정상 마감 후 완료 팝업의 원문 텍스트, 또는 "이미 마감되어 있습니다"/
+            "지급할 데이터가 없습니다" 등 건너뜀 사유.
+
+        Raises:
+            WehagoError: "오류항목" 모달이 떴음(강제마감 금지 — 오류 내용을 사용자에게
+                그대로 전달하고, 원인(예: 세무서코드 미등록 등 회사 마스터데이터 설정)을
+                사용자가 위하고에서 직접 확인·수정한 뒤 재시도해야 한다).
+        """
+        smarta, _name, _number = self._open_smarta(business_number)
+        self._smarta_page = smarta
+        self.step = "일용근로소득지급명세 메뉴 클릭"
+        menu = smarta.get_by_text(_DAILY_INCOME_REPORT_MENU_LABEL, exact=True)
+        try:
+            menu.wait_for(state="visible", timeout=5_000)
+        except Exception:
+            smarta.locator(self._ALL_MENU_BUTTON).click()
+            menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        menu.click()
+        self._dismiss_notice(smarta)
+
+        self.step = "일용근로소득지급명세 조회 조건 입력"
+        items = smarta.locator("#SearchMain").locator("div.item")
+        period_item = items.nth(1)  # 0=구분·1=지급기간·2=신고구분·3=차수
+        think("wehago")
+        # div.fake_inputbox 자체가 아니라 그 안의 span을 클릭해야 달력이 열린다
+        # (2026-09-30 실기 확인 — div 전체를 클릭하면 포커스만 잡히고 팝업이 안 뜬다).
+        period_item.locator("div.fake_inputbox > div > span").first.click()
+        months = smarta.locator("div.date_tbl td.date_day button")
+        months.first.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        month = int(period.split("-")[1])
+        think("wehago")
+        months.filter(has_text=re.compile(rf"^{month}월$")).click()
+        think("wehago")
+        smarta.locator("#SearchMain").get_by_role("button", name="조회", exact=True).click()
+        self._wait_for_no_dimmed(smarta)
+
+        self.step = "일용근로소득지급명세 전체소득 불러오기"
+        think("wehago")
+        smarta.get_by_role("button", name="전체소득 불러오기", exact=True).click()
+        reload_confirm = smarta.locator(
+            "div._isDialog:visible", has_text="일용직 급여자료입력에 입력된 소득을"
+        )
+        try:
+            reload_confirm.wait_for(state="visible", timeout=5_000)
+        except Exception:
+            pass
+        else:
+            think("wehago")
+            reload_confirm.get_by_role("button", name="확인", exact=True).click()
+            self._wait_for_no_dimmed(smarta)
+
+        self.step = "일용근로소득지급명세 마감"
+        if smarta.get_by_role("button", name="마감해제", exact=True).count():
+            return "이미 마감되어 있습니다 (건너뜀)"
+        think("wehago")
+        smarta.get_by_role("button", name="마감", exact=True).click()
+
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        no_data = smarta.locator("div:visible", has_text="마감할 데이터가 존재하지 않습니다")
+        try:
+            no_data.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        except PlaywrightTimeout:
+            pass
+        else:
+            think("wehago")
+            smarta.get_by_role("button", name="확인", exact=True).click()
+            return "마감할 데이터가 존재하지 않습니다 (건너뜀)"
+
+        self.step = "일용근로소득지급명세 마감 인원 확인"
+        count_confirm = smarta.locator("div._isDialog:visible", has_text="마감하시겠습니까")
+        count_confirm.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        count_confirm.get_by_role("button", name="확인", exact=True).click()
+
+        self.step = "일용근로소득지급명세 마감 법적고지"
+        disclaimer = smarta.locator("div._isDialog:visible", has_text="지급명세서 신고")
+        disclaimer.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        disclaimer.get_by_role("button", name="확인(Tab)", exact=True).click()
+
+        self.step = "일용근로소득지급명세 마감 결과 확인"
+        error_dialog = smarta.locator("div._isDialog:visible", has_text="오류항목")
+        try:
+            error_dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        except PlaywrightTimeout:
+            error_dialog = None
+        if error_dialog is not None:
+            # §8-1 원칙: 강제마감 금지 — 오류 내용을 그대로 사용자에게 전달한다
+            # (예: "납세지관할 세무서코드가 비어있습니다" — 회사 마스터데이터 설정 문제는
+            # 사용자가 위하고에서 직접 등록해야 한다, 2026-09-30 확인 사례).
+            rows = [r.strip() for r in error_dialog.locator("table tr").all_inner_texts() if r.strip()]
+            think("wehago")
+            error_dialog.get_by_role("button", name="취소(esc)", exact=True).click()
+            raise WehagoError(
+                "일용근로소득지급명세 마감 오류 (강제마감 금지 — 오류 내용을 확인하고 위하고에서 "
+                "직접 수정 후 재시도 필요): " + " / ".join(rows)
+            )
+
+        # 이 화면은 완료 팝업이 없다 — 마감(또는 강제마감) 성공 시 같은 화면에 머문 채
+        # [마감] 버튼이 [마감해제]로 바로 바뀐다(일용직급여자료입력의 [완료]→[완료해제]와
+        # 같은 패턴, 2026-09-30 실기 확인 — Chrome Recorder 녹화의 마지막 "navigate"
+        # 스텝은 화면 자체의 동작이 아니라 사용자가 별도로 메뉴를 나간 것이었다).
+        self.step = "일용근로소득지급명세 마감 완료 대기"
+        try:
+            smarta.get_by_role("button", name="마감해제", exact=True).wait_for(
+                state="visible", timeout=UPLOAD_WAIT_MS
+            )
+        except PlaywrightTimeout:
+            raise WehagoError("일용근로소득지급명세 마감 결과를 확인할 수 없습니다 — 화면 상태 확인 필요")
+        return "마감 완료"
 
     def close_local_tax_payment(self, business_number: str, period: str) -> str:
         """지방소득세특별징수납부서(SWTA0112) 마감 (§4-4 ⑩-a).
