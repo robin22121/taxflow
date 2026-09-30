@@ -629,26 +629,30 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const askQuestion = useCallback((question: string, intent: QaIntent) => {
     const q = question.trim();
     if (!q) return;
+    const history = qaMessages.map((m) => ({ role: m.role, content: m.content }));
     setQaMessages((prev) => [...prev, { role: "user", content: q, ts: Date.now(), intent }]);
     setQaOpen(true);
     setQaThinking(true);
-    // TODO: /api/qa 엔드포인트 연결 (Phase 3~5). 현재는 intent 별 stub.
-    window.setTimeout(() => {
-      const stubs: Record<QaIntent, string> = {
-        howto:
-          "[사용법] 실제 답변은 백엔드 연결 후 표시됩니다.\n· 이지원천·위하고T·홈택스·사장님 포털·증명발급 관련 화면·절차 안내\n· 담당자가 고객 문의에 답할 수 있도록 서비스 사용법을 정확히 설명",
-        law:
-          "[법령] 실제 답변은 법령 MCP 연결 후 표시됩니다.\n· 소득세·부가세·원천세·상속·4대보험 등 관련 조문/시행령/시행규칙\n· 예규·판례·해석 인용\n· 서식·기재요령·제출절차·기한",
-        customer:
-          "[고객 응대] 실제 답변은 백엔드 연결 후 표시됩니다.\n· 수임업체 문의에 대한 친절하고 이해쉬운 답변 초안\n· 카톡에 그대로 복붙 가능한 완성도\n· 필요 시 실제 액수 시뮬레이션(급여·4대보험, 과세유형 전환 예상 등)",
-      };
-      setQaMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `${stubs[intent]}\n\n(원본 질문: ${q})`, ts: Date.now(), intent },
-      ]);
-      setQaThinking(false);
-    }, 700);
-  }, []);
+    api<{ answer: string }>("/api/v1/qa", { method: "POST", json: { intent, question: q, history } })
+      .then((res) => {
+        setQaMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: res.answer, ts: Date.now(), intent },
+        ]);
+      })
+      .catch((err: unknown) => {
+        setQaMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `답변을 가져오지 못했습니다: ${err instanceof Error ? err.message : String(err)}`,
+            ts: Date.now(),
+            intent,
+          },
+        ]);
+      })
+      .finally(() => setQaThinking(false));
+  }, [qaMessages]);
 
   const isReview = (s: CollectionSession) => {
     const se = entries.filter((e) => e.client_id === s.client_id);
@@ -3916,7 +3920,7 @@ function QAAssistantDialog({
             </div>
           </div>
           <p className="mt-2 text-[11px] text-gray-400">
-            법령·서비스 매뉴얼·시뮬레이션은 백엔드/MCP 연결 후 자동으로 활성화됩니다 (현재는 UI 셸 stub).
+            법령 탭은 아직 법령 MCP 검색과 연결되어 있지 않아, 학습된 지식 기반 답변입니다. 최신 개정 여부는 원문으로 재확인하세요.
           </p>
         </div>
       </div>
