@@ -9,7 +9,8 @@ from app.models._base import Base, IdMixin, TimestampMixin
 
 
 class RpaJobKind(str, enum.Enum):
-    WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"  # 게이트 1 후 — 위하고T 급여자료 자동입력만
+    WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"  # 게이트 1 후 — 위하고T 급여자료(근로) 자동입력만
+    WEHAGO_BUSINESS_INPUT = "WEHAGO_BUSINESS_INPUT"  # 게이트 1 후 — 위하고T 사업소득자료 자동입력만
     MONTHLY_PRODUCTION = "MONTHLY_PRODUCTION"  # 게이트 2 후 — 위하고 원천세·지방세 마감·제작 + 홈택스·위택스 신고 일괄
     CERTIFICATE_ISSUE = "CERTIFICATE_ISSUE"  # 증명원 발급 요청 1건 (plan/17 §4-9) — 신고와 무관
     # 위하고 → 이지원천 임포트 (plan/16 §12) — 수임처 기본사항 + 사원 기본사항
@@ -19,11 +20,14 @@ class RpaJobKind(str, enum.Enum):
 # 위하고 에이전트가 가져가는 작업. 증명원은 증명발급 에이전트 전용 claim 으로만 나간다.
 WEHAGO_JOB_KINDS = (
     RpaJobKind.WEHAGO_PAYROLL_INPUT,
+    RpaJobKind.WEHAGO_BUSINESS_INPUT,
     RpaJobKind.MONTHLY_PRODUCTION,
     RpaJobKind.WEHAGO_MASTER_IMPORT_ALL,
     RpaJobKind.WEHAGO_CLIENT_IMPORT,
 )
 WEHAGO_IMPORT_KINDS = (RpaJobKind.WEHAGO_MASTER_IMPORT_ALL, RpaJobKind.WEHAGO_CLIENT_IMPORT)
+# 게이트 1 "자동입력" 작업 종류 — 소득유형별로 화면이 달라 kind가 여러 개다 (plan/16 §13-3-4·§4-1).
+WEHAGO_INPUT_KINDS = (RpaJobKind.WEHAGO_PAYROLL_INPUT, RpaJobKind.WEHAGO_BUSINESS_INPUT)
 
 
 class RpaJobStatus(str, enum.Enum):

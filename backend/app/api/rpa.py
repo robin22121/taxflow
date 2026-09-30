@@ -37,7 +37,7 @@ from app.models import (
     User,
 )
 from app.models.payroll import IncomeType
-from app.models.rpa import WEHAGO_IMPORT_KINDS, WEHAGO_JOB_KINDS
+from app.models.rpa import WEHAGO_IMPORT_KINDS, WEHAGO_INPUT_KINDS, WEHAGO_JOB_KINDS
 from app.schemas.rpa import (
     AgentFilingResultIn,
     FilingResultOut,
@@ -57,12 +57,19 @@ from app.schemas.rpa import (
 )
 from app.services.payroll_defaults import resolve_pay_date
 from app.services.payroll_excel import PayrollExcelError, generate_payroll_excel
+from app.services.smarta_business_xls import generate_smarta_business_xls
 
 router = APIRouter()
 
-# 위하고 급여자료입력(SmartA SWSA0101) 자동화가 있는 소득유형 — plan/16 §4-1 (2026-09-28).
-# 사업소득(§13-3 경로 B 구현 중)·기타·일용소득은 아직 자동화가 없다. 하나가 생기면 여기 추가한다.
-AUTOMATED_INCOME_TYPES = {IncomeType.WAGE}
+# 게이트 1 자동입력이 있는 소득유형 — plan/16 §4-1·§13-3-4 (2026-09-30 사업소득 추가).
+# 기타·일용소득은 자료입력 엑셀 업로드가 아직 신뢰할 수 없어(plan/16 §13-3-1) 제외돼 있다.
+# 하나가 생기면 여기와 INPUT_JOB_KIND_BY_INCOME_TYPE에 함께 추가한다.
+AUTOMATED_INCOME_TYPES = {IncomeType.WAGE, IncomeType.BUSINESS}
+# 소득유형별로 게이트 1 화면이 달라(근로=SWSA0101, 사업=SWBU0102) RpaJobKind도 나뉜다.
+INPUT_JOB_KIND_BY_INCOME_TYPE = {
+    IncomeType.WAGE: RpaJobKind.WEHAGO_PAYROLL_INPUT,
+    IncomeType.BUSINESS: RpaJobKind.WEHAGO_BUSINESS_INPUT,
+}
 _INCOME_TYPE_LABEL = {
     IncomeType.WAGE: "근로소득",
     IncomeType.BUSINESS: "사업소득",
@@ -256,7 +263,7 @@ async def preview_wehago_uploads(
             await db.execute(
                 select(RpaJob.client_id).where(
                     RpaJob.monthly_filing_id == filing.id,
-                    RpaJob.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT,
+                    RpaJob.kind.in_(WEHAGO_INPUT_KINDS),
                     RpaJob.status.in_(ACTIVE_STATUSES),
                 )
             )
@@ -428,7 +435,7 @@ async def create_wehago_uploads(
                 select(RpaJob.client_id).where(
                     RpaJob.monthly_filing_id == filing.id,
                     RpaJob.client_id.in_(client_ids),
-                    RpaJob.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT,
+                    RpaJob.kind.in_(WEHAGO_INPUT_KINDS),
                     RpaJob.status.in_(ACTIVE_STATUSES),
                 )
             )
@@ -440,10 +447,16 @@ async def create_wehago_uploads(
             f"이미 위하고 전송이 대기·진행 중인 거래처입니다: {names(active)}.",
         )
 
+    # 화면(소득유형)마다 자동입력 job이 따로 필요하다 — 근로만 있으면 1개, 근로+사업이면 2개.
+    automated_types_by_client: dict[str, set[IncomeType]] = {}
+    for cid, _approved, income_type in rows:
+        if income_type in AUTOMATED_INCOME_TYPES:
+            automated_types_by_client.setdefault(cid, set()).add(income_type)
+
     jobs = [
         RpaJob(
             tax_office_id=office_id,
-            kind=RpaJobKind.WEHAGO_PAYROLL_INPUT,
+            kind=INPUT_JOB_KIND_BY_INCOME_TYPE[income_type],
             status=RpaJobStatus.PENDING,
             monthly_filing_id=filing.id,
             client_id=c.id,
@@ -453,6 +466,7 @@ async def create_wehago_uploads(
             requested_by_user_id=user.id,
         )
         for c in ordered
+        for income_type in sorted(automated_types_by_client.get(c.id, set()), key=str)
     ]
     db.add_all(jobs)
     await db.commit()
@@ -744,6 +758,45 @@ async def agent_download_payroll_excel(
     )
 
 
+@router.get("/agent/jobs/{job_id}/business-income-excel")
+async def agent_download_business_income_excel(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    agent: RpaAgent = Depends(get_current_agent),
+) -> Response:
+    """사업소득자료입력(SmartA SWBU0102) 업로드용 엑셀 — `agent_download_payroll_excel`과 같은 구조."""
+    job = await _agent_running_job(db, agent, job_id)
+    entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(
+                    PayrollEntry.monthly_filing_id == job.monthly_filing_id,
+                    PayrollEntry.client_id == job.client_id,
+                    PayrollEntry.income_type == IncomeType.BUSINESS,
+                    PayrollEntry.deleted.is_(False),
+                )
+                .options(selectinload(PayrollEntry.employee))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not entries:
+        raise HTTPException(status.HTTP_409_CONFLICT, "자료가 없습니다.")
+    if any(not e.approved for e in entries):
+        raise HTTPException(status.HTTP_409_CONFLICT, "미승인 자료가 있어 업로드할 수 없습니다.")
+
+    blob = generate_smarta_business_xls(entries, period=job.period)
+    agent.last_seen_at = _utcnow()
+    await db.commit()
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="business_income_{job.period}.xlsx"'},
+    )
+
+
 @router.post("/agent/jobs/{job_id}/result", response_model=RpaJobOut)
 async def agent_report_result(
     job_id: str,
@@ -771,11 +824,12 @@ async def agent_report_result(
 def _notify_gate_transition(db: AsyncSession, job: RpaJob) -> None:
     """게이트 사이 전이가 발생했을 때 알림을 큐에 넣는다.
 
-    - WEHAGO_PAYROLL_INPUT SUCCEEDED → 게이트 2 검토 알림
+    - 게이트 1 자동입력(WEHAGO_INPUT_KINDS) SUCCEEDED → 게이트 2 검토 알림 (거래처가 근로+사업
+      둘 다 있으면 각 kind가 끝날 때마다 한 번씩 온다 — 중복이지만 해롭지 않다)
     - MONTHLY_PRODUCTION SUCCEEDED → 게이트 3 발송 확정 알림 (실제 filing_result_id는 filing-result 등록 후 채워짐)
     - 어느 kind든 FAILED → 실패 알림
     """
-    if job.status == RpaJobStatus.SUCCEEDED and job.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT:
+    if job.status == RpaJobStatus.SUCCEEDED and job.kind in WEHAGO_INPUT_KINDS:
         notification_kind = RpaNotificationKind.GATE2_REVIEW
         title = f"[{job.business_name}] 위하고 자동입력 완료 — 급여명세서 검토·제작 필요"
         guide = "위하고에 급여자료가 입력되었습니다. 이지원천에서 명세서를 검토한 뒤 '제작' 버튼을 눌러주세요."
@@ -829,24 +883,50 @@ async def create_productions(
 
     client_ids = list(dict.fromkeys(payload.client_ids))
 
-    # 자동입력이 성공한 거래처만 [제작]에 태울 수 있다.
+    # 자동입력이 성공한 거래처만 [제작]에 태울 수 있다 — 근로+사업 둘 다 있는 거래처는
+    # 두 kind 모두 성공해야 한다. 하나만 확인하면 아직 안 올라간 소득을 마감해 버리는
+    # 사고가 난다(plan/16 §13-3-4).
+    income_rows = (
+        await db.execute(
+            select(PayrollEntry.client_id, PayrollEntry.income_type).where(
+                PayrollEntry.monthly_filing_id == filing.id,
+                PayrollEntry.client_id.in_(client_ids),
+                PayrollEntry.deleted.is_(False),
+            )
+        )
+    ).all()
+    expected_kinds_by_client: dict[str, set[RpaJobKind]] = {}
+    for cid, income_type in income_rows:
+        if income_type in AUTOMATED_INCOME_TYPES:
+            expected_kinds_by_client.setdefault(cid, set()).add(INPUT_JOB_KIND_BY_INCOME_TYPE[income_type])
+
     input_jobs = (
         await db.execute(
             select(RpaJob).where(
                 RpaJob.monthly_filing_id == filing.id,
                 RpaJob.client_id.in_(client_ids),
-                RpaJob.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT,
+                RpaJob.kind.in_(WEHAGO_INPUT_KINDS),
             )
         )
     ).scalars().all()
-    input_by_client: dict[str, RpaJob] = {}
+    latest_succeeded: dict[tuple[str, RpaJobKind], RpaJob] = {}
     for j in input_jobs:
-        # 가장 최근 성공 작업만 유효
-        if j.status == RpaJobStatus.SUCCEEDED:
-            existing = input_by_client.get(j.client_id)
-            if existing is None or _as_utc(j.created_at) > _as_utc(existing.created_at):
-                input_by_client[j.client_id] = j
-    missing = [cid for cid in client_ids if cid not in input_by_client]
+        if j.status != RpaJobStatus.SUCCEEDED:
+            continue
+        key = (j.client_id, j.kind)
+        existing = latest_succeeded.get(key)
+        if existing is None or _as_utc(j.created_at) > _as_utc(existing.created_at):
+            latest_succeeded[key] = j
+
+    input_by_client: dict[str, RpaJob] = {}
+    missing: list[str] = []
+    for cid in client_ids:
+        expected = expected_kinds_by_client.get(cid, set())
+        succeeded = [latest_succeeded[(cid, k)] for k in expected if (cid, k) in latest_succeeded]
+        if not expected or len(succeeded) != len(expected):
+            missing.append(cid)
+        else:
+            input_by_client[cid] = succeeded[0]
     if missing:
         raise HTTPException(
             status.HTTP_409_CONFLICT,

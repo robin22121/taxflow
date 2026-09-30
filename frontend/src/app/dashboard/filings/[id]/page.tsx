@@ -78,7 +78,7 @@ export default function FilingDetailPage({
   });
   const jobsByClientForProduction = indexJobsByClient(rpaJobsForProduction);
   const productionStageOf = (clientId: string) =>
-    gateStage(jobsByClientForProduction[clientId]?.input, jobsByClientForProduction[clientId]?.production, undefined);
+    gateStage(jobsByClientForProduction[clientId]?.inputs ?? [], jobsByClientForProduction[clientId]?.production, undefined);
 
   useEffect(() => {
     if (sessions.length === 0) return;
@@ -680,14 +680,13 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   });
   const jobsByClient = indexJobsByClient(rpaJobs);
   const stageOf = (clientId: string) => {
-    const b = jobsByClient[clientId] ?? {};
-    return gateStage(b.input, b.production, undefined);
+    const b = jobsByClient[clientId] ?? { inputs: [] };
+    return gateStage(b.inputs, b.production, undefined);
   };
   const failedJobOf = (clientId: string): RpaJob | undefined => {
-    const b = jobsByClient[clientId] ?? {};
+    const b = jobsByClient[clientId] ?? { inputs: [] };
     if (b.production?.status === "FAILED") return b.production;
-    if (b.input?.status === "FAILED") return b.input;
-    return undefined;
+    return b.inputs.find((j) => j.status === "FAILED");
   };
   const [failureDetail, setFailureDetail] = useState<{ clientName: string; job: RpaJob } | null>(null);
 
@@ -872,7 +871,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         <Modal open={true} onClose={() => setFailureDetail(null)} title={`${failureDetail.clientName} — 제작실패 상세`}>
           <div className="space-y-3 text-[13px]">
             <div className="text-gray-500">
-              {failureDetail.job.kind === "WEHAGO_PAYROLL_INPUT" ? "전송(급여자료입력) 단계에서 실패했습니다." : "제작 단계에서 실패했습니다."}
+              {failureDetail.job.kind !== "MONTHLY_PRODUCTION" ? "전송(자동입력) 단계에서 실패했습니다." : "제작 단계에서 실패했습니다."}
             </div>
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-red-700 whitespace-pre-wrap">
               {failureDetail.job.result_message || "상세 사유가 기록되지 않았습니다."}

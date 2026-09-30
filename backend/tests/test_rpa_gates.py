@@ -161,6 +161,95 @@ async def test_production_creates_monthly_production_job(http: AsyncClient, auth
     assert "제작이 대기·진행 중" in dup.json()["detail"]
 
 
+@pytest.mark.asyncio
+async def test_production_requires_every_income_type_input_succeeded(
+    http: AsyncClient, auth_headers: dict
+):
+    """근로+사업소득이 섞인 거래처는 두 kind 다 자동입력에 성공해야 제작할 수 있다 (plan/16 §13-3-4).
+
+    하나만 확인하고 제작(마감)을 태우면 아직 안 올라간 소득을 닫아버리는 사고가 난다.
+    """
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Employee
+    from app.models.payroll import IncomeType, PayrollEntry
+
+    async with SessionLocal() as db:
+        template = (
+            await db.execute(
+                select(PayrollEntry).where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.client_id == client_id,
+                )
+            )
+        ).scalars().first()
+        biz_emp = Employee(client_id=client_id, name="사업소득자겸업", employee_code="B001")
+        db.add(biz_emp)
+        await db.flush()
+        business_entry = PayrollEntry(
+            monthly_filing_id=template.monthly_filing_id,
+            collection_session_id=template.collection_session_id,
+            client_id=client_id,
+            employee_id=biz_emp.id,
+            raw_name=biz_emp.name,
+            income_type=IncomeType.BUSINESS,
+            total_amount=1_000_000,
+            taxable=1_000_000,
+            approved=True,
+        )
+        db.add(business_entry)
+        await db.commit()
+        entry_id, emp_id = business_entry.id, biz_emp.id
+
+    try:
+        agent = await _issue_agent(http, auth_headers)
+        r = await http.post(
+            "/api/v1/rpa/wehago-uploads",
+            json={"filing_id": filing_id, "client_ids": [client_id]},
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        jobs = r.json()
+        assert {j["kind"] for j in jobs} == {"WEHAGO_PAYROLL_INPUT", "WEHAGO_BUSINESS_INPUT"}
+
+        async def _complete_one() -> None:
+            claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+            assert claimed is not None
+            done = await http.post(
+                f"/api/v1/rpa/agent/jobs/{claimed['id']}/result",
+                json={"status": "SUCCEEDED", "message": "완료"},
+                headers=agent,
+            )
+            assert done.status_code == 200, done.text
+
+        # 둘 중 하나만 완료 — 제작은 아직 막혀야 한다 (순서에 의존하지 않는다).
+        await _complete_one()
+        blocked = await http.post(
+            "/api/v1/rpa/productions",
+            json={"filing_id": filing_id, "client_ids": [client_id]},
+            headers=auth_headers,
+        )
+        assert blocked.status_code == 409, blocked.text
+        assert "자동입력이 완료되지 않은" in blocked.json()["detail"]
+
+        # 나머지도 완료 — 이제 제작이 통과해야 한다.
+        await _complete_one()
+        ok = await http.post(
+            "/api/v1/rpa/productions",
+            json={"filing_id": filing_id, "client_ids": [client_id]},
+            headers=auth_headers,
+        )
+        assert ok.status_code == 201, ok.text
+    finally:
+        async with SessionLocal() as db:
+            await db.delete(await db.get(PayrollEntry, entry_id))
+            await db.delete(await db.get(Employee, emp_id))
+            await db.commit()
+
+
 # ---------------------------------------------------------------------------
 # 알림 — 자동입력 완료 후 게이트 2 알림이 뜬다
 # ---------------------------------------------------------------------------

@@ -7,7 +7,14 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from easyone_agent.api import IMPORT_ALL, IMPORT_CLIENT, MONTHLY_PRODUCTION, EasyoneApi, Job
+from easyone_agent.api import (
+    IMPORT_ALL,
+    IMPORT_CLIENT,
+    MONTHLY_PRODUCTION,
+    WEHAGO_BUSINESS_INPUT,
+    EasyoneApi,
+    Job,
+)
 from easyone_agent.company import company_matches
 from easyone_agent.import_runner import process_import
 from easyone_agent.logmask import mask_text
@@ -34,9 +41,15 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
         return _process_import_job(api, uploader, job, workdir)
     if job.kind == MONTHLY_PRODUCTION:
         return _process_monthly_production_job(api, uploader, job)
-    if job.kind != WEHAGO_PAYROLL_INPUT:
-        _report(api, job.id, False, f"[미구현] '{job.kind}' 작업은 아직 자동화가 없습니다 — 수동으로 처리하세요.")
-        return True
+    if job.kind == WEHAGO_PAYROLL_INPUT:
+        return _process_payroll_input_job(api, uploader, job, workdir)
+    if job.kind == WEHAGO_BUSINESS_INPUT:
+        return _process_business_input_job(api, uploader, job, workdir)
+    _report(api, job.id, False, f"[미구현] '{job.kind}' 작업은 아직 자동화가 없습니다 — 수동으로 처리하세요.")
+    return True
+
+
+def _process_payroll_input_job(api: EasyoneApi, uploader: WehagoUploader, job: Job, workdir: Path) -> bool:
     xlsx_path = workdir / f"{job.id}.xlsx"
     try:
         if job.pay_date is None:
@@ -64,6 +77,40 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
         _report(api, job.id, True, message)
     finally:
         # 급여파일은 개인정보라 PC에 남기지 않는다.
+        xlsx_path.unlink(missing_ok=True)
+    return True
+
+
+def _process_business_input_job(api: EasyoneApi, uploader: WehagoUploader, job: Job, workdir: Path) -> bool:
+    """사업소득자료입력(SmartA SWBU0102) 자동입력 — 게이트 1 (plan/16 §13-3-4).
+
+    `_process_payroll_input_job`과 같은 구조지만 지급일 없이 귀속연월만 필요하다
+    (`upload_business_income`이 `pay_date` 인자를 받지 않음, §13-3 실기 확인).
+    """
+    xlsx_path = workdir / f"{job.id}-business.xlsx"
+    try:
+        xlsx_path.write_bytes(api.download_business_income_excel(job.id))
+        uploader.ensure_logged_in()
+        found_name, found_number = uploader.open_business_income_screen(job.business_number)
+        if not company_matches(job.business_name, job.business_number, found_name, found_number):
+            raise CompanyMismatch(
+                f"위하고 수임처가 다릅니다: 요청 {job.business_name}({job.business_number}), "
+                f"화면 {found_name}({found_number})"
+            )
+        message = uploader.upload_business_income(job.period, xlsx_path)
+    except LoginFailed as e:
+        _report(api, job.id, False, f"위하고 로그인 실패: {e}")
+        raise
+    except Exception as e:
+        logger.exception("작업 실패 %s", job.id)
+        if not isinstance(e, WehagoError):
+            capture = getattr(uploader, "save_failure_screenshot", None)
+            if capture:
+                capture(f"failed-{job.id}")
+        _report(api, job.id, False, failure_message(e, uploader))
+    else:
+        _report(api, job.id, True, message)
+    finally:
         xlsx_path.unlink(missing_ok=True)
     return True
 
