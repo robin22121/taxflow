@@ -135,8 +135,14 @@ _LOGIN_FAILURE_HINTS = {
 # 로그인 직후·화면 진입 시 뜨는 안내 팝업들 — 모두 [닫기] 버튼이 있다
 # (2차 인증 안내·노란우산공제 안내 등 서비스 프로모션이 div.LUX_basic_dialog, "DJ Bank"류
 # 은행 상품 광고가 div[id^=common_pop_dialog] — 2026-09-30 실기 확인. 후자를 못 닫으면
-# 메인화면 "전체" 탭 클릭이 막혀 수임처 검색 자체가 실패한다.)
-_SPLASH_DIALOG = "div.LUX_basic_dialog:visible, div[id^='common_pop_dialog']:visible"
+# 메인화면 "전체" 탭 클릭이 막혀 수임처 검색 자체가 실패한다.
+# "WEHAGO 소식" 모음 팝업(div.mainDialog2__main)도 같은 문제 — 2026-09-30 재확인, 이건
+# 마지막 DOM상 [닫기] 버튼이 숨겨진 "하루 동안 보지 않기" 바 쪽이라 `_dismiss_splash`가
+# 마지막 *보이는* [닫기] 버튼을 고르도록 함께 고쳤다.)
+_SPLASH_DIALOG = (
+    "div.LUX_basic_dialog:visible, div[id^='common_pop_dialog']:visible, "
+    "div.mainDialog2__main:visible"
+)
 
 # 수임처정보 화면의 우측 '기본정보' 탭 th 라벨 → 표준 필드
 _READ_COMPANY_LABELS = {
@@ -309,21 +315,25 @@ class WehagoUploader:
         )
 
     def _dismiss_splash(self) -> None:
-        """로그인 후·화면 진입 시 뜨는 안내 팝업(2차 인증·노란우산공제 등)을 모두 닫는다.
+        """로그인 후·화면 진입 시 뜨는 안내 팝업(2차 인증·노란우산공제·WEHAGO 소식 등)을 모두 닫는다.
 
-        같은 `div.LUX_basic_dialog` 클래스에 [닫기] 버튼이 여러 개인 경우가 있어
-        보이는 dialog가 없어질 때까지 마지막 [닫기] 버튼을 반복 클릭한다.
+        같은 dialog에 [닫기] 버튼이 여러 개인 경우가 있어 보이는 dialog가 없어질 때까지
+        **마지막으로 보이는** [닫기] 버튼을 반복 클릭한다 (2차 인증 dialog는 [닫기]·
+        [설정하기]·[닫기(X)] 3개 모두 보임 → 마지막). "WEHAGO 소식" 팝업(`mainDialog2__main`)은
+        DOM상 마지막 [닫기]가 "하루 동안 보지 않기" 바 쪽인데 숨겨져 있어(2026-09-30 실측)
+        DOM 순서 그대로 `.last`를 쓰면 안 보이는 버튼을 눌러 안 닫혔다 — 보이는 것 중
+        마지막으로 바꿔 두 경우 다 맞춘다.
         """
         page = self._page
         for _ in range(5):
             dialog = page.locator(_SPLASH_DIALOG).first
             if dialog.count() == 0:
                 return
-            # 마지막 '닫기' 버튼이 대체로 dismiss 역할 (2차 인증 dialog는 [닫기]·[설정하기]·[닫기(X)] 3개)
             close_buttons = dialog.locator("button:has-text('닫기')")
-            if close_buttons.count() == 0:
-                return  # 닫기 버튼이 없는 경우는 화면을 조작하지 않는다
-            close_buttons.last.click(force=True)
+            visible = [i for i in range(close_buttons.count()) if close_buttons.nth(i).is_visible()]
+            if not visible:
+                return  # 보이는 닫기 버튼이 없는 경우는 화면을 조작하지 않는다
+            close_buttons.nth(visible[-1]).click(force=True)
             page.wait_for_timeout(400)
 
     @staticmethod
@@ -1680,6 +1690,38 @@ class WehagoUploader:
         rows = smarta.locator("#Leftgird").evaluate(_REALGRID_ROWS_JS)
         return _parse_business_income_rows(rows)
 
+    def list_other_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+        """기타(이자/배당)소득자등록(SWET0101) 전체 명단 — 읽기 전용.
+
+        `list_business_income_earners`와 같은 방식(RealGrid 직접읽기, 같은 카테고리)이지만
+        그리드 id(`#Leftgrid`)·필드명(`cd_etemp` 등)이 다르다 — `_parse_other_income_rows`
+        참고. 반환값은 `income_type="BUSINESS"`가 아니라 `"OTHER"`이고, `business_type_code`는
+        보내지 않는다(사업소득 전용 필드라 재사용하지 않기로 함, §13-3-4).
+        """
+        smarta, _name, _number = self._open_smarta(business_number)
+        self._smarta_page = smarta
+        self._open_business_category_menu(smarta, "기타(이자/배당)소득자등록")
+        self.step = "기타소득자 명단 읽기"
+        think("wehago")
+        rows = smarta.locator("#Leftgrid").evaluate(_REALGRID_ROWS_JS)
+        return _parse_other_income_rows(rows)
+
+    def list_daily_workers(self, business_number: str) -> list[dict[str, Any]]:
+        """일용직 사원등록(SWSA0107) 전체 명단 — 읽기 전용.
+
+        "근로소득관리 / 연말정산관리"가 기본 카테고리라 `_open_smarta_menu`(id 기반)로
+        바로 들어간다(사업소득관리 카테고리의 `_open_business_category_menu`와 다름).
+        `_parse_daily_worker_rows` 참고 — 그리드 id `#Tab1_left_grid`, `income_type="DAILY"`,
+        `business_type_code`는 안 보낸다.
+        """
+        smarta, _name, _number = self._open_smarta_menu(
+            business_number, self._DAILY_WORKER_REGISTER_MENU_ID
+        )
+        self.step = "일용직 사원 명단 읽기"
+        think("wehago")
+        rows = smarta.locator("#Tab1_left_grid").evaluate(_REALGRID_ROWS_JS)
+        return _parse_daily_worker_rows(rows)
+
     # ------------------------------------------------------------------
     # 소득자등록 (§4-4 확장 — 사업/기타/일용소득 자동화, 2026-09-29 실측 진행 중)
     #
@@ -1737,7 +1779,7 @@ class WehagoUploader:
         think("wehago")
         popup.get_by_text(income_code_label, exact=False).first.dblclick()
 
-    _OTHER_INCOME_REGISTER_MENU_ID = "SWEA0101"  # TODO 실측: 실제 메뉴 ID 확인 필요 (추정)
+    _OTHER_INCOME_REGISTER_MENU_ID = "SWET0101"  # 실측 확인 (2026-09-30, list_other_income_earners)
 
     def register_other_income_earner(
         self, business_number: str, name: str, rrn: str, income_type_label: str,
@@ -1753,10 +1795,13 @@ class WehagoUploader:
         ⚠️ 스켈레톤 — 좌표 기반, `_REALGRID_SET_CURRENT_JS` 방식으로 재작성 필요.
         등록 중 `#CODEHELP-FTW_ETEMPCD` 코드도움 팝업이 한 번 더 떴는데(담당자 연결로
         추정) 무슨 용도인지, 필수인지 아직 확인 못했다 — 지금은 건드리지 않는다.
+
+        진입은 `_open_closing_menu`가 아니라 사업소득과 같은 `_open_business_category_menu`를
+        써야 한다(§13-3-4에서 `list_business_income_earners` 만들 때 같은 문제로 확인).
         """
-        smarta, _name, _number = self._open_closing_menu(
-            business_number, self._OTHER_INCOME_REGISTER_MENU_ID
-        )
+        smarta, _name, _number = self._open_smarta(business_number)
+        self._smarta_page = smarta
+        self._open_business_category_menu(smarta, "기타(이자/배당)소득자등록")
 
         self.step = "기타소득자 등록 — 이름"
         grid_input = smarta.locator("#Leftgrid_line")
@@ -1777,7 +1822,7 @@ class WehagoUploader:
         think("wehago")
         smarta.locator("#Leftgrid_dropdown").select_option(label=income_type_label)
 
-    _DAILY_WORKER_REGISTER_MENU_ID = "SWPM0109"  # TODO 실측: 실제 메뉴 ID 확인 필요 (추정)
+    _DAILY_WORKER_REGISTER_MENU_ID = "SWSA0107"  # 실측 확인 (2026-09-30, list_daily_workers)
 
     def register_daily_worker(self, business_number: str, name: str, rrn: str, hired_at: date) -> None:
         """일용직 사원등록 — "근로소득관리 / 연말정산관리" 카테고리, 그리드 id는
@@ -1794,8 +1839,12 @@ class WehagoUploader:
         ⚠️ 스켈레톤 — 좌표 기반, 그리드 컬럼 순서(이름→주민번호)만 확인했고 "나이" 칸
         오른쪽에 더 있을 수 있는 칸(직종 등)은 안 건드렸다. 상세 패널(급여정보·4대보험정보
         등)은 이 메서드가 손대지 않는다 — 필요하면 별도로 채워야 한다.
+
+        진입은 "근로소득관리 / 연말정산관리"가 기본 카테고리라 `_open_smarta_menu`(id 기반)면
+        충분하다 — `open_daily_income_screen`과 같은 근거(§13-3-4에서 `list_daily_workers`
+        만들 때 재확인).
         """
-        smarta, _name, _number = self._open_closing_menu(
+        smarta, _name, _number = self._open_smarta_menu(
             business_number, self._DAILY_WORKER_REGISTER_MENU_ID
         )
 
@@ -2280,6 +2329,65 @@ def _parse_business_income_rows(rows: list[dict[str, Any]]) -> list[dict[str, An
                 "resigned_at": resigned_at,
                 "income_type": "BUSINESS",
                 "business_type_code": income_code or None,
+            }
+        )
+    return out
+
+
+def _parse_other_income_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """기타(이자/배당)소득자등록(SWET0101) `#Leftgrid`의 `_REALGRID_ROWS_JS` 결과 → 임포트 페이로드.
+
+    사업소득 그리드(`_parse_business_income_rows`)와 필드가 다르다(2026-09-30 실측):
+    `cd_etemp`(위하고 사원코드, 사업소득의 `cd_buemp`와 다른 이름) · `nm_krname`(이름) ·
+    `no_social`(주민번호) · `cd_income`(소득구분 코드, 2자리 — 예: "69") · 퇴사일 필드
+    자체가 없다(이자/배당·기타소득자는 재직 개념이 없다). 빈 자리표시 행은 `cd_etemp`가
+    이미 다음 코드로 채워져 있어도 `nm_krname`이 비어 있으면 걸러낸다(사업소득과 다른 점).
+
+    `cd_income`은 굳이 안 옮긴다 — `Employee.business_type_code`는 사업소득 업종코드
+    (940xxx) 전용 필드라 `tax_calc.py`/`smarta_business_xls.py`가 그 형식을 가정한다.
+    기타소득 코드를 저장할 Employee 필드가 따로 없으니(§13-3-4), 코드가 필요해지면
+    새 필드를 추가하는 게 맞다 — 지금은 명단(이름·주민번호)만 동기화한다.
+    """
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        name = str(r.get("nm_krname") or "").strip()
+        if not name:
+            continue
+        code = str(r.get("cd_etemp") or "").strip()
+        rrn = str(r.get("no_social") or "").strip()
+        out.append(
+            {
+                "employee_code": code,
+                "name": name,
+                "rrn": rrn or None,
+                "income_type": "OTHER",
+            }
+        )
+    return out
+
+
+def _parse_daily_worker_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """일용직 사원등록(SWSA0107) `#Tab1_left_grid`의 `_REALGRID_ROWS_JS` 결과 → 임포트 페이로드.
+
+    필드(2026-09-30 실측): `cd_emp`(위하고 사원코드, 다른 화면과 달리 0-padding 없이
+    "1") · `nm_emp`(이름, 다른 화면의 `nm_krname`과 다른 키) · `no_social`(주민번호) ·
+    `age`(자동계산, 안 옮김) · `fg_forg`(외국인 여부, 안 옮김). 입사일·퇴사일은 이 왼쪽
+    그리드가 아니라 오른쪽 상세 패널에 있어 여기선 못 읽는다 — 명단(이름·주민번호)만
+    동기화한다.
+    """
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        name = str(r.get("nm_emp") or "").strip()
+        if not name:
+            continue
+        code = str(r.get("cd_emp") or "").strip()
+        rrn = str(r.get("no_social") or "").strip()
+        out.append(
+            {
+                "employee_code": code,
+                "name": name,
+                "rrn": rrn or None,
+                "income_type": "DAILY",
             }
         )
     return out

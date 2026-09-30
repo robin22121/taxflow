@@ -1145,7 +1145,7 @@ PoC 7 통과 시 전용 노트북 · 유휴 PC/미니PC · 가상 PC 를 모두 
   - 편집용 히든 input: `#Grid1_line`/`#Grid1_number`, `#Grid2_line`/`#Grid2_number`(우측정렬 — 숫자 컬럼) — RealGrid 좌표 기반이라 §12-7·`plan/08-action-items.md`의 "RealGrid는 좌표 기반이라 특히 신중히" 경고와 동일 주의 필요.
 - **남은 작업 (최종 단계로 보류, 2026-09-30 사용자 지시)**: `#Grid1`/`#Grid2`의 정확한 컬럼별 좌표·순서를 실기로 완전히 확정하고, `enter_other_income_manual` 류의 그리드 직접입력 함수를 작성·검증한다. 엑셀 업로드 경로(`upload_other_income`)는 코드에 남겨두되 실사용하지 않는다 — 이 파서 버그가 해결되거나 위하고 고객센터 확인 전까지는 그리드 입력이 유일한 경로.
 
-### 13-3-4. 위하고 → 이지원천 소득자 명단 동기화 — 설계 및 사업소득 구현 (2026-09-30)
+### 13-3-4. 위하고 → 이지원천 소득자 명단 동기화 — 설계 및 4개 화면 구현 (2026-09-30)
 
 **배경**: 사업소득자등록(SWBU0101) 화면엔 (기타소득자료입력 등과 달리) 엑셀 다운로드
 메뉴 자체가 없다(우측 상단 [설정/기타/예술노무제공자 여부 일괄변경] 메뉴 실측 확인,
@@ -1163,22 +1163,43 @@ PoC 7 통과 시 전용 노트북 · 유휴 PC/미니PC · 가상 PC 를 모두 
 | 소득구분 | 화면 | 데이터 확보 방법 | 상태 |
 |---------|------|-----------------|------|
 | 근로(WAGE) | 사원등록 | "사원자료 엑셀변환" 다운로드 (§12, `export_employees`) | 구현됨(기존) |
-| 사업(BUSINESS) | 사업소득자등록(SWBU0101) | RealGrid 직접읽기 `#Leftgird` | **이번에 구현** |
-| 기타(OTHER) | 기타(이자/배당)소득자등록(SWEA0101 추정) | RealGrid 직접읽기 `#Leftgrid`(추정) — 그리드 id·필드명 미실측 | 미착수 |
-| 일용(DAILY) | 일용직 사원등록(SWPM0109 추정) | RealGrid 직접읽기 `#Tab1_left_grid`(추정) — 그리드 id·필드명 미실측 | 미착수 |
+| 사업(BUSINESS) | 사업소득자등록(SWBU0101) | RealGrid 직접읽기 `#Leftgird` | **구현됨** — `list_business_income_earners` |
+| 기타(OTHER) | 기타(이자/배당)소득자등록(SWET0101, 실측 — `SWEA0101` 추정은 틀렸음) | RealGrid 직접읽기 `#Leftgrid` | **구현됨** — `list_other_income_earners` |
+| 일용(DAILY) | 일용직 사원등록(SWSA0107, 실측 — `SWPM0109` 추정은 틀렸음) | RealGrid 직접읽기 `#Tab1_left_grid` | **구현됨** — `list_daily_workers` |
 
-**사업소득 실측 필드** (`#Leftgird` → `getJsonRows`, 2026-09-30 서도·김태호/김아인 실기):
-`cd_buemp`(위하고 사원코드) · `nm_krname`(이름) · `no_social`(주민번호, 하이픈 없는 13자리) ·
-`cd_income`(사업소득 업종코드, 예: "940909") · `mn_ctrl`(소득구분 라벨, 참고용 — 저장은
-안 함) · `da_retire`(퇴사일, 빈 문자열이면 재직중) · `yn_resident`(거주구분). 빈 자리표시
-행(신규 입력용 마지막 줄)은 `cd_buemp`/`nm_krname`이 둘 다 빈 문자열로 걸러낸다.
+**실측 필드** (`getJsonRows`, 2026-09-30 서도·김태호/김아인 실기 — 화면마다 그리드 id·필드명이 다르다):
 
-**진입 경로 주의**: 이 화면은 "사업소득관리 / 기타(이자 / 배당)소득관리" 카테고리 소속이라
-`_open_closing_menu`(id 기반 `a#{menu_id}.text_link`)가 아니라 `open_business_income_screen`과
-같은 `_open_business_category_menu`(텍스트로 서브메뉴 찾기)를 써야 한다 — 처음 구현 때
-`_open_closing_menu`를 썼다가 `KeyError: 'SWBU0101'`로 실패해서 확인됨(§13-3-3에서 이미
-같은 카테고리 문제가 SWBU0102·SWHM0103에서 발견된 것과 동일 패턴). `register_business_income_earner`
-스켈레톤(위 §)도 같은 버그가 있다 — 아직 미검증 상태라 손대지 않았다.
+| 화면 | 그리드 id | 사원코드 | 이름 | 주민번호 | 기타 |
+|------|----------|---------|------|---------|------|
+| 사업소득자등록 | `#Leftgird` | `cd_buemp` | `nm_krname` | `no_social` | `cd_income`(업종코드, 예 "940909") · `da_retire`(퇴사일) |
+| 기타(이자/배당)소득자등록 | `#Leftgrid` | `cd_etemp` | `nm_krname` | `no_social` | `cd_income`(소득구분 2자리, 예 "69") · 퇴사일 필드 없음 |
+| 일용직 사원등록 | `#Tab1_left_grid` | `cd_emp` | `nm_emp` | `no_social` | `age`(자동계산) · 퇴사일은 왼쪽 그리드가 아니라 오른쪽 상세 패널 |
+
+빈 자리표시 행(신규 입력용 마지막 줄) 필터링 기준도 화면마다 다르다 — 사업소득은
+`cd_buemp`/`nm_krname` 둘 다 빈 문자열, 기타소득은 `cd_etemp`에 **다음 코드가 이미 채워져
+있어도**(예: "0000000001") `nm_krname`이 비면 걸러야 한다(사업소득과 다른 점, 2026-09-30
+실측으로 발견). `cd_income`(기타소득 2자리 코드)은 `Employee.business_type_code`에
+안 옮긴다 — 그 필드는 사업소득 업종코드(940xxx) 전용이라 `tax_calc.py`/`smarta_business_xls.py`가
+그 형식을 가정하고, 기타소득 코드를 저장할 별도 Employee 필드가 없다(생기면 그때 추가).
+
+**진입 경로 주의**: 사업소득·기타소득은 "사업소득관리 / 기타(이자 / 배당)소득관리" 카테고리
+소속이라 `_open_closing_menu`(id 기반 `a#{menu_id}.text_link`)가 아니라
+`open_business_income_screen`과 같은 `_open_business_category_menu`(텍스트로 서브메뉴
+찾기)를 써야 한다 — 처음 구현 때 `_open_closing_menu`를 썼다가 `KeyError: 'SWBU0101'`로
+실패해서 확인됨(§13-3-3에서 이미 같은 카테고리 문제가 SWBU0102·SWHM0103에서 발견된 것과
+동일 패턴). 일용직 사원등록은 "근로소득관리 / 연말정산관리"가 **기본 카테고리**라
+`_open_smarta_menu`(id 기반, `open_daily_income_screen`과 같은 근거)만으로 충분하다.
+정방향(위하고에 새로 등록) 스켈레톤 `register_business_income_earner`/`register_other_income_earner`/
+`register_daily_worker`도 같은 네비게이션 버그·잘못된 메뉴 id 추정이 있어 이번에 함께
+고쳤다(그리드 좌표 자체는 여전히 미검증 스켈레톤).
+
+**부수 발견 — "WEHAGO 소식" 팝업이 수임처 검색을 막음**: `list_other_income_earners`를
+새 `WehagoUploader` 인스턴스로 처음부터 실행했을 때 `_open_smarta`의 "전체" 탭 클릭이
+`mainDialog2__main` 팝업("DJ Bank"·"QR코드 2차 인증" 소식 모음, 2026-09-30 신규 확인)에
+막혀 30초 타임아웃났다. `_dismiss_splash`의 대상 셀렉터(`_SPLASH_DIALOG`)에 이 클래스를
+추가했고, 닫기 버튼 선택 로직도 "DOM상 마지막 `[닫기]`"에서 "**보이는 것 중** 마지막
+`[닫기]`"로 고쳤다 — 이 팝업은 DOM상 마지막 닫기 버튼이 숨겨진 "하루 동안 보지 않기" 바
+쪽이라 기존 로직(`close_buttons.last`)으로는 안 닫혔다.
 
 **기존 §12 파이프라인 재사용 + income_type 스코핑 확장** (`backend/app/services/wehago_import.py`):
 `apply_client_import`/`ImportedEmployee`가 이미 위하고→이지원천 사원 upsert
@@ -1191,21 +1212,25 @@ PoC 7 통과 시 전용 노트북 · 유휴 PC/미니PC · 가상 PC 를 모두 
    안 보내면(기존 §12 호출부) WAGE로 취급해 하위호환.
 
 **이번에 구현한 것**:
-- `rpa-agent/easyone_agent/wehago.py`: `WehagoUploader.list_business_income_earners(business_number)`
-  — RealGrid 읽기 + `_open_business_category_menu` 진입, 실기 검증 완료(2026-09-30).
-  `_parse_business_income_rows`(모듈 함수, 브라우저 없이 단위 테스트 가능)가 필드 매핑 담당.
+- `rpa-agent/easyone_agent/wehago.py`: `WehagoUploader.list_business_income_earners`/
+  `list_other_income_earners`/`list_daily_workers`(business_number) — RealGrid 읽기,
+  화면별 진입 경로·필드 매핑까지 셋 다 실기 검증 완료(2026-09-30). 각각
+  `_parse_business_income_rows`/`_parse_other_income_rows`/`_parse_daily_worker_rows`
+  (모듈 함수, 브라우저 없이 단위 테스트 가능)가 필드 매핑 담당.
+- `_dismiss_splash`/`_SPLASH_DIALOG` — "WEHAGO 소식" 팝업 대응 추가(위 참고).
 - `backend/app/services/wehago_import.py` / `backend/app/schemas/rpa.py`: `income_type`·
   `business_type_code` 확장, income_type 스코프 매칭. 기존 4개 테스트 그대로 통과 + 스코핑
   회귀 테스트 1개 추가(`test_employee_code_is_scoped_by_income_type`).
-- `rpa-agent/tests/test_wehago_business_income.py`: 필드 매핑·빈 행 필터링·퇴사일 파싱 단위
-  테스트 4개.
+- `rpa-agent/tests/test_wehago_business_income.py`/`test_wehago_other_income_register.py`/
+  `test_wehago_daily_worker_register.py`: 필드 매핑·빈 행 필터링 단위 테스트 총 10개.
 
 **아직 안 한 것**:
-- `list_business_income_earners`를 실제 가져오기 파이프라인(`import_runner.py`,
+- 세 함수를 실제 가져오기 파이프라인(`import_runner.py`,
   `POST /agent/imports/{job_id}/client-result`)에 연결하는 배선 — 지금은 함수만 있고 §12
   잡 폴러가 호출하지 않는다. 같은 `client-result` 페이로드의 `employees`에 `income_type`을
-  얹어 보낼지, 사업소득 전용 스텝을 따로 둘지 결정 필요.
-- 기타소득자등록·일용직 사원등록의 정확한 그리드 id·필드명 실측 (사용자 요청 시 진행).
+  얹어 보낼지, 소득유형별 전용 스텝을 따로 둘지 결정 필요.
+- 기타소득·일용직은 퇴사일을 왼쪽 그리드에서 못 읽는다(위 표 참고) — 필요해지면 오른쪽
+  상세 패널을 별도로 읽어야 한다.
 
 ### 13-4. 세무신고관리·전자신고 — §4-4·§4-8 세부 확정
 
