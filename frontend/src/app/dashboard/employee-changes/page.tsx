@@ -1,27 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { useSearchParams } from "next/navigation";
 
-import { useClients, useEmployeeChanges, useReviewEmployeeChange } from "@/lib/queries";
+import { useEmployeeChanges, useReviewEmployeeChange } from "@/lib/queries";
 import { Badge, Button, Card } from "@/components/ui";
 import type { EmployeeChangeRequest } from "@/lib/types";
 
 export default function EmployeeChangesPage() {
-  const searchParams = useSearchParams();
-  const selectedClientId = searchParams.get("client_id");
   const [scope, setScope] = useState<"PENDING" | "ALL">("PENDING");
   const { data, isLoading } = useEmployeeChanges(scope);
-  const { data: clients } = useClients();
   const review = useReviewEmployeeChange();
   const [acting, setActing] = useState<string | null>(null);
 
-  // 2026-09-30 결정 — 좌측 전역 거래처 명단에서 거래처를 선택했으면 그 거래처 건만 보여준다.
-  const allRows = data ?? [];
-  const rows = selectedClientId ? allRows.filter((r) => r.client_id === selectedClientId) : allRows;
-  const selectedClientName = selectedClientId
-    ? clients?.find((c) => c.id === selectedClientId)?.business_name
-    : null;
+  const rows = data ?? [];
 
   async function act(request: EmployeeChangeRequest, action: "approve" | "reject") {
     setActing(request.id);
@@ -36,9 +27,7 @@ export default function EmployeeChangesPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-[20px] font-bold tracking-tight text-gray-900">
-            {selectedClientName ? `${selectedClientName} · 직원 변동 승인` : "직원 변동 승인"}
-          </h1>
+          <h1 className="text-[20px] font-bold tracking-tight text-gray-900">직원 변동 승인</h1>
           <p className="text-[12px] text-gray-500 mt-1">
             사장님이 포털에서 알린 입·퇴사입니다. 승인해야 직원 마스터에 반영됩니다.
           </p>

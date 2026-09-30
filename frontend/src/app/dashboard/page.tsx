@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { useClients, useCreateFiling, useFilings } from "@/lib/queries";
 import { Badge, Button } from "@/components/ui";
@@ -9,11 +9,11 @@ import { koreanPeriod, previousPeriod } from "@/lib/format";
 
 export default function DashboardHomePage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const selectedClientId = searchParams.get("client_id");
   const { data: filings, isLoading: filingsLoading } = useFilings();
-  const { data: clients } = useClients();
+  const { data: clients, isLoading: clientsLoading } = useClients();
   const createFiling = useCreateFiling();
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const sortedFilings = useMemo(
     () => [...(filings ?? [])].sort((a, b) => (a.period > b.period ? -1 : 1)),
@@ -26,6 +26,13 @@ export default function DashboardHomePage() {
     if (new URLSearchParams(window.location.search).get("landing") !== "1") return;
     router.replace(`/dashboard/filings/${sortedFilings[0].id}`);
   }, [sortedFilings, router]);
+
+  const filteredClients = useMemo(() => {
+    const list = clients ?? [];
+    if (!search.trim()) return list;
+    const q = search.trim().toLowerCase();
+    return list.filter((c) => c.business_name.toLowerCase().includes(q));
+  }, [clients, search]);
 
   const selectedClient = clients?.find((c) => c.id === selectedClientId) ?? null;
   const nextPeriod = previousPeriod();
@@ -46,9 +53,56 @@ export default function DashboardHomePage() {
   }
 
   return (
-      // "원천세 신고" 세부메뉴 레이아웃(../layout.tsx)이 거래처 명단·세부메뉴·전체높이를 대신 제공한다.
-      // 선택된 거래처는 URL의 client_id로 넘어온다.
+    <div className="-m-4 sm:-m-6 flex flex-col" style={{ height: "calc(100dvh - 60px)" }}>
+      {/* Body — clients sidebar + monthly filings list */}
       <div className="flex-1 flex min-h-0 bg-gray-50">
+        {/* LEFT — 거래처 sidebar */}
+        <aside className="w-[240px] border-r border-gray-200 bg-white flex flex-col shrink-0">
+          <div className="px-3 pt-3 pb-2 space-y-2 border-b border-gray-100">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-gray-900">거래처</span>
+              <span className="text-[11px] text-gray-400 tabular-nums">{clients?.length ?? 0}</span>
+            </div>
+            <input
+              type="text"
+              placeholder="거래처 검색..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-[12px] placeholder:text-gray-400 outline-none focus:border-blue-500 focus:bg-white"
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+            {clientsLoading && (
+              <div className="text-[12px] text-gray-400 text-center py-4">불러오는 중...</div>
+            )}
+            {!clientsLoading && filteredClients.length === 0 && (
+              <div className="text-[12px] text-gray-400 text-center py-4">
+                {search ? "검색 결과 없음" : "등록된 거래처 없음"}
+              </div>
+            )}
+            {filteredClients.map((c) => {
+              const active = c.id === selectedClientId;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedClientId(active ? null : c.id)}
+                  className={`w-full text-left px-3 py-2 rounded-[10px] transition-colors flex items-center gap-2 ${
+                    active
+                      ? "bg-blue-50 border border-blue-200"
+                      : "border border-transparent hover:bg-gray-50"
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-gray-300"}`} />
+                  <span className={`text-[13px] truncate ${active ? "font-semibold text-blue-700" : "text-gray-800"}`}>
+                    {c.business_name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        {/* CENTER — 월별신고내역 리스트 */}
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
             {/* Title */}
@@ -146,6 +200,7 @@ export default function DashboardHomePage() {
           </div>
         </main>
       </div>
+    </div>
   );
 }
 

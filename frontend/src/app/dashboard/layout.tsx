@@ -11,19 +11,29 @@ import { HeaderSlotContext } from "@/components/header-slot";
 import { ActivityBar } from "@/components/rpa/activity-bar";
 import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
 
-// 2026-09-30 상단 탑 메뉴 전면 개편 (plan/08-action-items.md) — 거래처·직원 변동·문자발송은
-// 상단에서 없어지고 "원천세 신고"·"타세목 신고·납부"의 세부메뉴로 흡수된다
-// (세부메뉴 좌측 칼럼 레이아웃은 각 라우트 그룹의 layout.tsx: `(wht)/layout.tsx`, `(tax-other)/layout.tsx`).
+// 2026-09-30 상단 탑 메뉴 재개편 (plan/08-action-items.md) — 자료요청·거래처정보·사원정보를
+// "원천세 신고" 세부메뉴에서 다시 꺼내 평평한 상단 탭으로 배치(사용자 확정, 회귀).
+// "타세목 신고·납부"는 문자발송 세부메뉴를 그대로 유지한다((tax-other)/layout.tsx).
 const NAV_ITEMS = [
   {
     href: "/dashboard",
     label: "원천세 신고",
-    match: (p: string) =>
-      p === "/dashboard" ||
-      p.startsWith("/dashboard/requests") ||
-      p.startsWith("/dashboard/clients") ||
-      p.startsWith("/dashboard/employee-changes") ||
-      p.startsWith("/dashboard/filings"),
+    match: (p: string) => p === "/dashboard" || p.startsWith("/dashboard/filings"),
+  },
+  {
+    href: "/dashboard/requests",
+    label: "자료요청",
+    match: (p: string) => p.startsWith("/dashboard/requests"),
+  },
+  {
+    href: "/dashboard/clients",
+    label: "거래처정보",
+    match: (p: string) => p.startsWith("/dashboard/clients"),
+  },
+  {
+    href: "/dashboard/employee-changes",
+    label: "사원정보",
+    match: (p: string) => p.startsWith("/dashboard/employee-changes"),
   },
   {
     href: "/dashboard/messages",
