@@ -7,7 +7,10 @@ from app.models.tax_office import TaxOffice
 
 class User(Base, IdMixin, TimestampMixin):
     __tablename__ = "users"
-    __table_args__ = (Index("ix_users_email_unique", "email", unique=True),)
+    # 사무소 내 직원계정은 대표와 같은 email(사업자번호)을 공유하고 login_code로만
+    # 구분된다(plan/14 §6.5) — 전역 email 유일성은 (email, login_code) 조합 유일성으로 대체.
+    # superadmin의 login_code는 NULL이며, NULL끼리는 유니크 제약에서 충돌하지 않는다.
+    __table_args__ = (Index("ix_users_email_login_code_unique", "email", "login_code", unique=True),)
 
     # 서버 관리자(슈퍼어드민)는 특정 사무소에 속하지 않으므로 nullable
     tax_office_id: Mapped[str | None] = mapped_column(ForeignKey("tax_offices.id"), nullable=True)

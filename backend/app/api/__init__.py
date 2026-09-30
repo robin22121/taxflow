@@ -21,6 +21,7 @@ def register_routes(app: FastAPI) -> None:
         qa,
         rpa,
         rpa_import,
+        staff,
         webhooks,
     )
 
@@ -42,6 +43,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(qa.router, prefix="/api/v1/qa", tags=["qa"])
     app.include_router(rpa.router, prefix="/api/v1/rpa", tags=["rpa"])
     app.include_router(rpa_import.router, prefix="/api/v1/rpa", tags=["rpa"])
+    app.include_router(staff.router, prefix="/api/v1/staff", tags=["staff"])
     app.include_router(certificates.router, prefix="/api/v1/certificates", tags=["certificates"])
     app.include_router(certificates.public_router, prefix="/api/v1/public", tags=["public"])
     app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])

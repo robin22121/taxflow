@@ -50,3 +50,11 @@ async def require_superadmin(user: User = Depends(get_current_user)) -> User:
     if not user.is_superadmin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "서버 관리자 권한이 필요합니다")
     return user
+
+
+async def require_owner(user: User = Depends(get_current_user)) -> User:
+    """사무소 대표(OWNER) 전용 엔드포인트 가드 — 직원계정 관리·수임담당 배정 등
+    (plan/14-accounts-permissions.md §3). superadmin은 사무소 소속이 아니므로 통과 대상 아님."""
+    if user.role != "OWNER":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "대표(세무사) 계정만 가능합니다")
+    return user

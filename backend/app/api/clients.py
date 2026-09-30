@@ -11,10 +11,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_owner
 from app.models import (
     CertificateIssue,
     Client,
+    ClientAssignmentHistory,
     ClientFilingResult,
     ClientPayrollDefault,
     CollectionEvent,
@@ -34,6 +35,7 @@ from app.models import (
 )
 from app.schemas.clients import (
     ChannelAttempt,
+    ClientAssign,
     ClientCreate,
     ClientInviteResult,
     ClientOut,
@@ -276,6 +278,39 @@ async def update_client(
         if field_name == "contact_email" and value is not None:
             value = str(value)
         setattr(client, field_name, value)
+    await db.commit()
+    await db.refresh(client)
+    return client
+
+
+@router.post("/{client_id}/assign", response_model=ClientOut)
+async def assign_client(
+    client_id: str,
+    payload: ClientAssign,
+    db: AsyncSession = Depends(get_db),
+    owner: User = Depends(require_owner),
+) -> Client:
+    """수임담당 배정/변경/해제 (plan/14-accounts-permissions.md §4). 대표(OWNER)만."""
+    client = await db.get(Client, client_id)
+    if not client or client.tax_office_id != owner.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
+
+    if payload.user_id is not None:
+        new_user = await db.get(User, payload.user_id)
+        if not new_user or new_user.tax_office_id != owner.tax_office_id or not new_user.is_active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "유효한 직원 계정이 아닙니다")
+
+    if client.assigned_user_id != payload.user_id:
+        db.add(
+            ClientAssignmentHistory(
+                client_id=client.id,
+                from_user_id=client.assigned_user_id,
+                to_user_id=payload.user_id,
+                changed_by=owner.id,
+            )
+        )
+        client.assigned_user_id = payload.user_id
+
     await db.commit()
     await db.refresh(client)
     return client
