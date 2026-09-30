@@ -1145,6 +1145,68 @@ PoC 7 통과 시 전용 노트북 · 유휴 PC/미니PC · 가상 PC 를 모두 
   - 편집용 히든 input: `#Grid1_line`/`#Grid1_number`, `#Grid2_line`/`#Grid2_number`(우측정렬 — 숫자 컬럼) — RealGrid 좌표 기반이라 §12-7·`plan/08-action-items.md`의 "RealGrid는 좌표 기반이라 특히 신중히" 경고와 동일 주의 필요.
 - **남은 작업 (최종 단계로 보류, 2026-09-30 사용자 지시)**: `#Grid1`/`#Grid2`의 정확한 컬럼별 좌표·순서를 실기로 완전히 확정하고, `enter_other_income_manual` 류의 그리드 직접입력 함수를 작성·검증한다. 엑셀 업로드 경로(`upload_other_income`)는 코드에 남겨두되 실사용하지 않는다 — 이 파서 버그가 해결되거나 위하고 고객센터 확인 전까지는 그리드 입력이 유일한 경로.
 
+### 13-3-4. 위하고 → 이지원천 소득자 명단 동기화 — 설계 및 사업소득 구현 (2026-09-30)
+
+**배경**: 사업소득자등록(SWBU0101) 화면엔 (기타소득자료입력 등과 달리) 엑셀 다운로드
+메뉴 자체가 없다(우측 상단 [설정/기타/예술노무제공자 여부 일괄변경] 메뉴 실측 확인,
+"엑셀 내려받기" 항목 없음). 근로소득 사원등록은 이미 §12(`wehago_import.py`,
+`import_runner.py`)에서 "사원자료 엑셀변환" **다운로드 버튼**으로 가져오지만, 사업소득자등록엔
+그 버튼이 없어 같은 방식을 못 쓴다.
+
+**해법 — RealGrid 직접 읽기**: 이 화면도 캔버스 그리드(RealGrid)라 급여자료입력 그리드에서
+쓰던 `_REALGRID_ROWS_JS`(React 소유 `_gridView.getDataSource().getJsonRows(0, -1)`)를
+그대로 재사용하면 화면 UI 조작 없이 전체 행을 JSON으로 뽑을 수 있다(2026-09-30 실기 확인,
+`#Leftgird`). 엑셀 다운로드가 없는 화면에도 적용 가능한 **범용 우회로**다.
+
+**적용 대상 4개 화면**과 확보 방법:
+
+| 소득구분 | 화면 | 데이터 확보 방법 | 상태 |
+|---------|------|-----------------|------|
+| 근로(WAGE) | 사원등록 | "사원자료 엑셀변환" 다운로드 (§12, `export_employees`) | 구현됨(기존) |
+| 사업(BUSINESS) | 사업소득자등록(SWBU0101) | RealGrid 직접읽기 `#Leftgird` | **이번에 구현** |
+| 기타(OTHER) | 기타(이자/배당)소득자등록(SWEA0101 추정) | RealGrid 직접읽기 `#Leftgrid`(추정) — 그리드 id·필드명 미실측 | 미착수 |
+| 일용(DAILY) | 일용직 사원등록(SWPM0109 추정) | RealGrid 직접읽기 `#Tab1_left_grid`(추정) — 그리드 id·필드명 미실측 | 미착수 |
+
+**사업소득 실측 필드** (`#Leftgird` → `getJsonRows`, 2026-09-30 서도·김태호/김아인 실기):
+`cd_buemp`(위하고 사원코드) · `nm_krname`(이름) · `no_social`(주민번호, 하이픈 없는 13자리) ·
+`cd_income`(사업소득 업종코드, 예: "940909") · `mn_ctrl`(소득구분 라벨, 참고용 — 저장은
+안 함) · `da_retire`(퇴사일, 빈 문자열이면 재직중) · `yn_resident`(거주구분). 빈 자리표시
+행(신규 입력용 마지막 줄)은 `cd_buemp`/`nm_krname`이 둘 다 빈 문자열로 걸러낸다.
+
+**진입 경로 주의**: 이 화면은 "사업소득관리 / 기타(이자 / 배당)소득관리" 카테고리 소속이라
+`_open_closing_menu`(id 기반 `a#{menu_id}.text_link`)가 아니라 `open_business_income_screen`과
+같은 `_open_business_category_menu`(텍스트로 서브메뉴 찾기)를 써야 한다 — 처음 구현 때
+`_open_closing_menu`를 썼다가 `KeyError: 'SWBU0101'`로 실패해서 확인됨(§13-3-3에서 이미
+같은 카테고리 문제가 SWBU0102·SWHM0103에서 발견된 것과 동일 패턴). `register_business_income_earner`
+스켈레톤(위 §)도 같은 버그가 있다 — 아직 미검증 상태라 손대지 않았다.
+
+**기존 §12 파이프라인 재사용 + income_type 스코핑 확장** (`backend/app/services/wehago_import.py`):
+`apply_client_import`/`ImportedEmployee`가 이미 위하고→이지원천 사원 upsert
+로직(코드→주민번호→이름 매칭, 빈칸만 채우기, 충돌 보고)을 구현해놓았다. 이걸 그대로
+쓰되 두 가지 확장:
+1. `ImportedEmployee`에 `income_type`·`business_type_code` 필드 추가.
+2. **매칭 스코프를 income_type으로 제한** — 화면마다 사원코드 채번이 독립적이라
+   (사업소득자등록의 코드 "1"과 사원등록의 코드 "1"은 남남일 수 있다) `income_type`이
+   다르면 같은 코드·주민번호·이름이라도 다른 사람으로 취급해 새로 만든다. `income_type`을
+   안 보내면(기존 §12 호출부) WAGE로 취급해 하위호환.
+
+**이번에 구현한 것**:
+- `rpa-agent/easyone_agent/wehago.py`: `WehagoUploader.list_business_income_earners(business_number)`
+  — RealGrid 읽기 + `_open_business_category_menu` 진입, 실기 검증 완료(2026-09-30).
+  `_parse_business_income_rows`(모듈 함수, 브라우저 없이 단위 테스트 가능)가 필드 매핑 담당.
+- `backend/app/services/wehago_import.py` / `backend/app/schemas/rpa.py`: `income_type`·
+  `business_type_code` 확장, income_type 스코프 매칭. 기존 4개 테스트 그대로 통과 + 스코핑
+  회귀 테스트 1개 추가(`test_employee_code_is_scoped_by_income_type`).
+- `rpa-agent/tests/test_wehago_business_income.py`: 필드 매핑·빈 행 필터링·퇴사일 파싱 단위
+  테스트 4개.
+
+**아직 안 한 것**:
+- `list_business_income_earners`를 실제 가져오기 파이프라인(`import_runner.py`,
+  `POST /agent/imports/{job_id}/client-result`)에 연결하는 배선 — 지금은 함수만 있고 §12
+  잡 폴러가 호출하지 않는다. 같은 `client-result` 페이로드의 `employees`에 `income_type`을
+  얹어 보낼지, 사업소득 전용 스텝을 따로 둘지 결정 필요.
+- 기타소득자등록·일용직 사원등록의 정확한 그리드 id·필드명 실측 (사용자 요청 시 진행).
+
 ### 13-4. 세무신고관리·전자신고 — §4-4·§4-8 세부 확정
 
 - **원천징수이행상황신고서**: 반기별 납부 여부는 `[인사환경설정] > 원천징수이행상황신고서 설정 > 반기별 납부 사용여부`("여"=반기, "부"=월별)로 사무소가 미리 정해 둔다 — §4-8 "반기납부 거래처" 판별을 위하고 쪽에서도 이 설정을 대조에 쓸 수 있다. 신고서 선택은 `0.정기신고/1.정기수정신고/2.기한후신고/3.기한후수정신고` 중 자동화는 항상 `0.정기신고`만 골라야 한다(§4-8 수정·기한후 제외 원칙과 일치). ([참고](https://wehagohelp.zendesk.com/hc/ko/articles/7511655618329))

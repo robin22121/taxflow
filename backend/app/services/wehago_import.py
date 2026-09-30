@@ -9,6 +9,14 @@
 - 예외: 사원코드는 위하고 사원 연결 키라 위하고 값으로 맞춘다 (급여 업로드가 이 코드로 사원을 찾는다).
 - 사원 매칭 순서: 사원코드 → 주민번호 → 사원코드 없는 동명이인 없는 이름.
 - 주민번호는 암호화 저장하고, 차이 보고에도 값은 남기지 않는다.
+
+소득구분(income_type) 스코핑 (plan/16 §13-3-5)
+- 위하고는 사원등록(근로)·사업소득자등록·기타소득자등록·일용직 사원등록을 각각 별도
+  화면·별도 코드 채번으로 관리한다 — 사업소득자등록의 코드 "1"과 사원등록(근로)의
+  코드 "1"은 남남일 수 있다.
+- 그래서 사원코드·주민번호·이름 매칭은 **같은 income_type 안에서만** 한다.
+  ``ImportedEmployee.income_type``을 안 보내면 기존 근로소득 임포트(§12)와 그대로
+  호환되도록 WAGE로 취급한다.
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Client, Employee
 from app.models.employee import EmploymentStatus
+from app.models.income_type import IncomeType
 from app.services.crypto import decrypt_rrn, encrypt_rrn, normalize_rrn, rrn_last4
 
 
@@ -40,6 +49,8 @@ class ImportedEmployee:
     department: str | None = None
     position: str | None = None
     job_type: str | None = None
+    income_type: str | None = None  # WAGE(기본)/BUSINESS/OTHER/DAILY — 안 보내면 WAGE
+    business_type_code: str | None = None  # 사업소득 업종코드 (940100~940929)
 
 
 @dataclass
@@ -80,6 +91,13 @@ def bn_digits(value: str | None) -> str:
 def format_bn(value: str) -> str:
     d = bn_digits(value)
     return f"{d[:3]}-{d[3:5]}-{d[5:]}" if len(d) == 10 else value.strip()
+
+
+def _income_type(value: str | None) -> IncomeType:
+    try:
+        return IncomeType(value) if value else IncomeType.WAGE
+    except ValueError:
+        return IncomeType.WAGE
 
 
 def _fill(obj: Any, attr: str, value: Any, target: str, label: str, out: ImportOutcome) -> bool:
@@ -171,25 +189,29 @@ async def _apply_employees(
     existing = list(
         (await db.execute(select(Employee).where(Employee.client_id == client.id))).scalars().all()
     )
-    by_code = {e.employee_code: e for e in existing if e.employee_code}
-    by_rrn: dict[str, Employee] = {}
+    # 사원코드·주민번호·이름 매칭은 같은 income_type 안에서만 한다 (§13-3-5) — 화면마다
+    # 채번이 독립적이라 income_type이 다르면 같은 코드라도 남남일 수 있다.
+    by_code: dict[tuple[IncomeType, str], Employee] = {}
+    by_rrn: dict[tuple[IncomeType, str], Employee] = {}
+    uncoded_by_name: dict[tuple[IncomeType, str], list[Employee]] = {}
     for e in existing:
+        if e.employee_code:
+            by_code[(e.income_type, e.employee_code)] = e
+        else:
+            uncoded_by_name.setdefault((e.income_type, e.name), []).append(e)
         if e.rrn_encrypted and (known := _safe_rrn(decrypt_rrn(e.rrn_encrypted))):
-            by_rrn[known] = e
-    uncoded_by_name: dict[str, list[Employee]] = {}
-    for e in existing:
-        if not e.employee_code:
-            uncoded_by_name.setdefault(e.name, []).append(e)
+            by_rrn[(e.income_type, known)] = e
     claimed: set[str] = set()
 
     for row in incoming:
+        row_type = _income_type(row.income_type)
         code = row.employee_code.strip()
         rrn = _safe_rrn(row.rrn)
-        emp = by_code.get(code)
+        emp = by_code.get((row_type, code))
         if emp is None and rrn:
-            emp = by_rrn.get(rrn)
+            emp = by_rrn.get((row_type, rrn))
         if emp is None:
-            same_name = [e for e in uncoded_by_name.get(row.name, []) if e.id not in claimed]
+            same_name = [e for e in uncoded_by_name.get((row_type, row.name), []) if e.id not in claimed]
             if len(same_name) == 1:
                 emp = same_name[0]
         if emp is not None and emp.id in claimed:
@@ -208,6 +230,8 @@ async def _apply_employees(
                 department=row.department,
                 position=row.position,
                 job_type=row.job_type,
+                income_type=row_type,
+                business_type_code=row.business_type_code,
                 status=EmploymentStatus.RESIGNED if resigned else EmploymentStatus.ACTIVE,
             )
             db.add(emp)
@@ -242,5 +266,6 @@ async def _apply_employees(
         changed |= _fill(emp, "department", row.department, row.name, "부서", out)
         changed |= _fill(emp, "position", row.position, row.name, "직급", out)
         changed |= _fill(emp, "job_type", row.job_type, row.name, "직종", out)
+        changed |= _fill(emp, "business_type_code", row.business_type_code, row.name, "업종코드", out)
         if changed:
             out.employees_updated += 1
