@@ -19,6 +19,26 @@ const INCOME_TYPE_LABEL: Record<IncomeTypeStatus["income_type"], string> = {
   DAILY: "일용",
 };
 
+/** 차단 사유 배지 클릭 시 보여줄 상세 설명 — 서버는 사유 문자열만 주므로 화면에서 매칭한다. */
+function explainReason(reason: string): string {
+  if (reason === "사업자번호 없음") {
+    return "이 거래처엔 사업자번호가 등록돼 있지 않습니다. 위하고 T 수임처와 대조할 수 없어 전송할 수 없습니다 — 거래처 상세에서 사업자번호를 먼저 입력하세요.";
+  }
+  if (reason.startsWith("위하고 사원코드 없는 사원 있음")) {
+    return "괄호 안 소득유형에 속한 직원 중 위하고 사원코드가 비어 있는 사람이 있습니다. 위하고 급여자료입력은 이 코드로 사원을 찾기 때문에, 코드가 없으면 어떤 위하고 사원에 급여를 연결할지 알 수 없어 거래처 전체 전송을 막습니다 — 직원 상세에서 위하고 사원코드를 입력하세요.";
+  }
+  if (reason === "이미 전송 대기·진행 중") {
+    return "이 거래처는 이미 위하고 전송 작업이 대기·진행 중입니다. 같은 자료가 중복으로 올라가지 않도록 그 작업이 끝날 때까지 새로 전송할 수 없습니다.";
+  }
+  if (reason === "급여지급일 미설정") {
+    return "급여지급일은 거래처 상세 → 기본 세팅에서 설정합니다. 위하고 급여자료입력은 지급일로 조회하기 때문에 지급일이 없으면 전송할 화면을 찾을 수 없습니다.";
+  }
+  if (reason.includes("자동화 미지원")) {
+    return "원천징수이행상황신고서는 근로·사업·기타·일용소득을 합산한 신고서 한 장이라, 자동화가 없는 소득이 섞인 거래처는 전체를 전송할 수 없습니다. 해당 소득은 위하고에 직접 입력한 뒤 진행하세요.";
+  }
+  return reason;
+}
+
 /** 소득유형 4칸 — 선택 체크박스가 아니라 상태 표시다. 전송은 거래처 단위로 원자적이다 (plan/16 §4-1). */
 function IncomeTypeChips({ types }: { types: IncomeTypeStatus[] }) {
   return (
@@ -27,27 +47,27 @@ function IncomeTypeChips({ types }: { types: IncomeTypeStatus[] }) {
         const label = INCOME_TYPE_LABEL[t.income_type];
         if (t.count === 0) {
           return (
-            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[10.5px] bg-gray-100 text-gray-400">
+            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[12px] bg-gray-100 text-gray-500">
               {label} 자료없음
             </span>
           );
         }
         if (!t.automated) {
           return (
-            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[10.5px] bg-amber-50 text-amber-700 border border-amber-200">
+            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[12px] font-medium bg-amber-50 text-amber-800 border border-amber-300">
               {label} {t.count}건 · 자동화 미지원
             </span>
           );
         }
         if (t.unapproved_count > 0) {
           return (
-            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[10.5px] bg-red-50 text-red-700 border border-red-200">
+            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[12px] font-medium bg-red-50 text-red-700 border border-red-300">
               {label} {t.unapproved_count}/{t.count} 미승인
             </span>
           );
         }
         return (
-          <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[10.5px] bg-green-50 text-green-700 border border-green-200">
+          <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[12px] font-medium bg-green-50 text-green-700 border border-green-300">
             {label} {t.count}건 완료
           </span>
         );
@@ -92,6 +112,7 @@ export function WehagoSendModal({
   const selected = (picked ?? sendable).filter((id) => sendable.includes(id));
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailReason, setDetailReason] = useState<string | null>(null);
 
   async function send() {
     setSending(true);
@@ -111,6 +132,7 @@ export function WehagoSendModal({
     setPicked(selected.includes(id) ? selected.filter((c) => c !== id) : [...selected, id]);
 
   return (
+    <>
     <Modal open={true} onClose={onClose} size="lg" title="① 위하고 전송 — 거래처 선택"
       footer={<>
         <Button variant="ghost" onClick={onClose}>취소</Button>
@@ -150,13 +172,25 @@ export function WehagoSendModal({
           const blocked = Boolean(r.reason);
           return (
             <label key={r.clientId}
-              className={`flex flex-col gap-1.5 py-2 px-1 ${blocked ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50"}`}>
+              className={`flex flex-col gap-1.5 py-2 px-1 ${blocked ? "cursor-not-allowed" : "cursor-pointer hover:bg-gray-50"}`}>
               <div className="flex items-center gap-2.5">
                 <input type="checkbox" checked={!blocked && selected.includes(r.clientId)} disabled={blocked}
-                  onChange={() => toggle(r.clientId)} className="h-3.5 w-3.5 accent-blue-600" />
-                <span className="flex-1 text-[13px] text-gray-900">{r.clientName}</span>
+                  onChange={() => toggle(r.clientId)} className="h-3.5 w-3.5 accent-blue-600 disabled:opacity-40" />
+                <span className={`flex-1 text-[13px] ${blocked ? "text-gray-500" : "text-gray-900"}`}>{r.clientName}</span>
                 {r.payDate && <span className="text-[11px] text-gray-500 tabular-nums">지급일 {r.payDate}</span>}
-                {r.reason && <Badge tone="danger">{r.reason}</Badge>}
+                {r.reason && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDetailReason(r.reason);
+                    }}
+                    className="cursor-pointer"
+                  >
+                    <Badge tone="danger">{r.reason} · 자세히</Badge>
+                  </button>
+                )}
               </div>
               {r.incomeTypes.length > 0 && (
                 <div className="pl-6"><IncomeTypeChips types={r.incomeTypes} /></div>
@@ -178,5 +212,14 @@ export function WehagoSendModal({
         </p>
       )}
     </Modal>
+
+    {detailReason && (
+      <Modal open={true} onClose={() => setDetailReason(null)} title="전송 불가 사유"
+        footer={<Button onClick={() => setDetailReason(null)}>확인</Button>}>
+        <p className="text-[13px] font-medium text-gray-900 mb-2">{detailReason}</p>
+        <p className="text-[13px] text-gray-700 leading-relaxed">{explainReason(detailReason)}</p>
+      </Modal>
+    )}
+    </>
   );
 }

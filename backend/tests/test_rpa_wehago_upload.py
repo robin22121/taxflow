@@ -296,6 +296,60 @@ async def test_upload_is_blocked_when_employee_has_no_wehago_code(
             await db.commit()
 
 
+@pytest.mark.asyncio
+async def test_preview_reason_names_the_income_type_missing_a_code(
+    http: AsyncClient, auth_headers: dict
+):
+    """"위하고 사원코드 없는 사원 있음"만으로는 어느 소득유형인지 알 수 없다 — 괄호로 밝힌다."""
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Employee
+    from app.models.payroll import IncomeType, PayrollEntry
+
+    async with SessionLocal() as db:
+        template = (
+            await db.execute(
+                select(PayrollEntry).where(
+                    PayrollEntry.monthly_filing_id == filing_id,
+                    PayrollEntry.client_id == client_id,
+                )
+            )
+        ).scalars().first()
+        no_code_emp = Employee(client_id=client_id, name="사업소득코드누락", employee_code=None)
+        db.add(no_code_emp)
+        await db.flush()
+        business_entry = PayrollEntry(
+            monthly_filing_id=template.monthly_filing_id,
+            collection_session_id=template.collection_session_id,
+            client_id=client_id,
+            employee_id=no_code_emp.id,
+            raw_name=no_code_emp.name,
+            income_type=IncomeType.BUSINESS,
+            total_amount=1_000_000,
+            taxable=1_000_000,
+            approved=True,
+        )
+        db.add(business_entry)
+        await db.commit()
+        entry_id, emp_id = business_entry.id, no_code_emp.id
+
+    try:
+        r = await http.get(
+            f"/api/v1/rpa/wehago-uploads/preview?filing_id={filing_id}", headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+        row = next(p for p in r.json() if p["client_id"] == client_id)
+        assert row["blocked_reason"] == "위하고 사원코드 없는 사원 있음 (사업소득)"
+    finally:
+        async with SessionLocal() as db:
+            await db.delete(await db.get(PayrollEntry, entry_id))
+            await db.delete(await db.get(Employee, emp_id))
+            await db.commit()
+
+
 async def _clear_payment_dates(filing_id: str, client_id: str) -> None:
     """실제 수집 경로처럼 급여 자료에 지급일이 없는 상태 (시드는 25일로 채워 둔다)."""
     from sqlalchemy import update

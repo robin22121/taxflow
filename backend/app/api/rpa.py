@@ -237,19 +237,20 @@ async def preview_wehago_uploads(
     clients = (
         await db.execute(select(Client).where(Client.id.in_(client_ids)))
     ).scalars().all()
-    no_code = set(
-        (
-            await db.execute(
-                select(PayrollEntry.client_id)
-                .outerjoin(Employee, PayrollEntry.employee_id == Employee.id)
-                .where(
-                    PayrollEntry.monthly_filing_id == filing.id,
-                    func.coalesce(func.trim(Employee.employee_code), "") == "",
-                    PayrollEntry.deleted.is_(False),
-                )
+    no_code: dict[str, set[str]] = {}
+    for cid, income_type in (
+        await db.execute(
+            select(PayrollEntry.client_id, PayrollEntry.income_type)
+            .outerjoin(Employee, PayrollEntry.employee_id == Employee.id)
+            .where(
+                PayrollEntry.monthly_filing_id == filing.id,
+                func.coalesce(func.trim(Employee.employee_code), "") == "",
+                PayrollEntry.deleted.is_(False),
             )
-        ).scalars().all()
-    )
+        )
+    ).all():
+        dtype = "OTHER" if income_type == IncomeType.RETIREMENT else income_type.value
+        no_code.setdefault(cid, set()).add(dtype)
     active = set(
         (
             await db.execute(
@@ -294,7 +295,8 @@ async def preview_wehago_uploads(
         if not (c.business_number or "").strip():
             reason = "사업자번호 없음"
         elif c.id in no_code:
-            reason = "위하고 사원코드 없는 사원 있음"
+            labels = "·".join(_INCOME_TYPE_LABEL[IncomeType[t]] for t in sorted(no_code[c.id]))
+            reason = f"위하고 사원코드 없는 사원 있음 ({labels})"
         elif c.id in active:
             reason = "이미 전송 대기·진행 중"
         elif any(not s.automated and s.count > 0 for s in income_types):
