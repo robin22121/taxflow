@@ -1772,14 +1772,24 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       },
       {
         onSuccess: (result) => {
-          setDraftFor(e.id, {
-            ...getDraft(e),
-            national_pension: result.national_pension,
-            health_insurance: result.health_insurance,
-            employment_insurance: result.employment_insurance,
-            longterm_care: result.longterm_care,
-            income_tax: result.income_tax,
-            local_tax: result.local_tax,
+          // 입력칸 blur → 재계산 요청 사이에 바로 승인/저장을 눌러 draft가 이미 지워졌다면,
+          // 늦게 도착한 이 응답이 방금 저장된 값 위에 옛 draft를 되살리지 않도록 무시한다
+          // (예: 근무일수를 고치고 곧바로 승인을 누르면 저장 자체는 정상 반영되지만, 이 응답이
+          //  나중에 도착해 편집 중 값으로 되돌려버리는 문제).
+          setDrafts((prev) => {
+            if (!(e.id in prev)) return prev;
+            return {
+              ...prev,
+              [e.id]: {
+                ...prev[e.id],
+                national_pension: result.national_pension,
+                health_insurance: result.health_insurance,
+                employment_insurance: result.employment_insurance,
+                longterm_care: result.longterm_care,
+                income_tax: result.income_tax,
+                local_tax: result.local_tax,
+              },
+            };
           });
         },
         onError: (err) => alert((err as Error).message),
@@ -2976,9 +2986,10 @@ function V3Spreadsheet({
         </div>
       )}
 
-      {/* 하단 액션: 저장/취소(이미 승인된 항목의 수정만 — 검토 대상은 위쪽 "승인" 버튼이 저장을 겸한다) + 보조 액션(v3 ghost actions) */}
+      {/* 하단 액션: 저장/취소 — 수정 버튼을 눌러 편집 모드에 들어간 경우에만 노출.
+          검토 대상(pending)도 위쪽 "승인"과는 별개로 여기 "저장"으로 승인 없이 값만 저장 가능. */}
       <div className="flex items-center gap-1.5 px-5 py-2 bg-white border-t border-gray-200">
-        {editing && mode === "approved" && (<>
+        {editing && (<>
           <button
             onClick={onSave}
             disabled={saving}
