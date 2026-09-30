@@ -2148,7 +2148,11 @@ function WhtSubTabBar({ value, onChange, entries }: {
     <div className="flex items-center gap-1 px-3 md:px-4 pt-3 pb-1 border-b border-gray-100">
       {WHT_SUBTABS.map((s) => {
         const active = value === s;
-        const count = s === "PREVIEW" ? null : entries.filter((e) => matchesWhtSubTab(e, s)).length;
+        const matched = s === "PREVIEW" ? null : entries.filter((e) => matchesWhtSubTab(e, s));
+        const total = matched?.length ?? null;
+        const approvedCount = matched?.filter((e) => e.approved).length ?? null;
+        // 전건 승인 완료(N/N)는 진한색, 일부만 승인된 상태(n/N)는 연한색으로 구분
+        const complete = total !== null && total > 0 && approvedCount === total;
         return (
           <button
             key={s}
@@ -2158,11 +2162,15 @@ function WhtSubTabBar({ value, onChange, entries }: {
             }`}
           >
             {WHT_SUBTAB_LABEL[s]}
-            {count !== null && (
+            {total !== null && (
               <span className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1 rounded-full text-[10.5px] tabular-nums ${
-                active ? "bg-blue-500/40 text-white" : "bg-white text-gray-500 border border-gray-200"
+                total === 0
+                  ? active ? "bg-blue-500/40 text-white" : "bg-white text-gray-500 border border-gray-200"
+                  : complete
+                  ? "bg-green-600 text-white"
+                  : active ? "bg-blue-500/40 text-white" : "bg-amber-100 text-amber-700 border border-amber-200"
               }`}>
-                {count}
+                {total === 0 ? 0 : `${approvedCount}/${total}`}
               </span>
             )}
           </button>
@@ -2259,7 +2267,7 @@ function EntriesSummaryBar({ mode, entries }: { mode: "received" | "wht"; entrie
     0,
   );
   return (
-    <div className="flex items-center justify-end gap-5 px-4 py-3 border-b-2 border-gray-200 bg-gray-50/60 text-[12px]">
+    <div className="sticky top-0 z-10 flex items-center justify-end gap-5 px-4 py-3 border-b-2 border-gray-200 bg-gray-50 text-[12px]">
       <span className="text-gray-500">직원 <strong className="ml-1 text-gray-900 tabular-nums">{entries.length}명</strong></span>
       <span className="text-gray-500">총지급액 합계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(grossTotal)}</strong></span>
       {mode === "wht" && (
