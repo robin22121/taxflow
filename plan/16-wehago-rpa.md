@@ -397,6 +397,16 @@ PoC 7 통과 시 전용 노트북 · 유휴 PC/미니PC · 가상 PC 를 모두 
 - 홈택스 원천세 신고 후 지방소득세로 이어지는 연계 경로 — PoC 0 영상에서는 위택스에 따로 로그인해 파일을 올림. 연계 경로 유무는 추가 실측
 - **재실행 안전** — ⑨~⑫ 각 단계별 진행을 `rpa_jobs`에 기록하고, 노트북 재기동 후 재실행 시 끝난 단계는 건너뛴다 (위하고 재마감·홈택스 중복 제출 방지)
 
+**2026-09-30 결정 — 제작(게이트 2) 선택 UI를 거래처 단위 → 항목별 체크박스로 세분화 (사용자 확정)**
+
+현재 구현(`frontend/src/components/rpa/production-modal.tsx` `ProductionModal`)은 거래처(client) 단위 체크박스 하나 + 단일 상태 뱃지("위하고 입력 미완료" 등, `ProductionTarget{clientId, clientName, blockedReason}`)만 있고, 백엔드 `POST /api/v1/rpa/productions`(`create_productions`, `backend/app/api/rpa.py:813-891`)도 `client_ids`만 받아 거래처 단위로만 제작 여부를 판단한다. §4-1 "명세서 추가입력" 결정(일용·사업·기타소득은 자료입력+명세서 입력까지 끝나야 전송 완료)에 맞춰, 제작 단계도 **거래처 안에서 어떤 항목을 제작할지 선택**할 수 있어야 한다:
+
+- 거래처 행 하위에 **제작 대상 항목별 체크박스**를 둔다 — 예: 원천세 및 지방세(⑨-a·⑨-c·⑩-a·⑩-b 묶음), 사업소득지급명세(⑨-b `close_business_income_report`), 일용근로소득지급명세, (있다면) 기타소득지급명세.
+- 항목별 상태는 **자료없음**(해당 소득유형에 이번 달 데이터 자체가 없음) / **미전송데이터있음**(자료는 있으나 게이트 1 전송·명세서 입력이 아직 안 끝나 제작 불가) / 제작가능, 세 가지로 구분해 표시한다.
+- 이 구조는 게이트 1 전송 미리보기(`GET /api/v1/rpa/wehago-uploads/preview`, `WehagoUploadPreviewRow.income_types: IncomeTypeStatus[]`)에서 이미 쓰고 있는 소득유형별 상태 패턴(`frontend/src/components/rpa/wehago-send-modal.tsx`)과 같은 모양으로 맞춘다.
+- 구현 범위: (a) `ProductionTarget` 타입에 항목별 상태 배열 추가, (b) `create_productions` 요청 바디를 `client_ids` → `{client_id, categories}[]`로 확장, (c) ⑨~⑫ "클릭 하나로 전부 순차 실행" 전제를 카테고리 단위 부분 실행으로 쪼갤지 결정 — 예를 들어 사업소득지급명세만 선택하고 원천세는 빼는 게 위하고 T에서 가능한지, 실행 순서·의존관계를 실측으로 확인해야 한다.
+- 일용근로소득지급명세는 §4-1 기준 자료입력·명세서 자동화 자체가 아직 없어, 지금은 UI에 "자동화 미지원"으로만 노출하고 체크박스 활성화는 자동화 완성 후로 미룬다.
+
 ### 4-5. 결과 수집 (게이트 2 이후 자동)
 
 - 접수증·납부서(국세·지방세) PDF를 노트북이 회수 → 서버 `ClientFilingResult`(`source=RPA`, `published_at=NULL`)에 **비공개 상태로 등록**
