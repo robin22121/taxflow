@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.channels import MessageRecipient, get_alimtalk_channel
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_write, visible_clients
 from app.models import (
     Client,
     CollectionEvent,
@@ -65,6 +65,36 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+
+async def _scoped_filing(db: AsyncSession, filing_id: str, user: User) -> MonthlyFiling:
+    """신고 건 컨테이너 조회 — 사무소 공용이라 STAFF도 접근 가능(plan/14 §5.2).
+    거래처별 행 필터링은 별도로 `_visible_client_ids`를 함께 쓴다."""
+    filing = await db.get(MonthlyFiling, filing_id)
+    if not filing or filing.tax_office_id != user.tax_office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    return filing
+
+
+async def _visible_client_ids(db: AsyncSession, user: User) -> set[str] | None:
+    """STAFF가 볼 수 있는 거래처 id 집합. OWNER는 필터 불필요(None)."""
+    if user.role != "STAFF":
+        return None
+    return set(
+        (await db.execute(visible_clients(user).with_only_columns(Client.id))).scalars().all()
+    )
+
+
+async def _scoped_entry(db: AsyncSession, filing_id: str, entry_id: str, user: User) -> PayrollEntry:
+    """급여항목 단건 — 신고 건 소속 + (STAFF는) 담당 거래처 소속까지 확인(plan/14 §5.2)."""
+    entry = await db.get(PayrollEntry, entry_id)
+    if not entry or entry.monthly_filing_id != filing_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    await _scoped_filing(db, filing_id, user)
+    visible_ids = await _visible_client_ids(db, user)
+    if visible_ids is not None and entry.client_id not in visible_ids:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    return entry
 
 
 def _session_out(session: CollectionSession, client: Client) -> CollectionSessionOut:
@@ -556,16 +586,15 @@ async def get_dashboard(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> FilingDashboard:
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    filing = await _scoped_filing(db, filing_id, user)
+    visible_ids = await _visible_client_ids(db, user)
 
     # 자료요청/메일발송 전이라도 모든 거래처가 목록에 나타나도록,
     # 세션이 없는 거래처는 PENDING 세션을 생성한다(발송은 하지 않음).
+    # STAFF는 자기 담당 거래처에 한해서만 세션을 만든다 — 미배정/타 담당 거래처는
+    # 존재 자체가 보이지 않아야 한다(plan/14 §5.1).
     clients = (
-        await db.execute(
-            select(Client).where(Client.tax_office_id == user.tax_office_id)
-        )
+        await db.execute(visible_clients(user))
     ).scalars().all()
     existing_client_ids = set(
         (
@@ -584,12 +613,11 @@ async def get_dashboard(
     if created:
         await db.commit()
 
+    sessions_q = select(CollectionSession).where(CollectionSession.monthly_filing_id == filing_id)
+    if visible_ids is not None:
+        sessions_q = sessions_q.where(CollectionSession.client_id.in_(visible_ids))
     sessions = (
-        await db.execute(
-            select(CollectionSession)
-            .where(CollectionSession.monthly_filing_id == filing_id)
-            .options(selectinload(CollectionSession.client))
-        )
+        await db.execute(sessions_q.options(selectinload(CollectionSession.client)))
     ).scalars().all()
 
     # entry counts per session
@@ -648,15 +676,13 @@ async def list_entries(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[PayrollEntryOut]:
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    await _scoped_filing(db, filing_id, user)
+    visible_ids = await _visible_client_ids(db, user)
+    entries_q = select(PayrollEntry).where(PayrollEntry.monthly_filing_id == filing_id)
+    if visible_ids is not None:
+        entries_q = entries_q.where(PayrollEntry.client_id.in_(visible_ids))
     rows = (
-        await db.execute(
-            select(PayrollEntry)
-            .where(PayrollEntry.monthly_filing_id == filing_id)
-            .options(selectinload(PayrollEntry.collection_event))
-        )
+        await db.execute(entries_q.options(selectinload(PayrollEntry.collection_event)))
     ).scalars().all()
 
     from app.schemas.filings import SourceEventOut
@@ -684,13 +710,9 @@ async def update_entry(
     payload: PayrollEntryUpdate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> PayrollEntry:
-    entry = await db.get(PayrollEntry, entry_id)
-    if not entry or entry.monthly_filing_id != filing_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
-    filing = await db.get(MonthlyFiling, filing_id)
-    if filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN)
+    entry = await _scoped_entry(db, filing_id, entry_id, user)
 
     patch = payload.model_dump(exclude_unset=True)
     for field_name, value in patch.items():
@@ -772,12 +794,7 @@ async def recalculate_entry_deductions(
     DB에는 쓰지 않는다 — update_entry의 자동 재계산(714-745행)과 동일한 규칙을
     저장 전 미리보기용으로 재사용한 것.
     """
-    entry = await db.get(PayrollEntry, entry_id)
-    if not entry or entry.monthly_filing_id != filing_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
-    filing = await db.get(MonthlyFiling, filing_id)
-    if filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN)
+    entry = await _scoped_entry(db, filing_id, entry_id, user)
 
     from app.models.payroll import IncomeType as _IncomeType
     income_type = _IncomeType(payload.income_type) if payload.income_type else entry.income_type
@@ -827,13 +844,9 @@ async def delete_entry(
     entry_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> Response:
-    entry = await db.get(PayrollEntry, entry_id)
-    if not entry or entry.monthly_filing_id != filing_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
-    filing = await db.get(MonthlyFiling, filing_id)
-    if filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN)
+    entry = await _scoped_entry(db, filing_id, entry_id, user)
     # 소프트 삭제 — 원천세관리 화면에서 빨간 취소선으로 남기고, 신고서 산출물·집계·매칭에서는 제외한다.
     entry.deleted = True
     await db.commit()
@@ -846,27 +859,24 @@ async def resign_entry_employees(
     payload: ResignIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> ResignResult:
     """선택한 급여항목의 직원을 퇴사 처리한다.
 
     당월 급여항목은 지우지 않는다 — 퇴사한 달에도 급여는 지급되므로 신고 대상이다.
     직원 마스터만 RESIGNED 로 바꿔 다음 달 전월자료 불러오기에서 빠지게 한다.
     """
-    filing = await db.get(MonthlyFiling, filing_id)
-    if not filing or filing.tax_office_id != user.tax_office_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+    await _scoped_filing(db, filing_id, user)
+    visible_ids = await _visible_client_ids(db, user)
 
+    entries_q = select(PayrollEntry).where(
+        PayrollEntry.monthly_filing_id == filing_id,
+        PayrollEntry.id.in_(payload.entry_ids),
+    )
+    if visible_ids is not None:
+        entries_q = entries_q.where(PayrollEntry.client_id.in_(visible_ids))
     entries = list(
-        (
-            await db.execute(
-                select(PayrollEntry)
-                .where(
-                    PayrollEntry.monthly_filing_id == filing_id,
-                    PayrollEntry.id.in_(payload.entry_ids),
-                )
-                .options(selectinload(PayrollEntry.employee))
-            )
-        ).scalars().all()
+        (await db.execute(entries_q.options(selectinload(PayrollEntry.employee)))).scalars().all()
     )
     if not entries:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "대상 항목을 찾을 수 없습니다")

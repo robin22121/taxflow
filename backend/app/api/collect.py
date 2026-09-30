@@ -82,6 +82,8 @@ async def _load_session(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
     if session.monthly_filing.tax_office_id != user.tax_office_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN)
+    if user.role == "STAFF" and session.client.assigned_user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
     return session
 
 
