@@ -78,6 +78,7 @@ def _ensure_taxes(entry: PayrollEntry) -> tuple[int, int]:
         income_type=entry.income_type,
         taxable_amount=entry.taxable or (entry.total_amount - entry.non_taxable),
         dependents=entry.dependents or 1,
+        daily_count=entry.work_days,
     )
     return tax.income_tax, tax.local_tax
 

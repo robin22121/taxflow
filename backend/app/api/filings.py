@@ -724,7 +724,7 @@ async def update_entry(
     # user did not manually set the corresponding values in the same PATCH.
     money_changed = normalized or any(
         k in patch for k in ("total_amount", "non_taxable", "income_type",
-                             "meal_amount", "car_amount", "childcare_amount")
+                             "meal_amount", "car_amount", "childcare_amount", "work_days")
     )
     if money_changed:
         # 비과세는 총지급액에 포함되므로 과세표준은 음수가 될 수 없다.
@@ -737,6 +737,7 @@ async def update_entry(
                 dependents=entry.dependents or 1,
                 children=entry.children or 0,
                 rate_adjust=entry.rate_adjust or 100,
+                daily_count=entry.work_days,
             )
             entry.income_tax = tax.income_tax
             entry.local_tax = tax.local_tax
@@ -803,6 +804,7 @@ async def recalculate_entry_deductions(
         dependents=entry.dependents or 1,
         children=entry.children or 0,
         rate_adjust=entry.rate_adjust or 100,
+        daily_count=entry.work_days,
     )
     from app.services.payroll_defaults import load_payroll_defaults
     defaults = await load_payroll_defaults(db, entry.client_id)

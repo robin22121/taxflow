@@ -71,6 +71,7 @@ class PayrollEntryOut(BaseModel):
     settlement_insurance: int = 0
     rent_support: int = 0
     payment_date: date | None
+    work_days: int | None = None
     match_status: str
     prev_amount: int | None
     anomaly_notes: dict | None
@@ -102,6 +103,7 @@ class PayrollEntryUpdate(BaseModel):
     settlement_insurance: int | None = None
     rent_support: int | None = None
     payment_date: date | None = None
+    work_days: int | None = None
     employee_id: str | None = None
     approved: bool | None = None
     edit_reason: str | None = None

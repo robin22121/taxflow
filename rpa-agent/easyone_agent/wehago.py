@@ -51,6 +51,12 @@ _BUSINESS_INCOME_REPORT_MENU_LABEL = "거주자 사업소득간이지급명세�
 _MORE_BUTTON = "button#collect"  # 더보기(⋮) — 급여자료입력과 같은 id, 실제 HTML로 확인됨
 _EXCEL_UPLOAD_MENU_ITEM = "엑셀서식 불러오기"  # 더보기 메뉴 항목 (공백 있음)
 _EXCEL_UPLOAD_CONFIRM_BUTTON = "엑셀서식불러오기"  # 옵션 다이얼로그 최종 버튼 (공백 없음 — 항목명과 다름, 실측 확인)
+
+# SmartA 일용직급여자료입력 (2026-09-30 사용자 Chrome Recorder 녹화 확인)
+# 사업소득과 달리 카테고리 클릭 없이 바로 메뉴가 보였다 — 메뉴 링크 실제 id도 내부 생성
+# 숫자(예: "444100101000007", 사업소득 카테고리의 "4441002..."와 접두어가 다름)라
+# 기본 카테고리("근로소득관리 / 연말정산관리") 안의 서브메뉴로 추정된다. 텍스트로 찾는다.
+_DAILY_INCOME_MENU_LABEL = "일용직 급여자료입력"  # 공백 있음 — 실측 텍스트 그대로
 # 합계 열은 위하고가 다시 계산하므로 연결하지 않아도 된다
 _TOTAL_COLUMNS = {"지급액계", "공제액계", "차인지급액"}
 _EMPLOYEE_GRID = "Left_grid"  # 왼쪽 사원 목록 (cd_emp 사원코드 · nm_krname 이름)
@@ -118,9 +124,11 @@ _LOGIN_FAILURE_HINTS = {
     "QR코드": "QR 추가 인증 요구",
 }
 
-# 로그인 직후·화면 진입 시 뜨는 안내 팝업들 — 모두 같은 dialog 클래스에 [닫기] 버튼
-# (2차 인증 안내·노란우산공제 안내 등 서비스 프로모션)
-_SPLASH_DIALOG = "div.LUX_basic_dialog:visible"
+# 로그인 직후·화면 진입 시 뜨는 안내 팝업들 — 모두 [닫기] 버튼이 있다
+# (2차 인증 안내·노란우산공제 안내 등 서비스 프로모션이 div.LUX_basic_dialog, "DJ Bank"류
+# 은행 상품 광고가 div[id^=common_pop_dialog] — 2026-09-30 실기 확인. 후자를 못 닫으면
+# 메인화면 "전체" 탭 클릭이 막혀 수임처 검색 자체가 실패한다.)
+_SPLASH_DIALOG = "div.LUX_basic_dialog:visible, div[id^='common_pop_dialog']:visible"
 
 # 수임처정보 화면의 우측 '기본정보' 탭 th 라벨 → 표준 필드
 _READ_COMPANY_LABELS = {
@@ -828,6 +836,182 @@ class WehagoUploader:
         done.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         think("wehago")
         smarta.get_by_role("button", name="확인", exact=True).click()
+        self._wait_for_no_dimmed(smarta)
+        return text
+
+    def open_daily_income_screen(self, business_number: str) -> tuple[str, str]:
+        """수임처 → SmartA 일용직급여자료입력 진입 (2026-09-30 Chrome Recorder 녹화 확인).
+
+        사업소득자료입력과 달리 카테고리 클릭 없이 바로 메뉴가 보였다 — 기본 카테고리
+        ("근로소득관리 / 연말정산관리") 안의 서브메뉴로 추정된다. 그래도 혹시 카테고리가
+        안 보이는 세션 상태를 대비해 `_ALL_MENU_BUTTON` 폴백은 넣어둔다.
+
+        Returns:
+            (위하고 상호, 사업자번호) — 호출자가 작업의 거래처와 대조한다 (`open_payroll_screen`과
+            동일한 안전장치, §4-2).
+        """
+        smarta, name, number = self._open_smarta(business_number)
+        self._smarta_page = smarta
+        self.step = "일용직 급여자료입력 메뉴 클릭"
+        menu = smarta.get_by_text(_DAILY_INCOME_MENU_LABEL, exact=True)
+        try:
+            menu.wait_for(state="visible", timeout=5_000)
+        except Exception:
+            smarta.locator(self._ALL_MENU_BUTTON).click()
+            menu.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        menu.click()
+        self._dismiss_notice(smarta)
+        return name, number
+
+    def _daily_income_page(self):
+        """SmartA 일용직급여자료입력 탭 — open_daily_income_screen 이 연 탭."""
+        if self._smarta_page is None or self._smarta_page.is_closed():
+            raise WehagoError("일용직급여자료입력 화면이 열려 있지 않습니다 (open_daily_income_screen 먼저 호출)")
+        self._smarta_page.bring_to_front()
+        return self._smarta_page
+
+    def _daily_income_select_period(self, page, period: str) -> None:
+        """귀속년월 + 지급년월(별도 칸 둘 다 필수) → [조회] (2026-09-30 실기 확인).
+
+        사업소득과 달리 이 화면은 **귀속년월과 지급년월이 별도 칸**이다(조회조건 순서:
+        귀속년월 → 지급년월 → 현장 → 부서 → 프로젝트 → 구분). 둘 다 같은 달로 채운다 —
+        전월 근무·당월 지급처럼 두 값이 달라야 하는 경우는 아직 지원하지 않는다.
+
+        ⚠️ 한쪽만 "이미 값이 맞으면 스킵"하는 방어 체크를 했더니, 다른 쪽 달력을
+        건드리는 동안 이 칸의 표시값이 깨지는 현상을 실기에서 확인했다(원인 미상 —
+        두 칸이 같은 달력 팝업 상태를 공유하는 것으로 추정). 그래서 두 칸 다 **매번
+        무조건** 달력을 다시 클릭해 채운다 — 연월 입력칸 자체는 건드리지 않고
+        `div.fakebutton` 아이콘만 클릭한다(`_business_income_select_period`와 동일 위젯).
+        """
+        self.step = "귀속년월·지급년월 입력"
+        _year, month = period.split("-")
+        month_pattern = re.compile(rf"^{int(month)}월$")
+        items = page.locator("#SearchMain").locator("div.item")
+        for idx in (0, 1):  # 0=귀속년월, 1=지급년월
+            field = items.nth(idx)
+            think("wehago")
+            field.locator("div.fakebutton").click()
+            months = page.locator("div.date_tbl td.date_day button")
+            months.first.wait_for(state="visible", timeout=5_000)
+            think("wehago")
+            months.filter(has_text=month_pattern).click()
+
+        self.step = "조회"
+        think("wehago")
+        page.locator("#SearchMain").get_by_role("button", name="조회", exact=True).click()
+        self._wait_for_no_dimmed(page)
+
+    def upload_daily_income(
+        self, period: str, xlsx_path: Path, *, replace_existing: bool = False,
+    ) -> str:
+        """일용직급여자료입력 → 지급년월 조회 → 더보기 → 엑셀서식 불러오기 → [완료].
+
+        ⚠️ **엑셀 업로드 다이얼로그 자체는 실기 녹화가 없다** — 2026-09-30 사용자 녹화는
+        수동 그리드 입력(만근공수 아닌 방식)을 보여줬을 뿐이다. 더보기 메뉴에 "엑셀서식
+        내려받기/엑셀서식 불러오기"가 있다는 사실만 §13-2에서 이미 확인됐고, 옵션
+        다이얼로그·완료 팝업 구조는 사업소득(`upload_business_income`)과 같은 더존
+        SmartA 계열이라는 추정으로 그대로 재사용했다. **실행 전 테스트 수임처로 반드시
+        검증할 것** — 특히 "소액징수부" 같은 옵션이 이 화면에도 있는지는 미확인.
+
+        `generate_smarta_daily_xls`(만근공수 방식, 일자=99)로 만든 엑셀을 올린다 —
+        PayrollEntry.work_days(공수)가 없는 사람은 그 함수가 이미 걸러낸다.
+
+        SmartA 일용직급여자료입력 탭이 이미 열려 있어야 한다 (`open_daily_income_screen` 먼저 호출).
+
+        Args:
+            period: "YYYY-MM" 지급년월 — 조회 조건에 입력한다.
+            xlsx_path: `generate_smarta_daily_xls`로 만든 업로드용 엑셀.
+            replace_existing: True면 "기존 데이터 삭제하고 불러오기", False(기본)면
+                "기존 데이터 삭제안하고 추가불러오기" — 사업소득과 같은 기본값 원칙.
+
+        Returns:
+            완료 팝업의 원문 메시지.
+
+        Raises:
+            WehagoError: 화면이 열려 있지 않거나, 조회·더보기 메뉴·옵션 다이얼로그·파일선택창·
+                완료 팝업 중 하나라도 예상과 다르거나, 위하고가 입력 오류를 회신함.
+        """
+        smarta = self._daily_income_page()
+        self._daily_income_select_period(smarta, period)
+
+        self.step = "더보기 메뉴 열기"
+        more = smarta.locator(_MORE_BUTTON)
+        more.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        more.click()
+        think("wehago")
+        smarta.get_by_text(_EXCEL_UPLOAD_MENU_ITEM, exact=True).click()
+
+        self.step = "엑셀서식 불러오기 옵션 선택"
+        dialog = smarta.locator("div._isDialog:visible", has_text="엑셀서식 불러오기")
+        dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        option_label = (
+            "기존 데이터 삭제하고 불러오기" if replace_existing else "기존 데이터 삭제안하고 추가불러오기"
+        )
+        think("wehago")
+        dialog.get_by_text(option_label, exact=True).click()
+
+        self.step = "엑셀 파일 선택"
+        with smarta.expect_file_chooser(timeout=UPLOAD_WAIT_MS) as chooser:
+            think("wehago")
+            dialog.get_by_role("button", name=_EXCEL_UPLOAD_CONFIRM_BUTTON, exact=True).click()
+        chooser.value.set_files(str(xlsx_path))
+
+        self.step = "엑셀 불러오기 완료 대기"
+        result = smarta.locator("div._isDialog:visible")
+        result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        text = result.inner_text().strip()
+        think("wehago")
+        result.get_by_role("button", name="확인", exact=True).click()
+        if "완료" not in text:
+            raise WehagoError(f"일용소득 엑셀서식 불러오기 실패 — 위하고 응답: {text}")
+
+        # ⚠️ 2026-09-30 실기 확인: 위하고가 위 팝업에서 "완료"(SUCCESS, resultCode S001)를
+        # 반환해도 실제로는 근무일수·지급액이 전혀 반영되지 않는 경우가 있었다(만근공수·
+        # 일반 일자 방식 모두, 서식 병합 구조를 원본과 동일하게 맞춰도 재현됨 — 원인 미해결,
+        # plan/16-wehago-rpa.md §13-2 참고). 팝업 문구만 믿고 [완료] 처리로 넘어가면 빈
+        # 데이터를 "완료"로 잠가버리는 조용한 실패가 되므로, 재조회 응답의 근무일수·지급액
+        # 필드를 직접 확인해 실제로 반영됐는지 검증한다.
+        self.step = "업로드 결과 검증"
+        think("wehago")
+        with smarta.expect_response(
+            lambda r: "swsa0107/salary/page" in r.url and r.request.method == "GET",
+            timeout=UPLOAD_WAIT_MS,
+        ) as resp_info:
+            smarta.get_by_role("button", name="조회", exact=True).click()
+        try:
+            payload = resp_info.value.json()
+        except Exception:
+            payload = {}
+        left_list = payload.get("left_list") or []
+
+        def _has_data(row: dict) -> bool:
+            return row.get("yn_gongsu") == "1" or any(
+                float(row.get(key) or 0) != 0
+                for key in ("cnt_workday", "sum_dutyall", "am_dapay", "cnt_dapay")
+            )
+
+        if not any(_has_data(row) for row in left_list):
+            raise WehagoError(
+                '엑셀서식 불러오기가 "완료" 응답을 반환했지만 재조회 결과 근무일수·지급액이 '
+                "반영되지 않았습니다 — 위하고 쪽 원인 확인이 필요합니다 "
+                "(plan/16-wehago-rpa.md §13-2). [완료] 처리를 하지 않고 중단합니다."
+            )
+
+        self.step = "일용소득자료 완료 처리"
+        think("wehago")
+        smarta.get_by_role("button", name="완료", exact=True).click()
+        confirm = smarta.locator("div:visible", has_text="완료하시겠습니까").last
+        confirm.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        think("wehago")
+        smarta.get_by_role("button", name="확인", exact=True).click()
+        # 사업소득(upload_business_income)과 달리 이 화면은 [확인] 클릭 후 별도의
+        # "완료되었습니다." 성공 팝업이 뜨지 않는다 — [완료]가 즉시 [완료해제]로 바뀐다
+        # (2026-09-30 실기 확인). 토글 완료를 기다려 성공을 판단한다.
+        smarta.get_by_role("button", name="완료해제", exact=True).wait_for(
+            state="visible", timeout=UPLOAD_WAIT_MS
+        )
         self._wait_for_no_dimmed(smarta)
         return text
 

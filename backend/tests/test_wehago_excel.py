@@ -45,6 +45,7 @@ def _fake_entry(
         local_tax=local_tax,
         payment_date=date(2026, 4, 30),
         dependents=1,
+        work_days=None,
     )
 
 

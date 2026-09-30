@@ -71,6 +71,10 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
     dependents: Mapped[int] = mapped_column(Integer, default=1)  # 부양가족수 (간이세액표용)
     children: Mapped[int] = mapped_column(Integer, default=0)    # 8~20세 자녀수 (간이세액표 자녀공제용)
     rate_adjust: Mapped[int] = mapped_column(Integer, default=100)  # 조정율 80/100/120(%)
+    # 일용근로소득 근로일수(공수) — 위하고T 일용직급여자료입력 "만근공수"(일자=99) 업로드,
+    # 세액계산(일급 환산: total_amount÷work_days)에 쓴다. None이면 1일로 간주(안전한 기본값 —
+    # 실제보다 적게 잡으면 일급이 과대 계산돼 세액이 더 나올 뿐, 과소징수는 안 됨).
+    work_days: Mapped[int | None] = mapped_column(Integer)
 
     match_status: Mapped[MatchStatus] = mapped_column(
         Enum(MatchStatus, native_enum=False, length=30),
