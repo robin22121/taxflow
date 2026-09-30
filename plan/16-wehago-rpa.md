@@ -1232,6 +1232,58 @@ PoC 7 통과 시 전용 노트북 · 유휴 PC/미니PC · 가상 PC 를 모두 
 - 기타소득·일용직은 퇴사일을 왼쪽 그리드에서 못 읽는다(위 표 참고) — 필요해지면 오른쪽
   상세 패널을 별도로 읽어야 한다.
 
+### 13-3-5. 게이트 1 "위하고 전송"에 사업소득 배선 (2026-09-30)
+
+§13-3-4가 "위하고 → 이지원천 명단 동기화"(읽기)였다면, 이건 반대 방향 — 이지원천 급여대장을
+위하고에 자동으로 올리는 게이트 1이 지금까지 근로소득(WAGE) 전용이었던 것을 사업소득까지
+넓힌 작업이다. `upload_business_income`/`close_business_income_report`(wehago.py)는 이미
+§13-3에서 구현·검증됐지만, **게이트 1 "전송" 버튼 파이프라인(`RpaJobKind`→API→에이전트
+runner) 자체가 WAGE 하나로만 배선돼 있어 실제로는 호출된 적이 없었다** — 사용자가
+"사업소득과 일용소득 모두 구현되어있지 않은가?"라고 물어서 재조사해 확인.
+
+**다섯 군데를 함께 고쳐야 했다** (하나만 고치면 半배선 상태로 더 위험):
+
+1. `backend/app/models/rpa.py`: `RpaJobKind.WEHAGO_BUSINESS_INPUT` 추가, `WEHAGO_INPUT_KINDS =
+   (WEHAGO_PAYROLL_INPUT, WEHAGO_BUSINESS_INPUT)` — 게이트 1 kind가 이제 소득유형별로 나뉜다.
+2. `backend/app/api/rpa.py`: `AUTOMATED_INCOME_TYPES`에 BUSINESS 추가(기타·일용은 자료입력
+   엑셀 업로드가 아직 불안정해 제외, §13-3-1). `create_wehago_uploads`가 거래처 하나당
+   income_type별로 job을 따로 만든다(근로만 있으면 1개, 근로+사업이면 2개). 새 엔드포인트
+   `GET /agent/jobs/{job_id}/business-income-excel`(`generate_smarta_business_xls` 재사용).
+3. **`create_productions`(게이트 2 "제작") 적격성 검사를 다시 짰다 — 이게 제일 중요하다.**
+   기존 코드는 "가장 최근 WEHAGO_PAYROLL_INPUT job이 SUCCEEDED"만 봤는데, 이제 거래처가
+   근로+사업 둘 다 있으면 **두 kind 모두** SUCCEEDED여야 제작(마감)을 태울 수 있게 바꿨다.
+   안 그러면 사업소득이 아직 안 올라간 상태에서 `close_business_income_report`(마감)가
+   돌아 누락 신고가 날 수 있다. 회귀 테스트
+   `test_production_requires_every_income_type_input_succeeded`(하나만 성공했을 때 막히는지,
+   둘 다 성공해야 통과하는지, 순서 무관하게)로 고정했다.
+4. `rpa-agent/easyone_agent/{api.py,runner.py}`: `download_business_income_excel` 클라이언트
+   메서드, `_process_payroll_input_job`/`_process_business_input_job`으로 분리(기존 로직은
+   그대로, 사업소득 쪽은 `upload_business_income`이 `pay_date`를 안 받아 그 체크만 뺐다).
+5. 프론트(`rpa-api.ts`/`rpa-panel.tsx`/`page.tsx`/`activity-bar.tsx`): `indexJobsByClient`가
+   거래처당 게이트1 job을 `input?: RpaJob` 하나가 아니라 **`inputs: RpaJob[]`**로 들고 다니게
+   바꿨다(근로+사업 동시에 있을 수 있어서) — `gateStage`도 "inputs 전부 성공해야 input_done,
+   하나라도 FAILED면 failed"로 재작성. 이 배열 전환을 놓치면 두 번째 job이 화면에 아예
+   안 보이는 조용한 버그가 난다.
+
+**검증**: 백엔드 268개(무관한 사전 실패 7개 제외) + rpa-agent 68개 전부 통과, 신규
+회귀 테스트 3개(gate2 적격성 1개, 백엔드 preview 사원코드 소득유형 표시 1개, rpa-agent
+runner 분기 2개). 프론트는 이 워크트리에 `node_modules`가 원래 없어 `tsc --noEmit`을
+못 돌렸는데, 메인 체크아웃의 `node_modules`를 심볼릭 링크해 붙여서 실제로 돌렸다 — 0 에러
+확인 후 링크는 지웠다(같은 `package.json`이면 이 방법이 npm 레지스트리 없이도 된다).
+
+**기타소득·일용소득은 여전히 제외**: `upload_daily_income`은 있지만 엑셀 반영이 안 되는
+미해결 버그(§13-3-1)가 있어 넣지 않았고, 기타소득은 자료입력 자체가 그리드 직접입력으로
+전환 결정된 상태(§13-3-3)라 아직 대상이 아니다. 둘 다 자료입력이 신뢰할 수 있게 되면
+같은 패턴(새 `RpaJobKind` + `AUTOMATED_INCOME_TYPES` + 엑셀 엔드포인트 + runner 분기 +
+게이트2 다중 kind 적격성)으로 추가하면 된다.
+
+**"위하고 사원코드 없는 사원 있음" 메시지 개선** (같은 날, 사용자 질문 계기): 이 사유가
+어느 소득유형(근로/사업/기타/일용) 사원의 코드가 빠졌는지 안 보여줘서 `preview_wehago_uploads`의
+`no_code` 계산을 income_type별로 바꿔 `"위하고 사원코드 없는 사원 있음 (사업소득)"`처럼
+괄호로 밝히게 했다. `WehagoSendModal`(프론트)에도 차단 사유 배지를 누르면 원인·해결법을
+설명하는 팝업을 추가하고, 소득유형 칩(근로 자료없음 등) 글자 크기·대비를 올렸다(기존
+10.5px+회색이 안 보인다는 피드백).
+
 ### 13-4. 세무신고관리·전자신고 — §4-4·§4-8 세부 확정
 
 - **원천징수이행상황신고서**: 반기별 납부 여부는 `[인사환경설정] > 원천징수이행상황신고서 설정 > 반기별 납부 사용여부`("여"=반기, "부"=월별)로 사무소가 미리 정해 둔다 — §4-8 "반기납부 거래처" 판별을 위하고 쪽에서도 이 설정을 대조에 쓸 수 있다. 신고서 선택은 `0.정기신고/1.정기수정신고/2.기한후신고/3.기한후수정신고` 중 자동화는 항상 `0.정기신고`만 골라야 한다(§4-8 수정·기한후 제외 원칙과 일치). ([참고](https://wehagohelp.zendesk.com/hc/ko/articles/7511655618329))

@@ -14,6 +14,7 @@ import { api } from "./api";
 
 export type RpaJobKind =
   | "WEHAGO_PAYROLL_INPUT"
+  | "WEHAGO_BUSINESS_INPUT"
   | "MONTHLY_PRODUCTION"
   | "CERTIFICATE_ISSUE"
   | "WEHAGO_MASTER_IMPORT_ALL"  // 위하고 전체 수임처 가져오기 (관리자)
@@ -233,14 +234,18 @@ export function listImports(): Promise<RpaJob[]> {
 
 // --- 유틸: 작업을 client_id로 인덱싱 --------------------------------
 
-export function indexJobsByClient(jobs: RpaJob[]): Record<string, { input?: RpaJob; production?: RpaJob }> {
-  const out: Record<string, { input?: RpaJob; production?: RpaJob }> = {};
-  // 최신 것이 이기도록 created_at 오름차순으로 훑는다.
+// 게이트 1 "자동입력"은 소득유형별로 kind가 나뉜다 (근로=WEHAGO_PAYROLL_INPUT,
+// 사업=WEHAGO_BUSINESS_INPUT) — 거래처 하나가 두 kind를 동시에 가질 수 있어 배열로 둔다.
+const INPUT_KINDS: RpaJobKind[] = ["WEHAGO_PAYROLL_INPUT", "WEHAGO_BUSINESS_INPUT"];
+
+export function indexJobsByClient(jobs: RpaJob[]): Record<string, { inputs: RpaJob[]; production?: RpaJob }> {
+  const out: Record<string, { inputs: RpaJob[]; production?: RpaJob }> = {};
+  // 오래된 것부터 담아 inputs 배열도 시간순, production은 최신이 이긴다.
   const sorted = [...jobs].sort((a, b) => a.created_at.localeCompare(b.created_at));
   for (const job of sorted) {
     if (!job.client_id) continue;
-    const bucket = (out[job.client_id] ??= {});
-    if (job.kind === "WEHAGO_PAYROLL_INPUT") bucket.input = job;
+    const bucket = (out[job.client_id] ??= { inputs: [] });
+    if (INPUT_KINDS.includes(job.kind)) bucket.inputs.push(job);
     else if (job.kind === "MONTHLY_PRODUCTION") bucket.production = job;
   }
   return out;
@@ -248,17 +253,21 @@ export function indexJobsByClient(jobs: RpaJob[]): Record<string, { input?: RpaJ
 
 export type GateStage = "not_started" | "sending" | "input_done" | "producing" | "production_done" | "published" | "failed";
 
-/** 거래처 하나의 3게이트 진행 단계 판정. RpaPanel에서 UI 표시용. */
+/** 거래처 하나의 3게이트 진행 단계 판정. RpaPanel에서 UI 표시용.
+ *
+ * inputs는 거래처가 가진 소득유형 수만큼 있을 수 있다(근로만 있으면 1개, 근로+사업이면 2개) —
+ * 전부 성공해야 input_done, 하나라도 FAILED면 failed.
+ */
 export function gateStage(
-  input: RpaJob | undefined,
+  inputs: RpaJob[],
   production: RpaJob | undefined,
   filingResult: FilingResult | undefined,
 ): GateStage {
-  if (production?.status === "FAILED" || input?.status === "FAILED") return "failed";
+  if (production?.status === "FAILED" || inputs.some((j) => j.status === "FAILED")) return "failed";
   if (filingResult?.published_at) return "published";
   if (production?.status === "SUCCEEDED") return "production_done";
   if (production && (production.status === "PENDING" || production.status === "RUNNING")) return "producing";
-  if (input?.status === "SUCCEEDED") return "input_done";
-  if (input && (input.status === "PENDING" || input.status === "RUNNING")) return "sending";
+  if (inputs.length > 0 && inputs.every((j) => j.status === "SUCCEEDED")) return "input_done";
+  if (inputs.some((j) => j.status === "PENDING" || j.status === "RUNNING")) return "sending";
   return "not_started";
 }

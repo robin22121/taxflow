@@ -78,10 +78,11 @@ async def _enqueue(http: AsyncClient, auth_headers: dict, filing_id: str, client
 async def test_send_blocked_when_unautomated_income_type_present(
     http: AsyncClient, auth_headers: dict
 ):
-    """사업소득처럼 자동화가 없는 소득유형이 섞여 있으면 거래처 전체가 전송 차단된다 (plan/16 §4-1).
+    """기타소득처럼 자동화가 없는 소득유형이 섞여 있으면 거래처 전체가 전송 차단된다 (plan/16 §4-1).
 
     원천징수이행상황신고서가 소득유형을 전부 합산한 신고서 한 장이라, 일부 유형만
     위하고에 넣을 수 없다 — 자동화가 없는 유형에 데이터가 있으면 그 거래처는 통째로 막는다.
+    (2026-09-30: 사업소득이 자동화돼 §13-3-4 이 테스트는 여전히 자동화가 없는 기타소득으로 확인한다.)
     """
     filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
 
@@ -99,27 +100,27 @@ async def test_send_blocked_when_unautomated_income_type_present(
                 )
             )
         ).scalars().first()
-        business_entry = PayrollEntry(
+        other_entry = PayrollEntry(
             monthly_filing_id=template.monthly_filing_id,
             collection_session_id=template.collection_session_id,
             client_id=client_id,
-            raw_name="사업소득자테스트",
-            income_type=IncomeType.BUSINESS,
+            raw_name="기타소득자테스트",
+            income_type=IncomeType.OTHER,
             total_amount=1_000_000,
             taxable=1_000_000,
             income_tax=30_000,
             local_tax=3_000,
             approved=True,
         )
-        db.add(business_entry)
+        db.add(other_entry)
         await db.commit()
-        entry_id = business_entry.id
+        entry_id = other_entry.id
 
     try:
         r = await _enqueue(http, auth_headers, filing_id, [client_id])
         assert r.status_code == 409, r.text
         assert "자동화" in r.json()["detail"]
-        assert "사업소득" in r.json()["detail"]
+        assert "기타소득" in r.json()["detail"]
     finally:
         # 다른 테스트가 같은 거래처를 재사용하므로(_ready_clients), 남겨두면 뒤 테스트가 전부 막힌다.
         async with SessionLocal() as db:
@@ -142,7 +143,9 @@ async def test_preview_shows_income_type_breakdown(http: AsyncClient, auth_heade
     assert types["WAGE"]["count"] > 0
     assert types["WAGE"]["automated"] is True
     assert types["BUSINESS"]["count"] == 0
-    assert types["BUSINESS"]["automated"] is False
+    assert types["BUSINESS"]["automated"] is True  # 2026-09-30 §13-3-4 — 사업소득도 자동화됨
+    assert types["OTHER"]["automated"] is False
+    assert types["DAILY"]["automated"] is False
 
 
 @pytest.mark.asyncio
