@@ -50,6 +50,15 @@ class FakeSource:
         self.exports.append(path)
         return path
 
+    def list_business_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+        return []
+
+    def list_other_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+        return []
+
+    def list_daily_workers(self, business_number: str) -> list[dict[str, Any]]:
+        return []
+
 
 def test_master_import_continues_after_one_company_fails(tmp_path: Path):
     api = FakeApi()
@@ -64,6 +73,33 @@ def test_master_import_continues_after_one_company_fails(tmp_path: Path):
     assert "110-123-456789" not in str(first)  # 계좌는 보내지 않는다
     assert second["error"].startswith("RuntimeError") and "employees" not in second
     assert list(tmp_path.iterdir()) == []  # 받은 사원자료 엑셀은 지운다
+
+
+def test_import_merges_business_other_daily_earners(tmp_path: Path):
+    """§13-3-4 — 사업/기타/일용소득자 명단도 사원등록(근로) 엑셀과 합쳐서 보낸다."""
+
+    class WithOtherIncomeTypes(FakeSource):
+        def list_business_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+            return [{"employee_code": "1", "name": "김태호", "rrn": "7707281323914",
+                     "income_type": "BUSINESS", "business_type_code": "940909"}]
+
+        def list_other_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+            return [{"employee_code": "3", "name": "김아인", "rrn": "8105121323917", "income_type": "OTHER"}]
+
+        def list_daily_workers(self, business_number: str) -> list[dict[str, Any]]:
+            return [{"employee_code": "1", "name": "김연호", "rrn": None, "income_type": "DAILY"}]
+
+    api = FakeApi()
+    job = Job("j4", None, None, "224-02-38407", "서도", kind=IMPORT_CLIENT)
+    ok, _ = process_import(api, WithOtherIncomeTypes([]), job, tmp_path)
+
+    assert ok
+    employees = api.sent[0]["employees"]
+    assert len(employees) == 4  # 근로 1 + 사업 1 + 기타 1 + 일용 1
+    by_type = {e.get("income_type"): e for e in employees if e.get("income_type")}
+    assert by_type["BUSINESS"]["name"] == "김태호"
+    assert by_type["OTHER"]["name"] == "김아인"
+    assert by_type["DAILY"]["name"] == "김연호"
 
 
 def test_client_import_rejects_other_company(tmp_path: Path):

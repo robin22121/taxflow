@@ -1264,11 +1264,16 @@ B/C행 설계와 그대로 일치 — 별도 코드 변경 불필요, 구현만 
 - `rpa-agent/tests/test_wehago_business_income.py`/`test_wehago_other_income_register.py`/
   `test_wehago_daily_worker_register.py`: 필드 매핑·빈 행 필터링 단위 테스트 총 10개.
 
+**2026-10-01 완료 — 가져오기 파이프라인 배선**: `import_runner.py`의 `_import_one`이
+`parse_employee_export`(근로) 결과에 세 함수의 결과를 그대로 이어붙여(`employees +=`)
+같은 `client-result` 페이로드로 보낸다 — 소득유형별 전용 스텝을 따로 안 두고, 이미
+`WehagoImportEmployeeIn.income_type`이 있어 한 배열에 섞어 보내도 서버가 알아서
+income_type별로 매칭한다(§13-3-4 income_type 스코핑). 세 함수 중 하나가 예외를 던지면
+그 거래처 전체가 실패 처리된다(기존 "거래처 하나 실패해도 다음 거래처로" 정책과 동일
+단위). `rpa-agent/tests/test_import_runner.py::test_import_merges_business_other_daily_earners`로
+검증.
+
 **아직 안 한 것**:
-- 세 함수를 실제 가져오기 파이프라인(`import_runner.py`,
-  `POST /agent/imports/{job_id}/client-result`)에 연결하는 배선 — 지금은 함수만 있고 §12
-  잡 폴러가 호출하지 않는다. 같은 `client-result` 페이로드의 `employees`에 `income_type`을
-  얹어 보낼지, 소득유형별 전용 스텝을 따로 둘지 결정 필요.
 - 기타소득·일용직은 퇴사일을 왼쪽 그리드에서 못 읽는다(위 표 참고) — 필요해지면 오른쪽
   상세 패널을 별도로 읽어야 한다.
 

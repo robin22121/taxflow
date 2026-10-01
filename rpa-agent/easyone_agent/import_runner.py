@@ -1,7 +1,8 @@
 """위하고 → 이지원천 가져오기 작업 처리 (plan/16 §12).
 
 수임처마다: 위하고 수임처정보 기본사항 읽기 → 사원등록 [사원자료 엑셀변환] 받기 →
-필요한 항목만 뽑아 서버로 보내기 → 받은 파일 삭제. 한 수임처가 실패해도 다음 수임처로 넘어간다.
+사업/기타/일용소득자 명단(§13-3-4, RealGrid 직접읽기) 추가 → 필요한 항목만 뽑아 서버로
+보내기 → 받은 파일 삭제. 한 거래처가 실패해도 다음 거래처로 넘어간다.
 """
 
 from __future__ import annotations
@@ -34,6 +35,18 @@ class WehagoImportSource(Protocol):
 
     def export_employees(self, business_number: str, workdir: Path) -> Path:
         """사원등록 [사원자료 엑셀변환] 파일 경로. 호출자가 지운다."""
+        ...
+
+    def list_business_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+        """사업소득자등록(SWBU0101) 전체 명단 — income_type="BUSINESS" (§13-3-4)."""
+        ...
+
+    def list_other_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+        """기타(이자/배당)소득자등록(SWET0101) 전체 명단 — income_type="OTHER" (§13-3-4)."""
+        ...
+
+    def list_daily_workers(self, business_number: str) -> list[dict[str, Any]]:
+        """일용직 사원등록(SWSA0107) 전체 명단 — income_type="DAILY" (§13-3-4)."""
         ...
 
 
@@ -79,7 +92,11 @@ def _import_one(
         if normalize_business_number(basics["business_number"]) != normalize_business_number(business_number):
             raise RuntimeError(f"위하고 수임처 사업자번호가 다릅니다: {basics['business_number']}")
         export = source.export_employees(business_number, workdir)
-        payload = {**base, **basics, "employees": parse_employee_export(export)}
+        employees = parse_employee_export(export)
+        employees += source.list_business_income_earners(business_number)
+        employees += source.list_other_income_earners(business_number)
+        employees += source.list_daily_workers(business_number)
+        payload = {**base, **basics, "employees": employees}
     except LoginFailed:
         raise
     except Exception as e:
