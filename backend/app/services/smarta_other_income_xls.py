@@ -1,15 +1,20 @@
-"""SmartA 기타소득자료입력 일괄등록 엑셀(.xls) 생성.
+"""SmartA 기타소득자료입력 일괄등록 엑셀(.xlsx) 생성.
 
 더존 SmartA 10 급여관리 > 기타소득자료입력 메뉴가 Excel DATA를 자동 변환할 때 읽는
 서식. 원본 서식(gita_excel_2022.xls, 2026-09-30 사용자가 실제로 받아 컬럼 분석)을
-그대로 재현한다. BIFF(.xls) 포맷이라 openpyxl로는 쓸 수 없어 xlwt를 사용한다.
+그대로 재현한다.
 
-원본 서식은 17개 데이터 컬럼(A~Q) 뒤에 드롭다운 값 참조용 목록 컬럼(R~V, 병합 밖)이
-붙어 있다 — 내/외국인·거주·소득구분(거주자용 17종·비거주자용 11종) 코드 목록. 이
-파일은 그 목록 중 **거주자용 코드**만 다룬다(영세사업장 기본값 우선 원칙 —
-[[feedback-default-heavy-small-biz]] — 비거주자 기타소득자는 훨씬 드물고, 현재
-`PayrollEntry`/`Employee`에 거주구분·내외국인 필드 자체가 없어 항상 거주자·
-내국인으로 가정한다).
+**2026-10-01 — xlwt(.xls/BIFF) 포기, openpyxl(.xlsx/OOXML)로 전환.** 2026-09-30엔
+"엑셀 업로드가 더존 파서 버그로 막힘"으로 결론 내고 그리드 직접입력으로 전환했었다
+(plan/16 §13-3-3). 그런데 사용자가 Excel 웹(OneDrive)에서 원본 서식에 **직접 타이핑**해
+업로드에 성공한 파일을 분석해보니, 진짜 원인은 "파서 결함"이 아니라 **xlwt가 쓰는
+BIFF(.xls) 포맷 자체가 숫자를 항상 배정밀도 실수로 저장**해 주민등록번호 정수를
+`7707281323914.0`처럼 깨뜨리는 것이었다(2026-09-30 실기로 겪은 "13자리가 아닙니다"
+오류의 진짜 원인). 성공한 파일은 주민등록번호 셀이 **정수값 + 커스텀 숫자서식
+("000000\\-0000000")** — 이 조합을 BIFF+xlwt로 시도했을 때("엑셀불러오기 중 문제가
+발생하였습니다")는 실패했지만, OOXML(.xlsx)+openpyxl로는 성공했다. 성공한 파일은 또한
+거주(E)/내·외국인(F) 컬럼이 "0.거주"/"0.내국인"이 아니라 접두사 없는 "거주"/"내국인"
+이었다 — 소득구분(J)에만 "코드.라벨" 접두사 규칙이 적용된다.
 """
 
 from __future__ import annotations
@@ -18,7 +23,9 @@ import logging
 from datetime import date
 from io import BytesIO
 
-import xlwt
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.worksheet.worksheet import Worksheet
 
 from app.models.payroll import PayrollEntry
 from app.services.smarta_business_xls import _rrn_digits
@@ -73,10 +80,14 @@ RESIDENT_INCOME_CODE_LABELS: dict[str, str] = {
     "80": "통신판매 대여 소득(필요경비 60%%)",
 }
 
-_RESIDENT_LABEL = "0.거주"
-_NATIONAL_LABEL = "0.내국인"
+_RESIDENT_LABEL = "거주"
+_NATIONAL_LABEL = "내국인"
 
-_HEADER_ROW = 2  # 0-indexed. 0=제목, 1=안내문, 2=헤더, 3~=데이터
+# 2026-10-01 실측(gita_excel_2022 (2).xlsx, 업로드 성공본) — 주민등록번호 컬럼의
+# 실제 숫자서식. 하이픈은 리터럴이라 이스케이프(`\`)가 필요하다.
+_RRN_NUMBER_FORMAT = r"000000\-0000000"
+
+_HEADER_ROW = 3  # 1-indexed(openpyxl). 1=제목, 2=안내문, 3=헤더, 4~=데이터
 
 
 def _yyyymm(d: date) -> str:
@@ -87,8 +98,23 @@ def _yyyymmdd(d: date) -> str:
     return f"{d.year}.{d.month:02d}.{d.day:02d}"
 
 
+def _write_header(ws: Worksheet) -> None:
+    header_font = Font(bold=True)
+    header_align = Alignment(horizontal="center", vertical="center")
+    thin = Side(style="thin")
+    header_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    ws.cell(row=1, column=1, value=TITLE_ROW)
+    ws.cell(row=2, column=1, value=GUIDE_ROW)
+    for col in range(1, len(COLUMNS) + 2):
+        cell = ws.cell(row=_HEADER_ROW, column=col, value="" if col == 1 else COLUMNS[col - 2])
+        cell.font = header_font
+        cell.alignment = header_align
+        cell.border = header_border
+
+
 def generate_smarta_other_income_xls(entries: list[PayrollEntry], period: str) -> bytes:
-    """기타소득 항목을 SmartA 기타소득자료입력 서식으로 변환.
+    """기타소득 항목을 SmartA 기타소득자료입력 서식(.xlsx)으로 변환.
 
     Args:
         entries: income_type=OTHER인 PayrollEntry 리스트. employee가 eager-load되어야 함.
@@ -100,24 +126,10 @@ def generate_smarta_other_income_xls(entries: list[PayrollEntry], period: str) -
         위하고가 소득구분을 못 알아봐 업로드에서 제외되므로, 여기서도 건너뛰고 로그만
         남긴다 — 호출자가 "소득구분 미입력" 안내를 사용자에게 보여줄 수 있도록.
     """
-    wb = xlwt.Workbook(encoding="utf-8")
-    ws = wb.add_sheet("Sheet1")
-
-    header_style = xlwt.easyxf(
-        "font: bold on; align: horiz center, vert center;"
-        " borders: left thin, right thin, top thin, bottom thin"
-    )
-    # 주민등록번호 컬럼은 숫자 서식("000000-0000000")이지만, 정수로 쓰면 xlwt가
-    # 배정밀도 실수로 저장해 셀 원시값이 "7707281323914.0"처럼 소수점이 붙고,
-    # 위하고 파서가 이걸 그대로 자릿수 검사에 써서 "13자리가 아닙니다" 오류가 난다
-    # (2026-09-30 실기). 텍스트 서식(@)을 명시해 문자열 "7707281323914"로 쓴다.
-    _rrn_style = xlwt.easyxf(num_format_str="@")
-
-    ws.write_merge(0, 0, 0, 16, TITLE_ROW)
-    ws.write_merge(1, 1, 0, 16, GUIDE_ROW)
-    ws.write(_HEADER_ROW, 0, "", header_style)  # 일련번호(무제목)
-    for offset, name in enumerate(COLUMNS, start=1):
-        ws.write(_HEADER_ROW, offset, name, header_style)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    _write_header(ws)
 
     year, month = period.split("-")
     default_date = date(int(year), int(month), 1)
@@ -140,24 +152,25 @@ def generate_smarta_other_income_xls(entries: list[PayrollEntry], period: str) -
 
         pay_date = entry.payment_date or default_date
 
-        ws.write(row, 0, written + 1)
-        ws.write(row, 1, _yyyymm(pay_date))  # 귀속년월
-        ws.write(row, 2, _yyyymmdd(pay_date))  # 지급년월일
-        ws.write(row, 3, emp.name)
-        ws.write(row, 4, _RESIDENT_LABEL)  # 거주
-        ws.write(row, 5, _NATIONAL_LABEL)  # 내/외국인
-        ws.write(row, 6, "")  # 기본주소
-        ws.write(row, 7, "")  # 상세주소
+        ws.cell(row=row, column=1, value=written + 1)
+        ws.cell(row=row, column=2, value=_yyyymm(pay_date)).number_format = "@"
+        ws.cell(row=row, column=3, value=_yyyymmdd(pay_date)).number_format = "@"
+        ws.cell(row=row, column=4, value=emp.name)
+        ws.cell(row=row, column=5, value=_RESIDENT_LABEL)
+        ws.cell(row=row, column=6, value=_NATIONAL_LABEL)
+        ws.cell(row=row, column=7, value="")  # 기본주소
+        ws.cell(row=row, column=8, value="")  # 상세주소
         rrn = _rrn_digits(emp.rrn_encrypted)
-        ws.write(row, 8, rrn, _rrn_style)
-        ws.write(row, 9, f"{code}.{RESIDENT_INCOME_CODE_LABELS[code]}")  # 소득구분
-        ws.write(row, 10, _yyyymmdd(pay_date))  # 영수일자
-        ws.write(row, 11, entry.total_amount)  # 지급총액
-        ws.write(row, 12, entry.necessary_expense or 0)  # 필요경비
-        ws.write(row, 13, "")  # 소득금액 — 자동계산
-        ws.write(row, 14, "")  # 세율(%) — 자동계산
-        ws.write(row, 15, entry.income_tax if entry.income_tax is not None else "")
-        ws.write(row, 16, entry.local_tax if entry.local_tax is not None else "")
+        rrn_cell = ws.cell(row=row, column=9, value=int(rrn) if rrn else "")
+        rrn_cell.number_format = _RRN_NUMBER_FORMAT
+        ws.cell(row=row, column=10, value=f"{code}.{RESIDENT_INCOME_CODE_LABELS[code]}")  # 소득구분
+        ws.cell(row=row, column=11, value=_yyyymmdd(pay_date)).number_format = "@"  # 영수일자
+        ws.cell(row=row, column=12, value=entry.total_amount).number_format = "#,##0"  # 지급총액
+        ws.cell(row=row, column=13, value=entry.necessary_expense or 0).number_format = "#,##0"  # 필요경비
+        ws.cell(row=row, column=14, value="")  # 소득금액 — 자동계산
+        ws.cell(row=row, column=15, value="")  # 세율(%) — 자동계산
+        ws.cell(row=row, column=16, value=entry.income_tax if entry.income_tax is not None else "")
+        ws.cell(row=row, column=17, value=entry.local_tax if entry.local_tax is not None else "")
         row += 1
         written += 1
 
