@@ -79,6 +79,8 @@ export async function api<T = unknown>(
     throw new ApiError(res.status, body, formatErrorBody(body, res.status, res.statusText));
   }
 
+  if (res.status === 204) return undefined as T;
+
   const ct = res.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) return res.json() as Promise<T>;
   return (await res.blob()) as unknown as T;
