@@ -198,6 +198,7 @@ def _recalc_row(
         children=children,
         rate_adjust=rate_adjust,
         business_type_code=biz_code,
+        daily_count=entry.work_days,
     )
     return tax.income_tax, tax.local_tax, dependents, children, rate_adjust
 
@@ -399,6 +400,7 @@ async def fast_path_commit(
                 longterm_care=pe.longterm_care or 0,
                 income_tax=income_tax,
                 local_tax=local_tax,
+                work_days=pe.work_days,
                 student_loan=pe.student_loan or 0,
                 settlement_insurance=pe.settlement_insurance or 0,
                 rent_support=pe.rent_support or 0,

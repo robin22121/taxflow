@@ -46,6 +46,8 @@ class MatchedEmployee:
     health_insurance: int | None = None
     employment_insurance: int | None = None
     longterm_care: int | None = None
+    # 일용근로소득(income_type=DAILY)의 근로일수(공수). 원시자료에 없으면 None.
+    work_days: int | None = None
     income_type: str = "WAGE"
     change_from_prev: int | None = None
     change_reason: str | None = None
@@ -65,6 +67,7 @@ class NewHireSuspected:
     health_insurance: int | None = None
     employment_insurance: int | None = None
     longterm_care: int | None = None
+    work_days: int | None = None
     income_type: str = "WAGE"
     needs_confirmation: bool = True
     rrn_last4: str | None = None
@@ -165,6 +168,12 @@ _OUTPUT_SCHEMA = {
                     "health_insurance": {"type": "integer", "description": "건강보험 실제 공제액. 없으면 키 생략"},
                     "employment_insurance": {"type": "integer", "description": "고용보험 실제 공제액. 없으면 키 생략"},
                     "longterm_care": {"type": "integer", "description": "장기요양보험료 실제 공제액. 없으면 키 생략"},
+                    "work_days": {
+                        "type": "integer",
+                        "description": "일용근로소득(income_type=DAILY)일 때만: 이번 달 근로일수(공수). "
+                                        "'20일 근무', '공수 15' 등 명시적으로 적혀 있을 때만 채우고, "
+                                        "없으면 키 생략(추측 금지). DAILY가 아니면 항상 키 생략.",
+                    },
                     "income_type": {
                         "type": "string",
                         "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],
@@ -190,6 +199,11 @@ _OUTPUT_SCHEMA = {
                     "health_insurance": {"type": "integer", "description": "건강보험 실제 공제액. 없으면 키 생략"},
                     "employment_insurance": {"type": "integer", "description": "고용보험 실제 공제액. 없으면 키 생략"},
                     "longterm_care": {"type": "integer", "description": "장기요양보험료 실제 공제액. 없으면 키 생략"},
+                    "work_days": {
+                        "type": "integer",
+                        "description": "일용근로소득(income_type=DAILY)일 때만: 이번 달 근로일수(공수). "
+                                        "명시적으로 적혀 있을 때만 채우고, 없으면 키 생략(추측 금지).",
+                    },
                     "income_type": {
                         "type": "string",
                         "enum": ["WAGE", "BUSINESS", "OTHER", "DAILY", "RETIREMENT"],

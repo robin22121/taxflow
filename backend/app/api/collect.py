@@ -792,9 +792,14 @@ def _computed_fields(
     dependents = matched_emp.dependents_count if matched_emp else 1
     children = matched_emp.children_count if matched_emp else 0
     rate_adjust = matched_emp.withholding_rate_adjust if matched_emp else 100
+    # 일용근로소득 근로일수(공수) — 1순위 원시자료(AI가 뽑은 값), 2순위 안전한 기본값 20일
+    # (1일로 간주하면 총지급액 전액을 하루치로 계산해 세액이 크게 과대 계산된다).
+    work_days = cand.work_days if cand.income_type == IncomeType.DAILY else None
+    if cand.income_type == IncomeType.DAILY and work_days is None:
+        work_days = 20
     tax = calculate_withholding_tax(
         cand.income_type, taxable, dependents=dependents, children=children,
-        rate_adjust=rate_adjust, business_type_code=biz_code,
+        rate_adjust=rate_adjust, business_type_code=biz_code, daily_count=work_days,
     )
     # 4대보험 (plan.md 3.8):
     # 1순위 — 회사가 이미 적용한 실제 공제액 (급여대장·명세서에서 읽은 값)
@@ -819,6 +824,7 @@ def _computed_fields(
         "car_amount": car,
         "childcare_amount": childcare,
         "taxable": taxable,
+        "work_days": work_days,
         "dependents": dependents,
         "children": children,
         "rate_adjust": rate_adjust,

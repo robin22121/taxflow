@@ -381,8 +381,12 @@ async def import_payroll(
             non_taxable = min(non_taxable, total_amount)
         taxable = total_amount - non_taxable
         biz_code = emp.business_type_code if emp and income_type == IncomeType.BUSINESS else None
+        # 일용근로소득 근로일수 — 임포트 서식엔 공수 컬럼이 없어 늘 모른다. 1일로 간주하면
+        # 세액이 과대 계산되므로(plan.md), 수정 가능한 안전한 기본값 20일을 넣는다.
+        work_days = 20 if income_type == IncomeType.DAILY else None
         tax = calculate_withholding_tax(
             income_type, taxable, dependents=1, business_type_code=biz_code,
+            daily_count=work_days,
         )
         a_code = income_type_to_a_code(income_type)
         salary_amt = total_amount if income_type == IncomeType.WAGE else None
@@ -404,6 +408,7 @@ async def import_payroll(
             taxable=taxable,
             income_tax=tax.income_tax,
             local_tax=tax.local_tax,
+            work_days=work_days,
             match_status=match_status,
             approved=bool(emp),
         )

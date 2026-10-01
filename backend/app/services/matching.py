@@ -55,6 +55,9 @@ class PayrollEntryCandidate:
     health_insurance: int | None = None
     employment_insurance: int | None = None
     longterm_care: int | None = None
+    # 일용근로소득 근로일수(공수). DAILY에만 의미 있음 — AI가 원시자료에서 못 찾으면
+    # None → _computed_fields가 안전한 기본값(20일)으로 채운다(1일로 간주하면 세액 과대계산).
+    work_days: int | None = None
     # 원천징수 세액·기타 공제 확정치 (전월자료 불러오기). 있으면 재계산하지 않고 그대로 쓴다.
     income_tax: int | None = None
     local_tax: int | None = None
@@ -84,6 +87,7 @@ class MatchingResult:
 _SOURCE_PAY_ITEM_FIELDS = (
     "non_taxable", "meal_amount", "car_amount", "childcare_amount",
     "national_pension", "health_insurance", "employment_insurance", "longterm_care",
+    "work_days",
 )
 
 

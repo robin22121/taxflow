@@ -1721,7 +1721,9 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       national_pension: e.national_pension, health_insurance: e.health_insurance, employment_insurance: e.employment_insurance, longterm_care: e.longterm_care,
       income_tax: e.income_tax, local_tax: e.local_tax,
       student_loan: e.student_loan, settlement_insurance: e.settlement_insurance, rent_support: e.rent_support,
-      work_days: e.work_days ?? null,
+      // 일용근로소득인데 아직 공수가 없으면(과거 데이터 등) 1일로 간주돼 세액이 과대
+      // 계산되는 걸 막기 위해 수정 가능한 기본값 20일을 보여준다.
+      work_days: e.work_days ?? (e.income_type === "DAILY" ? 20 : null),
       edit_reason: e.edit_reason ?? "",
     };
   }, [drafts]);
