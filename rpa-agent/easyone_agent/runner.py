@@ -141,11 +141,18 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
     아직 실제 화면으로 실측하지 못한 최초 실행이라 실패할 수 있다(close_local_tax_payment
     docstring 참고) — 이후 단계는 완료 메시지에서 수동 처리를 안내한다.
     """
+    # 중간에 실패해도 그 전까지 성공한 단계는 남긴다 — §4-1 "명세서 추가입력 포함 완료 판정"
+    # (2026-10-01 결정: close_business_income_report의 "새로불러오기"가 명세서 추가입력을
+    # 충족한다고 보고, 이 단계가 실제 성공했는지를 step_progress로 서버에 남긴다).
+    step_progress: dict[str, str] = {}
     try:
         uploader.ensure_logged_in()
         wht_text = uploader.close_wht_return(job.business_number, job.period)
+        step_progress["wehago_income_tax"] = "done"
         biz_text = uploader.close_business_income_report(job.business_number, job.period)
+        step_progress["wehago_business_income"] = "done"
         local_text = uploader.close_local_tax_payment(job.business_number, job.period)
+        step_progress["wehago_local_tax"] = "done"
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
         raise
@@ -155,7 +162,7 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
             capture = getattr(uploader, "save_failure_screenshot", None)
             if capture:
                 capture(f"failed-{job.id}")
-        _report(api, job.id, False, failure_message(e, uploader))
+        _report(api, job.id, False, failure_message(e, uploader), step_progress=step_progress)
     else:
         _report(
             api,
@@ -164,6 +171,7 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
             f"위하고 마감 완료 — 원천세: {wht_text} / 사업소득: {biz_text} / 지방세: {local_text}. "
             "전자신고 파일 제작(F4)·홈택스·위택스 신고는 아직 자동화되지 않아 "
             "Windows 노트북·수동으로 진행하세요.",
+            step_progress=step_progress,
         )
     return True
 
@@ -225,10 +233,16 @@ def run_login_test(
         sleep(poll_interval_sec)
 
 
-def _report(api: EasyoneApi, job_id: str, succeeded: bool, message: str) -> None:
+def _report(
+    api: EasyoneApi,
+    job_id: str,
+    succeeded: bool,
+    message: str,
+    step_progress: dict[str, str] | None = None,
+) -> None:
     try:
         # 서버 감사 로그에도 비밀번호·주민번호는 남기지 않는다 (§8-1).
-        api.report(job_id, succeeded, mask_text(message)[:2000])
+        api.report(job_id, succeeded, mask_text(message)[:2000], step_progress=step_progress)
     except Exception:
         # 회신이 실패해도 서버가 시간 초과로 FAILED 처리하므로 루프는 계속 돈다.
         logger.exception("결과 회신 실패 %s", job_id)

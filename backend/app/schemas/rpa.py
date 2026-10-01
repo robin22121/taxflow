@@ -41,6 +41,10 @@ class IncomeTypeStatus(BaseModel):
     count: int
     unapproved_count: int
     automated: bool
+    # 자료입력(게이트1)뿐 아니라 명세서 추가입력(게이트2 마감)까지 끝났는지 — 근로소득은
+    # 자료입력만으로 True, 사업소득은 close_business_income_report까지 성공해야 True
+    # (2026-10-01 결정, plan/16 §4-1·§12-2-1).
+    filing_complete: bool = False
 
 
 class WehagoUploadPreviewRow(BaseModel):

@@ -98,6 +98,9 @@ export type IncomeTypeStatus = {
   count: number;
   unapproved_count: number;
   automated: boolean;
+  // 자료입력(게이트1)뿐 아니라 명세서 추가입력(게이트2 마감)까지 끝났는지 — 근로소득은
+  // 자료입력만으로 true, 사업소득은 마감까지 성공해야 true (2026-10-01 결정).
+  filing_complete: boolean;
 };
 
 /** 위하고 전송 모달용 — 거래처별 적용 지급일과 서버 쪽 차단 사유 (사업자번호·사원코드·지급일·진행 중). */

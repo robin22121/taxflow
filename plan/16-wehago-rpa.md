@@ -346,6 +346,31 @@ PoC 7 통과 시 전용 노트북 · 유휴 PC/미니PC · 가상 PC 를 모두 
 - 일용·사업·기타소득은 자료입력 화면에 지급 데이터를 넣는 것과, 국세청 제출용 지급명세서(간이지급명세서) 화면에 데이터를 넣는 것이 **서로 다른 화면·별도 작업**이다. 지금까지 §4-2 자동입력 범위는 자료입력만 다뤘는데, 이 결정 이후로는 해당 소득유형에 대해 **명세서 추가입력까지 자동입력이 끝나야** "전송 완료"(게이트 2 알림 발송 가능 상태)로 인정한다.
 - ⑨-b `close_business_income_report`(SWHM0103, 사업소득 간이지급명세서 [마감], §4-4)는 게이트 2(제작) 단계의 "마감" 자동화다. 여기서 새로 요구하는 게이트 1(전송) 단계의 "명세서 추가입력"은 마감 이전에 명세서 자체에 데이터를 채우는 별도 단계이며, 아직 자동화 범위(§4-2)에 없다 — 추가해야 한다.
 - **(2026-09-30 갱신)** 일용소득은 자료입력(`upload_daily_income`, 단 엑셀 반영 미해결·§13-3-1)·명세서 마감(`close_daily_income_report`, §13-3-2) 화면 자동화가 모두 구현됐다. 기타소득은 자료입력 화면진입·엑셀업로드 트리거까지만 구현되고(§13-3-3) 실제 반영·명세서 마감 자동화는 아직 없다. 위 "자동화 미지원" 판정은 **기타소득에만** 적용되고, 일용소득은 "자동화는 있으나 엑셀 업로드 경로가 막혀 실질적으로 수동 입력 의존" 상태로 구분해야 한다 — `plan/08-action-items.md`도 함께 갱신 필요.
+- **2026-10-01 구현 — "명세서 추가입력" 해석 확정 + `filing_complete` 판정 구현 (사용자 확정).**
+  재조사 결과 `close_business_income_report`의 "새로불러오기" 단계가 이미 사업소득자료입력
+  (SWBU0102) 데이터를 간이지급명세서(SWHM0103) 화면에 채우는 것과 같다 — 즉 **"명세서
+  추가입력"을 위한 새 WEHAGO 화면 자동화는 따로 안 만들어도 된다**, `close_business_income_report`
+  가 이미 그 역할을 겸한다. 그래서 "전송 완료" 판정은 **이 함수가 실제로 성공했는지**로
+  충분하다고 사용자가 확정(WEHAGO 접속 불필요, 코드만으로 구현).
+  - `rpa-agent/easyone_agent/runner.py`의 `_process_monthly_production_job`이 원천세·사업소득·
+    지방세 마감을 하나씩 시도할 때마다 `step_progress`(`wehago_income_tax`/`wehago_business_income`/
+    `wehago_local_tax`)에 "done"을 기록 — 중간에 실패해도 그 전까지 성공한 단계는 남는다(기존
+    "하나 실패하면 전체 FAILED" 흐름 자체는 안 바꿨다, 순서 의존성이 실측 전이라 §8-4 신중
+    원칙).
+  - `backend/app/api/rpa.py`의 `preview_wehago_uploads`가 `IncomeTypeStatus`에 `filing_complete`를
+    추가 — 근로소득은 게이트1(자료입력) 성공만으로 true, 사업소득은 게이트1 성공 +
+    최근 성공한 `MONTHLY_PRODUCTION` 작업의 `step_progress.wehago_business_income == "done"`
+    이어야 true. 기타·일용은 게이트1 자체가 안 묶여 있어 항상 false.
+  - 프론트 `IncomeTypeChips`(`wehago-send-modal.tsx`, `production-modal.tsx`가 재사용)가
+    `filing_complete=false`인 자동화 소득유형을 "N건 완료"(초록) 대신 "N건 · 자료입력 완료"
+    (파랑, 명세서/마감 대기 안내)로 구분 표시.
+  - **제작(게이트2) 선택 UI 세분화(§4-4 "2026-09-30 결정")는 이번엔 표시만 구현했다** —
+    `production-modal.tsx`가 거래처별로 `IncomeTypeChips`를 보여주지만, 체크박스는 여전히
+    거래처 단위다. 소득유형별로 **선택적으로** 마감을 건너뛰는 기능(예: 사업소득만 빼고
+    제작)은 `close_business_income_report` 등을 의도적으로 안 부르는 새 동작이라 실측 없이는
+    위험하다고 판단해 보류 — 지금은 항상 전부 시도하고 결과만 보여준다.
+  - 테스트: rpa-agent `test_monthly_production_*`(step_progress 검증 추가), backend
+    `test_filing_complete_requires_production_step_for_business_income`.
 
 ### 4-2. 위하고 자동입력 (게이트 1 ~ 게이트 2 사이)
 

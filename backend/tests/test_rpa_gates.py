@@ -250,6 +250,96 @@ async def test_production_requires_every_income_type_input_succeeded(
             await db.commit()
 
 
+@pytest.mark.asyncio
+async def test_filing_complete_requires_production_step_for_business_income(
+    http: AsyncClient, auth_headers: dict
+):
+    """근로소득은 자료입력(게이트1)만으로 filing_complete, 사업소득은 게이트2 마감(명세서
+    추가입력 충족)까지 성공해야 filing_complete다 (2026-10-01 결정, plan/16 §4-1·§12-2-1)."""
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Employee
+    from app.models.payroll import IncomeType, PayrollEntry
+
+    async with SessionLocal() as db:
+        template = (
+            await db.execute(
+                select(PayrollEntry).where(
+                    PayrollEntry.monthly_filing_id == filing_id, PayrollEntry.client_id == client_id,
+                )
+            )
+        ).scalars().first()
+        biz_emp = Employee(client_id=client_id, name="필완료테스트", employee_code="B099")
+        db.add(biz_emp)
+        await db.flush()
+        business_entry = PayrollEntry(
+            monthly_filing_id=template.monthly_filing_id, collection_session_id=template.collection_session_id,
+            client_id=client_id, employee_id=biz_emp.id, raw_name=biz_emp.name,
+            income_type=IncomeType.BUSINESS, total_amount=1_000_000, taxable=1_000_000, approved=True,
+        )
+        db.add(business_entry)
+        await db.commit()
+        entry_id, emp_id = business_entry.id, biz_emp.id
+
+    def _status(preview: list[dict]) -> dict:
+        row = next(p for p in preview if p["client_id"] == client_id)
+        return {t["income_type"]: t for t in row["income_types"]}
+
+    try:
+        agent = await _issue_agent(http, auth_headers)
+        jobs = (
+            await http.post(
+                "/api/v1/rpa/wehago-uploads", json={"filing_id": filing_id, "client_ids": [client_id]},
+                headers=auth_headers,
+            )
+        ).json()
+        assert {j["kind"] for j in jobs} == {"WEHAGO_PAYROLL_INPUT", "WEHAGO_BUSINESS_INPUT"}
+        for _ in jobs:
+            claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+            await http.post(
+                f"/api/v1/rpa/agent/jobs/{claimed['id']}/result",
+                json={"status": "SUCCEEDED", "message": "완료"}, headers=agent,
+            )
+
+        preview = (
+            await http.get(f"/api/v1/rpa/wehago-uploads/preview?filing_id={filing_id}", headers=auth_headers)
+        ).json()
+        status = _status(preview)
+        assert status["WAGE"]["filing_complete"] is True  # 근로는 자료입력만으로 완료
+        assert status["BUSINESS"]["filing_complete"] is False  # 사업은 아직 마감 전
+
+        prod = (
+            await http.post(
+                "/api/v1/rpa/productions", json={"filing_id": filing_id, "client_ids": [client_id]},
+                headers=auth_headers,
+            )
+        ).json()[0]
+        claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+        assert claimed["id"] == prod["id"]
+        done = await http.post(
+            f"/api/v1/rpa/agent/jobs/{prod['id']}/result",
+            json={
+                "status": "SUCCEEDED", "message": "마감 완료",
+                "step_progress": {"wehago_income_tax": "done", "wehago_business_income": "done"},
+            },
+            headers=agent,
+        )
+        assert done.status_code == 200, done.text
+
+        preview_after = (
+            await http.get(f"/api/v1/rpa/wehago-uploads/preview?filing_id={filing_id}", headers=auth_headers)
+        ).json()
+        assert _status(preview_after)["BUSINESS"]["filing_complete"] is True
+    finally:
+        async with SessionLocal() as db:
+            await db.delete(await db.get(PayrollEntry, entry_id))
+            await db.delete(await db.get(Employee, emp_id))
+            await db.commit()
+
+
 # ---------------------------------------------------------------------------
 # 알림 — 자동입력 완료 후 게이트 2 알림이 뜬다
 # ---------------------------------------------------------------------------

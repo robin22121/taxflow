@@ -39,8 +39,9 @@ function explainReason(reason: string): string {
   return reason;
 }
 
-/** 소득유형 4칸 — 선택 체크박스가 아니라 상태 표시다. 전송은 거래처 단위로 원자적이다 (plan/16 §4-1). */
-function IncomeTypeChips({ types }: { types: IncomeTypeStatus[] }) {
+/** 소득유형 4칸 — 선택 체크박스가 아니라 상태 표시다. 전송은 거래처 단위로 원자적이다 (plan/16 §4-1).
+ * 제작 모달(production-modal.tsx)도 같은 칩을 재사용한다. */
+export function IncomeTypeChips({ types }: { types: IncomeTypeStatus[] }) {
   return (
     <div className="flex items-center gap-1 flex-wrap">
       {types.map((t) => {
@@ -66,9 +67,20 @@ function IncomeTypeChips({ types }: { types: IncomeTypeStatus[] }) {
             </span>
           );
         }
+        if (t.filing_complete) {
+          return (
+            <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[12px] font-medium bg-green-50 text-green-700 border border-green-300">
+              {label} {t.count}건 완료
+            </span>
+          );
+        }
         return (
-          <span key={t.income_type} className="px-1.5 py-0.5 rounded text-[12px] font-medium bg-green-50 text-green-700 border border-green-300">
-            {label} {t.count}건 완료
+          <span
+            key={t.income_type}
+            className="px-1.5 py-0.5 rounded text-[12px] font-medium bg-blue-50 text-blue-700 border border-blue-300"
+            title="자료입력은 끝났지만 명세서 추가입력(제작·마감)까지는 아직입니다"
+          >
+            {label} {t.count}건 · 자료입력 완료
           </span>
         );
       })}

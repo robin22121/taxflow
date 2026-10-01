@@ -5,11 +5,12 @@
 // 위하고에 직접 입력해 달라는 확인 안내를 반드시 보여준다.
 
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Badge, Button, Modal } from "@/components/ui";
 import { ApiError } from "@/lib/api";
-import { createProductions } from "@/lib/rpa-api";
+import { createProductions, previewWehagoUploads } from "@/lib/rpa-api";
+import { IncomeTypeChips } from "./wehago-send-modal";
 
 export type ProductionTarget = { clientId: string; clientName: string; blockedReason: string | null };
 
@@ -25,6 +26,11 @@ export function ProductionModal({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const { data: preview } = useQuery({
+    queryKey: ["rpa", "wehago-preview", filingId],
+    queryFn: () => previewWehagoUploads(filingId),
+  });
+  const previewByClient = new Map((preview ?? []).map((p) => [p.client_id, p]));
   const sendable = targets.filter((t) => !t.blockedReason).map((t) => t.clientId);
 
   const [picked, setPicked] = useState<string[] | null>(null);
@@ -92,13 +98,19 @@ export function ProductionModal({
       <div className="max-h-[40vh] overflow-y-auto divide-y divide-gray-100">
         {targets.map((t) => {
           const blocked = Boolean(t.blockedReason);
+          const incomeTypes = previewByClient.get(t.clientId)?.income_types ?? [];
           return (
             <label key={t.clientId}
-              className={`flex items-center gap-2.5 py-2 px-1 ${blocked ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50"}`}>
-              <input type="checkbox" checked={!blocked && selected.includes(t.clientId)} disabled={blocked}
-                onChange={() => toggle(t.clientId)} className="h-3.5 w-3.5 accent-blue-600" />
-              <span className="flex-1 text-[13px] text-gray-900">{t.clientName}</span>
-              {t.blockedReason && <Badge tone="danger">{t.blockedReason}</Badge>}
+              className={`flex flex-col gap-1.5 py-2 px-1 ${blocked ? "cursor-not-allowed" : "cursor-pointer hover:bg-gray-50"}`}>
+              <div className="flex items-center gap-2.5">
+                <input type="checkbox" checked={!blocked && selected.includes(t.clientId)} disabled={blocked}
+                  onChange={() => toggle(t.clientId)} className="h-3.5 w-3.5 accent-blue-600 disabled:opacity-40" />
+                <span className={`flex-1 text-[13px] ${blocked ? "text-gray-500" : "text-gray-900"}`}>{t.clientName}</span>
+                {t.blockedReason && <Badge tone="danger">{t.blockedReason}</Badge>}
+              </div>
+              {incomeTypes.length > 0 && (
+                <div className="pl-6"><IncomeTypeChips types={incomeTypes} /></div>
+              )}
             </label>
           );
         })}

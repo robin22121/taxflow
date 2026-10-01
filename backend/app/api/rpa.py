@@ -273,6 +273,39 @@ async def preview_wehago_uploads(
     # 소득유형별 상태 (근로/사업/기타/일용) — 선택용이 아니라 표시용이다 (plan/16 §4-1).
     # 퇴직소득은 화면의 원천세 미리보기와 동일하게 기타소득에 합쳐서 보여준다.
     DISPLAY_TYPES = ["WAGE", "BUSINESS", "OTHER", "DAILY"]
+
+    # "전송 완료" 판정에 명세서 추가입력(게이트2 마감)을 포함 — 근로소득은 자료입력만으로
+    # 충분하지만, 사업소득은 close_business_income_report의 "새로불러오기"가 명세서
+    # 추가입력을 충족한다고 보고 그 단계가 실제 성공했는지까지 확인한다 (2026-10-01 결정,
+    # §12-2-1·§4-1). 기타·일용은 자료입력 자체가 아직 게이트1에 안 묶여 있어 늘 False.
+    succeeded_input_kinds: dict[str, set[RpaJobKind]] = {}
+    for j in (
+        await db.execute(
+            select(RpaJob).where(
+                RpaJob.monthly_filing_id == filing.id,
+                RpaJob.kind.in_(WEHAGO_INPUT_KINDS),
+                RpaJob.status == RpaJobStatus.SUCCEEDED,
+            )
+        )
+    ).scalars().all():
+        succeeded_input_kinds.setdefault(j.client_id, set()).add(j.kind)
+
+    latest_production_step: dict[str, dict] = {}
+    for j in (
+        await db.execute(
+            select(RpaJob)
+            .where(
+                RpaJob.monthly_filing_id == filing.id,
+                RpaJob.kind == RpaJobKind.MONTHLY_PRODUCTION,
+                RpaJob.status == RpaJobStatus.SUCCEEDED,
+            )
+            .order_by(RpaJob.created_at.desc())
+        )
+    ).scalars().all():
+        latest_production_step.setdefault(j.client_id, j.step_progress or {})
+
+    # None이면 자료입력(게이트1) 성공만으로 완료, 문자열이면 그 step_progress 키도 "done"이어야 완료.
+    _PRODUCTION_STEP_BY_TYPE: dict[str, str | None] = {"WAGE": None, "BUSINESS": "wehago_business_income"}
     income_rows = (
         await db.execute(
             select(PayrollEntry.client_id, PayrollEntry.income_type, PayrollEntry.approved).where(
@@ -290,15 +323,24 @@ async def preview_wehago_uploads(
     for c in clients:
         pay_date, reason = await _pay_date(db, filing.id, c.id, filing.period)
         client_breakdown = breakdown.get(c.id, {})
-        income_types = [
-            IncomeTypeStatus(
-                income_type=t,
-                count=len(client_breakdown.get(t, [])),
-                unapproved_count=sum(1 for a in client_breakdown.get(t, []) if not a),
-                automated=IncomeType[t] in AUTOMATED_INCOME_TYPES,
+        income_types = []
+        for t in DISPLAY_TYPES:
+            input_kind = INPUT_JOB_KIND_BY_INCOME_TYPE.get(IncomeType[t])
+            input_done = input_kind is not None and input_kind in succeeded_input_kinds.get(c.id, set())
+            step_key = _PRODUCTION_STEP_BY_TYPE.get(t)
+            filing_complete = (
+                input_done if step_key is None
+                else input_done and latest_production_step.get(c.id, {}).get(step_key) == "done"
             )
-            for t in DISPLAY_TYPES
-        ]
+            income_types.append(
+                IncomeTypeStatus(
+                    income_type=t,
+                    count=len(client_breakdown.get(t, [])),
+                    unapproved_count=sum(1 for a in client_breakdown.get(t, []) if not a),
+                    automated=IncomeType[t] in AUTOMATED_INCOME_TYPES,
+                    filing_complete=filing_complete,
+                )
+            )
         if not (c.business_number or "").strip():
             reason = "사업자번호 없음"
         elif c.id in no_code:

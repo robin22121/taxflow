@@ -70,11 +70,17 @@ class EasyoneApi:
         r.raise_for_status()
         return r.content
 
-    def report(self, job_id: str, succeeded: bool, message: str) -> None:
-        r = self._http.post(
-            f"/api/v1/rpa/agent/jobs/{job_id}/result",
-            json={"status": "SUCCEEDED" if succeeded else "FAILED", "message": message},
-        )
+    def report(
+        self,
+        job_id: str,
+        succeeded: bool,
+        message: str,
+        step_progress: dict[str, Any] | None = None,
+    ) -> None:
+        body: dict[str, Any] = {"status": "SUCCEEDED" if succeeded else "FAILED", "message": message}
+        if step_progress is not None:
+            body["step_progress"] = step_progress
+        r = self._http.post(f"/api/v1/rpa/agent/jobs/{job_id}/result", json=body)
         r.raise_for_status()
 
     def report_import_client(self, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:

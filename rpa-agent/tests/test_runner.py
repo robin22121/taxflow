@@ -24,6 +24,7 @@ class FakeApi:
     def __init__(self, jobs: list[Job], report_error: Exception | None = None) -> None:
         self.jobs = list(jobs)
         self.reports: list[tuple[str, bool, str]] = []
+        self.step_progress_by_job: dict[str, dict] = {}
         self.report_error = report_error
 
     def claim(self) -> Job | None:
@@ -35,10 +36,12 @@ class FakeApi:
     def download_business_income_excel(self, job_id: str) -> bytes:
         return b"fake-business-xlsx"
 
-    def report(self, job_id: str, succeeded: bool, message: str) -> None:
+    def report(self, job_id: str, succeeded: bool, message: str, step_progress: dict | None = None) -> None:
         if self.report_error:
             raise self.report_error
         self.reports.append((job_id, succeeded, message))
+        if step_progress is not None:
+            self.step_progress_by_job[job_id] = step_progress
 
 
 class FakeUploader:
@@ -154,6 +157,9 @@ def test_monthly_production_closes_wht_business_and_local_tax(tmp_path: Path):
     job_id, succeeded, message = api.reports[0]
     assert (job_id, succeeded) == ("job1", True)
     assert "마감 완료" in message and "제작(F4)" in message
+    assert api.step_progress_by_job["job1"] == {
+        "wehago_income_tax": "done", "wehago_business_income": "done", "wehago_local_tax": "done",
+    }
 
 
 def test_monthly_production_wht_failure_skips_business_income(tmp_path: Path):
@@ -165,6 +171,7 @@ def test_monthly_production_wht_failure_skips_business_income(tmp_path: Path):
     job_id, succeeded, message = api.reports[0]
     assert (job_id, succeeded) == ("job1", False)
     assert "원천세 마감 실패" in message
+    assert api.step_progress_by_job["job1"] == {}
 
 
 def test_monthly_production_local_tax_failure_still_reports_earlier_closes(tmp_path: Path):
@@ -176,6 +183,7 @@ def test_monthly_production_local_tax_failure_still_reports_earlier_closes(tmp_p
     job_id, succeeded, message = api.reports[0]
     assert (job_id, succeeded) == ("job1", False)
     assert "지방세 마감 오류" in message
+    assert api.step_progress_by_job["job1"] == {"wehago_income_tax": "done", "wehago_business_income": "done"}
 
 
 def test_unimplemented_job_kind_is_reported_without_touching_uploader(tmp_path: Path):
