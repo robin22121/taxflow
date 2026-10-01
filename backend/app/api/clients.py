@@ -21,6 +21,7 @@ from app.core.deps import (
 )
 from app.services.access_log import log_access
 from app.models import (
+    AccessLog,
     CertificateIssue,
     Client,
     ClientAssignmentHistory,
@@ -373,6 +374,16 @@ async def delete_client(
     # 알림/작업 이력은 감사 목적으로 남기고 이 거래처와의 연결만 끊는다.
     await db.execute(update(MessageLog).where(MessageLog.client_id == client_id).values(client_id=None))
     await db.execute(update(RpaJob).where(RpaJob.client_id == client_id).values(client_id=None))
+    await db.execute(update(AccessLog).where(AccessLog.client_id == client_id).values(client_id=None))
+    employee_ids = (
+        await db.execute(select(Employee.id).where(Employee.client_id == client_id))
+    ).scalars().all()
+    if employee_ids:
+        await db.execute(
+            update(AccessLog)
+            .where(AccessLog.subject_employee_id.in_(employee_ids))
+            .values(subject_employee_id=None)
+        )
     await db.execute(delete(Employee).where(Employee.client_id == client_id))
     # ClientPayrollDefault는 FK가 ondelete=CASCADE라 아래 client 삭제 시 DB가 알아서 지운다.
     # client_id를 남기지 않는다 — 곧 지워질 거래처라 access_log.client_id FK가 끊긴다.
