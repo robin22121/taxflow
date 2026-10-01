@@ -7,13 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   useClientArchive,
   useClientDetail,
-  useClientEmployees,
-  useCreateEmployee,
   useDeleteClient,
-  useUpdateEmployee,
-  useClientPayrollHistory,
-  useImportEmployees,
-  useImportPayroll,
   useIssuePortalPin,
   useMe,
   usePayrollDefault,
@@ -26,23 +20,12 @@ import {
   useUploadFilingDocument,
   useUpsertFilingResult,
 } from "@/lib/queries";
-import { Badge, Button, Card, Chip, Input, Modal } from "@/components/ui";
-import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
+import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import { useConfirm } from "@/components/confirm-dialog";
-import {
-  digitsOnly,
-  formatBizNumber,
-  formatPhone,
-  koreanPeriod,
-  previousPeriod,
-  priorPeriod,
-} from "@/lib/format";
+import { digitsOnly, formatBizNumber, formatPhone, koreanPeriod } from "@/lib/format";
 import type {
-  Employee,
   ArchivePeriod,
   Client,
-  ImportEmployeeResult,
-  ImportPayrollResult,
   PayrollDefault,
   PayrollDefaultPatch,
   VatType,
@@ -54,9 +37,6 @@ const VAT_TYPE_KO: Record<VatType, string> = {
   EXEMPT: "면세",
 };
 
-// 소득지급자 목록 탭 — 원천세 신고서에 합산되는 순서와 맞춤 (퇴직소득은 아직 별도 처리, 탭 미포함)
-const INCOME_TYPE_TABS = ["WAGE", "BUSINESS", "OTHER", "DAILY"] as const;
-
 export default function ClientDetailPage({
   params,
 }: {
@@ -66,26 +46,9 @@ export default function ClientDetailPage({
   const router = useRouter();
   const { data: me } = useMe();
   const { data: client, isLoading } = useClientDetail(id);
-  const { data: employees } = useClientEmployees(id);
-  const importEmp = useImportEmployees(id);
-  const importPay = useImportPayroll(id);
   const updateClient = useUpdateClient(id);
 
-  const empFileRef = useRef<HTMLInputElement>(null);
-  const payFileRef = useRef<HTMLInputElement>(null);
-  // 진행 중인 신고는 직전 월분(previousPeriod)이고, "전월자료 불러오기"는
-  // 그보다 한 달 앞선 자료를 찾는다. 기본값을 거기에 맞춘다.
-  const [payPeriod, setPayPeriod] = useState(() =>
-    priorPeriod(previousPeriod()),
-  );
-  const [empResult, setEmpResult] = useState<ImportEmployeeResult | null>(null);
-  const [payResult, setPayResult] = useState<ImportPayrollResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [wehagoOpen, setWehagoOpen] = useState(false);
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
-  const [addingEmployee, setAddingEmployee] = useState(false);
-  const [incomeTab, setIncomeTab] = useState<string>("WAGE");
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   if (isLoading || !client) return <p className="p-6 text-gray-900">로딩 중...</p>;
@@ -104,10 +67,6 @@ export default function ClientDetailPage({
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-2">
           <h1 className="text-2xl font-semibold text-gray-900">{client.business_name}</h1>
           <div className="flex gap-2 shrink-0">
-            <Button variant="secondary" onClick={() => setWehagoOpen(true)} disabled={!client.business_number}
-              title={client.business_number ? undefined : "사업자번호가 있어야 위하고에서 찾을 수 있습니다"}>
-              위하고에서 가져오기
-            </Button>
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               편집
             </Button>
@@ -183,244 +142,30 @@ export default function ClientDetailPage({
           pending={updateClient.isPending}
         />
       )}
-      {wehagoOpen && (
-        <WehagoImportModal
-          initialBusinessNumber={client.business_number ?? ""}
-          onClose={() => setWehagoOpen(false)}
-        />
-      )}
-
       {/* 사장님 화면 — 상설 링크 + PIN (plan/12-owner-portal.md §4.3) */}
       <PortalSection clientId={id} />
-
-      {/* Import Section */}
-      <Card>
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">데이터 임포트</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Employee Import */}
-          <div className="space-y-2 p-4 rounded-lg border border-gray-300">
-            <h3 className="font-medium text-gray-900">직원 마스터 업로드</h3>
-            <p className="text-xs text-gray-500">
-              위하고T 인적사항 엑셀 또는 자유 양식 (.xlsx, .csv)
-            </p>
-            <input
-              ref={empFileRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                if (!f) return;
-                setError(null);
-                setEmpResult(null);
-                try {
-                  const res = await importEmp.mutateAsync(f);
-                  setEmpResult(res);
-                } catch (err) {
-                  setError((err as Error).message);
-                }
-                e.target.value = "";
-              }}
-            />
-            <Button
-              variant="secondary"
-              onClick={() => empFileRef.current?.click()}
-              disabled={importEmp.isPending}
-            >
-              {importEmp.isPending ? "업로드 중..." : "파일 선택 + 업로드"}
-            </Button>
-            {empResult && (
-              <div className="text-xs mt-2 p-2 rounded bg-green-50 text-green-800">
-                <p>
-                  총 {empResult.total_rows}행 처리 — 생성 {empResult.created},
-                  업데이트 {empResult.updated}, 건너뜀 {empResult.skipped}
-                </p>
-                {empResult.errors.length > 0 && (
-                  <ul className="mt-1 text-amber-700">
-                    {empResult.errors.map((e, i) => (
-                      <li key={i}>{e}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Payroll Import */}
-          <div className="space-y-2 p-4 rounded-lg border border-gray-300">
-            <h3 className="font-medium text-gray-900">전월 급여 업로드</h3>
-            <p className="text-xs text-gray-500">
-              위하고T 원천징수이행상황신고서 엑셀 (.xlsx, .csv)
-            </p>
-            <p className="text-xs text-gray-500">
-              선택한 귀속년월의 급여자료로 저장됩니다. 신고 화면의 &ldquo;전월자료
-              불러오기&rdquo;는 진행 중인 신고월의 직전 월을 찾으므로,{" "}
-              {koreanPeriod(previousPeriod())} 신고를 준비 중이라면{" "}
-              {koreanPeriod(priorPeriod(previousPeriod()))} 자료가 필요합니다.
-            </p>
-            <div className="flex gap-2 items-end">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">
-                  귀속년월 ({koreanPeriod(payPeriod)})
-                </label>
-                <input
-                  type="month"
-                  value={payPeriod}
-                  onChange={(e) => setPayPeriod(e.target.value)}
-                  className="rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-sm text-gray-900"
-                />
-              </div>
-              <input
-                ref={payFileRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  setError(null);
-                  setPayResult(null);
-                  try {
-                    const res = await importPay.mutateAsync({
-                      file: f,
-                      period: payPeriod,
-                    });
-                    setPayResult(res);
-                  } catch (err) {
-                    setError((err as Error).message);
-                  }
-                  e.target.value = "";
-                }}
-              />
-              <Button
-                variant="secondary"
-                onClick={() => payFileRef.current?.click()}
-                disabled={importPay.isPending}
-              >
-                {importPay.isPending ? "업로드 중..." : "파일 선택 + 업로드"}
-              </Button>
-            </div>
-            {payResult && (
-              <div className="text-xs mt-2 p-2 rounded bg-green-50 text-green-800">
-                <p>
-                  {payResult.period} — 총 {payResult.total_rows}행, 매칭{" "}
-                  {payResult.matched}, 미매칭 {payResult.unmatched}, 생성{" "}
-                  {payResult.created_entries}건
-                </p>
-                {payResult.errors.length > 0 && (
-                  <ul className="mt-1 text-amber-700">
-                    {payResult.errors.map((e, i) => (
-                      <li key={i}>{e}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        {error && (
-          <p className="text-sm text-red-600 mt-3">{error}</p>
-        )}
-      </Card>
 
       {/* Payroll Defaults — 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) */}
       <PayrollDefaultSection clientId={id} />
 
-      {/* Employee List — 소득지급자 목록 (근로/사업/기타/일용 탭) */}
+      {/* 사원 목록·급여명세서는 사원정보 메뉴로 이관됨 (2026-10-01) — 여기선 해당 화면으로 넘어가는 링크만 둔다. */}
       <Card>
-        <div className="flex items-baseline justify-between mb-3">
-          <h2 className="text-lg font-semibold text-gray-900">
-            소득지급자 목록 ({employees?.length ?? 0}명)
-          </h2>
-          <Button
-            variant="secondary"
-            className="!text-[12px] !px-2.5 !py-1"
-            onClick={() => setAddingEmployee(true)}
+        <h2 className="text-lg font-semibold text-gray-900 mb-3">사원·급여 정보</h2>
+        <div className="flex gap-3">
+          <Link
+            href={`/dashboard/employee-changes/roster?client=${id}`}
+            className="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-900 hover:bg-gray-50"
           >
-            + 추가
-          </Button>
+            사원정보 보기 →
+          </Link>
+          <Link
+            href={`/dashboard/employee-changes/payroll?client=${id}`}
+            className="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-sm font-medium text-gray-900 hover:bg-gray-50"
+          >
+            급여정보 보기 →
+          </Link>
         </div>
-        <div className="flex gap-1.5 mb-3">
-          {INCOME_TYPE_TABS.map((t) => {
-            const count = employees?.filter((e) => e.income_type === t).length ?? 0;
-            return (
-              <Chip
-                key={t}
-                active={incomeTab === t}
-                className="cursor-pointer select-none"
-                onClick={() => setIncomeTab(t)}
-              >
-                {incomeTypeKo(t)} {count}
-              </Chip>
-            );
-          })}
-        </div>
-        {(() => {
-          const filtered = employees?.filter((e) => e.income_type === incomeTab) ?? [];
-          return filtered.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-xs text-gray-500 border-b border-gray-300">
-                  <tr>
-                    <th className="text-left py-2 pr-3">이름</th>
-                    <th className="text-left py-2 pr-3">사번</th>
-                    <th className="text-left py-2 pr-3">주민번호</th>
-                    <th className="text-left py-2 pr-3">입사일</th>
-                    <th className="text-left py-2 pr-3">퇴사일</th>
-                    <th className="text-left py-2 pr-3">상태</th>
-                    <th className="text-right py-2">관리</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((e) => (
-                    <tr
-                      key={e.id}
-                      className="border-b border-gray-100"
-                    >
-                      <td className="py-2 pr-3 font-medium text-gray-900">{e.name}</td>
-                      <td className="py-2 pr-3 text-gray-500">
-                        {e.employee_code || "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-gray-500">
-                        {e.rrn_last4 ? `******-*${e.rrn_last4}` : "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-gray-500">
-                        {e.hired_at || "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-gray-500">
-                        {e.resigned_at || "—"}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <StatusBadge status={e.status} />
-                      </td>
-                      <td className="py-2 text-right">
-                        <Button variant="ghost" className="!text-[12px] !px-2 !py-0.5" onClick={() => setEditingEmployee(e)}>
-                          수정
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500">
-              {employees && employees.length > 0
-                ? `${incomeTypeKo(incomeTab)}소득 지급자가 없습니다.`
-                : "등록된 직원이 없습니다. 위에서 직원 마스터를 업로드하세요."}
-            </p>
-          );
-        })()}
       </Card>
-
-      {editingEmployee && (
-        <EmployeeEditModal clientId={id} employee={editingEmployee} onClose={() => setEditingEmployee(null)} />
-      )}
-
-      {addingEmployee && (
-        <EmployeeCreateModal clientId={id} incomeType={incomeTab} onClose={() => setAddingEmployee(false)} />
-      )}
-
       {deleteOpen && client && (
         <ClientDeleteModal
           clientId={id}
@@ -430,230 +175,9 @@ export default function ClientDetailPage({
         />
       )}
 
-      {/* 급여 이력 — 거래처의 전체 월 급여자료 */}
-      <PayrollHistorySection clientId={id} />
-
       {/* 보관함 — 사장님 화면에 뜨는 신고 결과를 세무사가 채운다 */}
       <ArchiveSection clientId={id} />
     </div>
-  );
-}
-
-/* ─── 직원 정보 수정 ─── */
-
-function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; employee: Employee; onClose: () => void }) {
-  const update = useUpdateEmployee(clientId);
-  const [form, setForm] = useState({
-    name: employee.name,
-    employee_code: employee.employee_code ?? "",
-    department: employee.department ?? "",
-    position: employee.position ?? "",
-    job_type: employee.job_type ?? "",
-    hired_at: employee.hired_at ?? "",
-    resigned_at: employee.resigned_at ?? "",
-    income_type: employee.income_type,
-    dependents_count: String(employee.dependents_count),
-    children_count: String(employee.children_count),
-    withholding_rate_adjust: String(employee.withholding_rate_adjust),
-  });
-  const [error, setError] = useState<string | null>(null);
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }));
-  const code = form.employee_code.trim();
-  const nonNumeric = code !== "" && !/^\d+$/.test(code);
-  const rehired = Boolean(employee.resigned_at) && !form.resigned_at;
-
-  async function save() {
-    setError(null);
-    try {
-      await update.mutateAsync({
-        id: employee.id,
-        patch: {
-          name: form.name.trim(),
-          employee_code: code,
-          department: form.department.trim() || null,
-          position: form.position.trim() || null,
-          job_type: form.job_type.trim() || null,
-          hired_at: form.hired_at || null,
-          resigned_at: form.resigned_at || null,
-          income_type: form.income_type,
-          dependents_count: Math.max(1, Number(form.dependents_count) || 1),
-          children_count: Math.max(0, Number(form.children_count) || 0),
-          withholding_rate_adjust: Number(form.withholding_rate_adjust) || 100,
-        },
-      });
-      onClose();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
-
-  const field = "w-full rounded-lg border border-gray-300 px-3 py-1.5 text-[13px] outline-none focus:border-blue-500";
-  return (
-    <Modal open={true} onClose={onClose} title={`직원 정보 수정 — ${employee.name}`}
-      footer={<>
-        <Button variant="ghost" onClick={onClose}>취소</Button>
-        <Button onClick={save} disabled={!form.name.trim() || update.isPending}>{update.isPending ? "저장 중..." : "저장"}</Button>
-      </>}>
-      <div className="grid grid-cols-2 gap-3 text-[12px] text-gray-600">
-        <label className="space-y-1">이름<input className={field} value={form.name} onChange={set("name")} /></label>
-        <label className="space-y-1">사원코드 (위하고와 같게)
-          <input className={field} value={form.employee_code} onChange={set("employee_code")} placeholder="비우면 다음 번호" inputMode="numeric" />
-        </label>
-        <label className="space-y-1">소득구분
-          <select className={field} value={form.income_type} onChange={set("income_type")}>
-            {INCOME_TYPE_TABS.map((t) => (
-              <option key={t} value={t}>{incomeTypeKo(t)}</option>
-            ))}
-            <option value="RETIREMENT">퇴직</option>
-          </select>
-        </label>
-        <label className="space-y-1">부서<input className={field} value={form.department} onChange={set("department")} /></label>
-        <label className="space-y-1">직급<input className={field} value={form.position} onChange={set("position")} /></label>
-        <label className="space-y-1">직종<input className={field} value={form.job_type} onChange={set("job_type")} /></label>
-        <label className="space-y-1">입사일<input type="date" className={field} value={form.hired_at} onChange={set("hired_at")} /></label>
-        <label className="space-y-1">퇴사일<input type="date" className={field} value={form.resigned_at} onChange={set("resigned_at")} /></label>
-      </div>
-      <details className="mt-3 rounded-lg border border-gray-200 px-3 py-2">
-        <summary className="cursor-pointer text-[12px] font-medium text-gray-700">
-          소득세 계산 설정 (대부분 기본값 그대로 두면 됩니다)
-        </summary>
-        <div className="mt-2 grid grid-cols-3 gap-3 text-[12px] text-gray-600">
-          <label className="space-y-1">부양가족수 (본인 포함)
-            <input type="number" min={1} className={field} value={form.dependents_count} onChange={set("dependents_count")} />
-          </label>
-          <label className="space-y-1">8~20세 자녀수
-            <input type="number" min={0} className={field} value={form.children_count} onChange={set("children_count")} />
-          </label>
-          <label className="space-y-1">원천징수 조정율
-            <select className={field} value={form.withholding_rate_adjust} onChange={set("withholding_rate_adjust")}>
-              <option value="80">80%</option>
-              <option value="100">100% (기본)</option>
-              <option value="120">120%</option>
-            </select>
-          </label>
-        </div>
-      </details>
-      {nonNumeric && (
-        <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-          사원코드에 숫자가 아닌 글자가 있습니다. 위하고 사원코드는 보통 숫자(1, 2, 3…)라서, 다르면 위하고 전송이 멈춥니다.
-        </p>
-      )}
-      {rehired && (
-        <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-          퇴사일을 지워 재직으로 되돌렸습니다. 위하고 T는 재입사자에게 옛 사원코드가 아닌 <strong>새 사원코드</strong>를
-          주는 것이 원칙입니다 — 위하고 사원등록에서도 이 직원을 새 코드로 등록한 뒤, 여기 사원코드도 그 번호로 바꿔주세요.
-          코드가 다르면 위하고 전송이 안전하게 멈추고 알려드립니다.
-        </p>
-      )}
-      <p className="mt-3 text-[11.5px] text-gray-500">주민번호는 여기서 바꾸지 않습니다.</p>
-      {error && <p className="mt-2 text-[12px] text-red-600">{error}</p>}
-    </Modal>
-  );
-}
-
-/* ─── 소득지급자 추가 — 사원코드: 위하고 명단을 그대로 옮기는 게 아니라 직접 한 명 등록하는
-   경우라 사용자가 입력하고, 비우면 거래처의 다음 번호가 자동으로 붙는다 (규칙은 백엔드
-   create_employee와 동일, services/employee_codes.py 참고). ─── */
-
-function EmployeeCreateModal({ clientId, incomeType, onClose }: { clientId: string; incomeType: string; onClose: () => void }) {
-  const create = useCreateEmployee(clientId);
-  const [form, setForm] = useState({
-    name: "",
-    employee_code: "",
-    rrn: "",
-    department: "",
-    position: "",
-    job_type: "",
-    hired_at: "",
-    income_type: (INCOME_TYPE_TABS as readonly string[]).includes(incomeType) ? incomeType : "WAGE",
-    dependents_count: "1",
-    children_count: "0",
-    withholding_rate_adjust: "100",
-  });
-  const [error, setError] = useState<string | null>(null);
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }));
-  const code = form.employee_code.trim();
-  const nonNumeric = code !== "" && !/^\d+$/.test(code);
-
-  async function save() {
-    setError(null);
-    try {
-      await create.mutateAsync({
-        name: form.name.trim(),
-        employee_code: code,
-        rrn: form.rrn.trim() || null,
-        department: form.department.trim() || null,
-        position: form.position.trim() || null,
-        job_type: form.job_type.trim() || null,
-        hired_at: form.hired_at || null,
-        income_type: form.income_type,
-        dependents_count: Math.max(1, Number(form.dependents_count) || 1),
-        children_count: Math.max(0, Number(form.children_count) || 0),
-        withholding_rate_adjust: Number(form.withholding_rate_adjust) || 100,
-      });
-      onClose();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
-
-  const field = "w-full rounded-lg border border-gray-300 px-3 py-1.5 text-[13px] outline-none focus:border-blue-500";
-  return (
-    <Modal open={true} onClose={onClose} title="소득지급자 추가"
-      footer={<>
-        <Button variant="ghost" onClick={onClose}>취소</Button>
-        <Button onClick={save} disabled={!form.name.trim() || create.isPending}>{create.isPending ? "추가 중..." : "추가"}</Button>
-      </>}>
-      <div className="grid grid-cols-2 gap-3 text-[12px] text-gray-600">
-        <label className="space-y-1">이름<input className={field} value={form.name} onChange={set("name")} /></label>
-        <label className="space-y-1">사원코드 (위하고와 같게)
-          <input className={field} value={form.employee_code} onChange={set("employee_code")} placeholder="비우면 다음 번호" inputMode="numeric" />
-        </label>
-        <label className="space-y-1">소득구분
-          <select className={field} value={form.income_type} onChange={set("income_type")}>
-            {INCOME_TYPE_TABS.map((t) => (
-              <option key={t} value={t}>{incomeTypeKo(t)}</option>
-            ))}
-            <option value="RETIREMENT">퇴직</option>
-          </select>
-        </label>
-        <label className="space-y-1">주민번호 (선택, 나중에 입력 가능)
-          <input className={field} value={form.rrn} onChange={set("rrn")} placeholder="900101-1234567" />
-        </label>
-        <label className="space-y-1">부서<input className={field} value={form.department} onChange={set("department")} /></label>
-        <label className="space-y-1">직급<input className={field} value={form.position} onChange={set("position")} /></label>
-        <label className="space-y-1">직종<input className={field} value={form.job_type} onChange={set("job_type")} /></label>
-        <label className="space-y-1">입사일<input type="date" className={field} value={form.hired_at} onChange={set("hired_at")} /></label>
-      </div>
-      <details className="mt-3 rounded-lg border border-gray-200 px-3 py-2">
-        <summary className="cursor-pointer text-[12px] font-medium text-gray-700">
-          소득세 계산 설정 (대부분 기본값 그대로 두면 됩니다)
-        </summary>
-        <div className="mt-2 grid grid-cols-3 gap-3 text-[12px] text-gray-600">
-          <label className="space-y-1">부양가족수 (본인 포함)
-            <input type="number" min={1} className={field} value={form.dependents_count} onChange={set("dependents_count")} />
-          </label>
-          <label className="space-y-1">8~20세 자녀수
-            <input type="number" min={0} className={field} value={form.children_count} onChange={set("children_count")} />
-          </label>
-          <label className="space-y-1">원천징수 조정율
-            <select className={field} value={form.withholding_rate_adjust} onChange={set("withholding_rate_adjust")}>
-              <option value="80">80%</option>
-              <option value="100">100% (기본)</option>
-              <option value="120">120%</option>
-            </select>
-          </label>
-        </div>
-      </details>
-      {nonNumeric && (
-        <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-          사원코드에 숫자가 아닌 글자가 있습니다. 위하고 사원코드는 보통 숫자(1, 2, 3…)라서, 다르면 위하고 전송이 멈춥니다.
-        </p>
-      )}
-      {error && <p className="mt-2 text-[12px] text-red-600">{error}</p>}
-    </Modal>
   );
 }
 
@@ -977,172 +501,6 @@ function DocumentSlot({
       </Button>
     </div>
   );
-}
-
-/* ─── 급여 이력 — 월별 묶음, 펼치면 직원별 내역 ─── */
-
-function PayrollHistorySection({ clientId }: { clientId: string }) {
-  const { data: history, isLoading } = useClientPayrollHistory(clientId);
-  const [openPeriod, setOpenPeriod] = useState<string | null>(null);
-
-  return (
-    <Card>
-      <h2 className="text-lg font-semibold text-gray-900 mb-1">급여 이력</h2>
-      <p className="text-xs text-gray-500 mb-3">
-        이 거래처에 등록된 모든 월의 급여자료입니다. 월을 클릭하면 직원별
-        내역이 펼쳐집니다.
-      </p>
-
-      {isLoading ? (
-        <p className="text-sm text-gray-500">불러오는 중...</p>
-      ) : !history || history.length === 0 ? (
-        <p className="text-sm text-gray-500">
-          급여자료가 없습니다. 위 &ldquo;전월 급여 업로드&rdquo;에서 월별 자료를
-          올리세요.
-        </p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs text-gray-500 border-b border-gray-300">
-              <tr>
-                <th className="text-left py-2 pr-3">귀속월</th>
-                <th className="text-right py-2 pr-3">인원</th>
-                <th className="text-right py-2 pr-3">총지급액</th>
-                <th className="text-right py-2 pr-3">비과세</th>
-                <th className="text-right py-2 pr-3">소득세</th>
-                <th className="text-left py-2 pr-3">신고상태</th>
-                <th className="text-right py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((p) => (
-                <Fragment key={p.period}>
-                  <tr
-                    className="border-b border-gray-100 cursor-pointer hover:bg-gray-50"
-                    onClick={() =>
-                      setOpenPeriod(openPeriod === p.period ? null : p.period)
-                    }
-                  >
-                    <td className="py-2 pr-3 font-medium text-gray-900">
-                      {koreanPeriod(p.period)}
-                    </td>
-                    <td className="py-2 pr-3 text-right text-gray-900">
-                      {p.employee_count}명
-                    </td>
-                    <td className="py-2 pr-3 text-right text-gray-900">
-                      {p.total_amount.toLocaleString()}
-                    </td>
-                    <td className="py-2 pr-3 text-right text-gray-500">
-                      {p.total_non_taxable.toLocaleString()}
-                    </td>
-                    <td className="py-2 pr-3 text-right text-gray-500">
-                      {p.total_income_tax.toLocaleString()}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <FilingStatusBadge status={p.filing_status} />
-                    </td>
-                    <td className="py-2 text-right text-xs text-gray-500">
-                      {openPeriod === p.period ? "접기" : "펼치기"}
-                    </td>
-                  </tr>
-                  {openPeriod === p.period && (
-                    <tr className="border-b border-gray-100 bg-gray-50">
-                      <td colSpan={7} className="p-3">
-                        <table className="w-full text-xs">
-                          <thead className="text-gray-500">
-                            <tr>
-                              <th className="text-left py-1 pr-3">이름</th>
-                              <th className="text-left py-1 pr-3">사번</th>
-                              <th className="text-left py-1 pr-3">소득구분</th>
-                              <th className="text-right py-1 pr-3">총지급액</th>
-                              <th className="text-right py-1 pr-3">비과세</th>
-                              <th className="text-right py-1 pr-3">과세</th>
-                              <th className="text-right py-1 pr-3">소득세</th>
-                              <th className="text-right py-1">지방소득세</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {p.rows.map((r) => (
-                              <tr key={r.entry_id} className="border-t border-gray-200">
-                                <td className="py-1 pr-3 text-gray-900">{r.name}</td>
-                                <td className="py-1 pr-3 text-gray-500">
-                                  {r.employee_code || "—"}
-                                </td>
-                                <td className="py-1 pr-3 text-gray-500">
-                                  {incomeTypeKo(r.income_type)}
-                                </td>
-                                <td className="py-1 pr-3 text-right text-gray-900">
-                                  {r.total_amount.toLocaleString()}
-                                </td>
-                                <td className="py-1 pr-3 text-right text-gray-500">
-                                  {r.non_taxable.toLocaleString()}
-                                </td>
-                                <td className="py-1 pr-3 text-right text-gray-500">
-                                  {r.taxable.toLocaleString()}
-                                </td>
-                                <td className="py-1 pr-3 text-right text-gray-500">
-                                  {r.income_tax.toLocaleString()}
-                                </td>
-                                <td className="py-1 text-right text-gray-500">
-                                  {r.local_tax.toLocaleString()}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <div className="mt-2 text-right">
-                          <Link
-                            href={`/dashboard/filings/${p.filing_id}`}
-                            className="text-xs text-blue-600 hover:underline"
-                          >
-                            {koreanPeriod(p.period)} 신고 화면으로 이동 →
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function FilingStatusBadge({ status }: { status: string }) {
-  const label = {
-    DRAFT: "준비",
-    COLLECTING: "수집중",
-    REVIEWING: "검증중",
-    APPROVED: "승인",
-    EXCEL_GENERATED: "엑셀생성",
-    FILED: "신고완료",
-    COMPLETED: "완료",
-  }[status];
-  if (status === "FILED" || status === "COMPLETED")
-    return <Badge tone="success">{label}</Badge>;
-  if (status === "DRAFT") return <Badge tone="neutral">{label}</Badge>;
-  return <Badge tone="info">{label ?? status}</Badge>;
-}
-
-function incomeTypeKo(t: string): string {
-  return (
-    {
-      WAGE: "근로",
-      BUSINESS: "사업",
-      OTHER: "기타",
-      DAILY: "일용",
-      RETIREMENT: "퇴직",
-    }[t] ?? t
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  if (status === "ACTIVE") return <Badge tone="success">재직</Badge>;
-  if (status === "RESIGNED") return <Badge tone="danger">퇴사</Badge>;
-  return <Badge tone="warning">대기</Badge>;
 }
 
 /* ─── 사장님 화면 — 상설 링크 + PIN (plan/12-owner-portal.md §4.3) ─── */

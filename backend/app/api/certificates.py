@@ -47,6 +47,7 @@ from app.models import (
     User,
 )
 from app.schemas.rpa import RpaJobOut
+from app.services.access_log import log_access
 from app.services.certificates import CATALOG, CATALOG_BY_CODE, RETENTION, delivery_body, delivery_subject
 from app.services.crypto import decrypt_rrn, mask_rrn
 from app.services.employee_certificates import CertificateDataError, CertificateInput, render_pdf
@@ -288,6 +289,12 @@ async def _issue_employee_certificates(
     for employee_id in employee_ids:
         emp = by_id[employee_id]
         rrn = decrypt_rrn(emp.rrn_encrypted) if emp.rrn_encrypted else ""
+        if rrn:
+            await log_access(
+                db, "DECRYPT_RRN", user_id=user.id, tax_office_id=client.tax_office_id,
+                client_id=client.id, subject_employee_id=emp.id,
+                endpoint="POST /certificates/issue-requests",
+            )
         for code in codes:
             title = f"{CATALOG_BY_CODE[code]['title']} · {emp.name}"
             issue = CertificateIssue(
@@ -366,6 +373,12 @@ async def download_issue_file(
     issue = await db.get(CertificateIssue, issue_id)
     if issue is None or issue.tax_office_id != _office_id(user):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "증명원을 찾을 수 없습니다")
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=_office_id(user),
+        client_id=issue.client_id, subject_employee_id=issue.employee_id,
+        endpoint="GET /certificates/issues/{issue_id}/file",
+    )
+    await db.commit()
     return await _file_response(db, issue)
 
 

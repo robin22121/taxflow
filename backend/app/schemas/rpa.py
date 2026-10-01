@@ -211,6 +211,7 @@ class WehagoImportClientIn(BaseModel):
     business_item: str | None = Field(default=None, max_length=200)
     business_address: str | None = Field(default=None, max_length=300)
     contact_phone: str | None = Field(default=None, max_length=40)
+    tax_jurisdiction: str | None = Field(default=None, max_length=50)
     employees: list[WehagoImportEmployeeIn] = Field(default_factory=list, max_length=2000)
     total: int | None = Field(default=None, ge=1)  # 전체 임포트의 대상 수임처 수 (진행률)
     error: str | None = Field(default=None, max_length=500)

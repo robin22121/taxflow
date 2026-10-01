@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.channels import MessageRecipient, get_alimtalk_channel
 from app.core.deps import get_current_user, get_db, require_write, visible_clients
+from app.services.access_log import log_access
 from app.models import (
     Client,
     CollectionEvent,
@@ -938,7 +939,11 @@ async def download_wehago_excel(
     # 끝난 신고가 EXCEL_GENERATED로 되돌아가면 안 된다.
     if filing.status in OPEN_FILING_STATUSES:
         filing.status = MonthlyFilingStatus.EXCEL_GENERATED
-        await db.commit()
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        endpoint=f"GET /filings/{filing_id}/wehago-excel",
+    )
+    await db.commit()
 
     return Response(
         content=blob,
@@ -976,6 +981,11 @@ async def download_payroll_excel(
     from urllib.parse import quote
     korean_name = f"{client_name or '급여대장'}-{filing.period}.xlsx"
     ascii_fallback = f"payroll_{filing.period}.xlsx"
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        client_id=client_id, endpoint=f"GET /filings/{filing_id}/payroll-excel",
+    )
+    await db.commit()
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1014,6 +1024,11 @@ async def download_wage_statement(
         raise HTTPException(status.HTTP_409_CONFLICT, "근로소득 항목이 없습니다.")
 
     blob = generate_wage_statement(entries, period=filing.period)
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        endpoint=f"GET /filings/{filing_id}/statement-wage",
+    )
+    await db.commit()
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1048,6 +1063,11 @@ async def download_business_statement(
         raise HTTPException(status.HTTP_409_CONFLICT, "사업소득 항목이 없습니다.")
 
     blob = generate_business_statement(entries, period=filing.period)
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        endpoint=f"GET /filings/{filing_id}/statement-business",
+    )
+    await db.commit()
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1196,6 +1216,11 @@ async def download_insurance_acquisition(
 
     entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     blob = generate_acquisition_report(entries, period=filing.period)
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        client_id=client_id, endpoint=f"GET /filings/{filing_id}/insurance-acquisition",
+    )
+    await db.commit()
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1219,6 +1244,11 @@ async def download_insurance_loss(
 
     entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     blob = generate_loss_report(entries, period=filing.period)
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        client_id=client_id, endpoint=f"GET /filings/{filing_id}/insurance-loss",
+    )
+    await db.commit()
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1242,6 +1272,11 @@ async def download_insurance_change(
 
     entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     blob = generate_remuneration_change_report(entries, period=filing.period)
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        client_id=client_id, endpoint=f"GET /filings/{filing_id}/insurance-change",
+    )
+    await db.commit()
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1265,6 +1300,11 @@ async def download_insurance_combined(
 
     entries = await _wage_entries_for_filing(filing_id, db, client_id, only_ids)
     blob = generate_combined_insurance_report(entries, period=filing.period)
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        client_id=client_id, endpoint=f"GET /filings/{filing_id}/insurance-combined",
+    )
+    await db.commit()
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1461,6 +1501,11 @@ async def download_unified(
 
     korean_name = f"통합신고자료-{period}.zip"
     ascii_fallback = f"unified_{period}.zip"
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        endpoint=f"GET /filings/{filing_id}/unified-download ({len(requested)}개 거래처)",
+    )
+    await db.commit()
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
@@ -1524,6 +1569,11 @@ async def download_payslips(
         .all()
     )
     blob = generate_payslips(entries, period=filing.period)
+    await log_access(
+        db, "DOWNLOAD", user_id=user.id, tax_office_id=user.tax_office_id,
+        endpoint=f"GET /filings/{filing_id}/payslips",
+    )
+    await db.commit()
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

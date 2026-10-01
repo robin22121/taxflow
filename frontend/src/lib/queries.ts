@@ -26,6 +26,7 @@ import type {
   ImportEmployeeResult,
   ImportPayrollResult,
   InsuranceSummary,
+  KakaoPendingMessage,
   MessageHistoryPage,
   MessageTaxType,
   MessageTemplate,
@@ -53,6 +54,22 @@ export function useAccessLog() {
   return useQuery({
     queryKey: ["access-log"],
     queryFn: () => api<AccessLogEntry[]>("/api/v1/access-log"),
+  });
+}
+
+export function useKakaoInbox() {
+  return useQuery({
+    queryKey: ["kakao-inbox"],
+    queryFn: () => api<KakaoPendingMessage[]>("/api/v1/kakao-inbox"),
+  });
+}
+
+export function useDismissKakaoPending() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<void>(`/api/v1/kakao-inbox/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["kakao-inbox"] }),
   });
 }
 

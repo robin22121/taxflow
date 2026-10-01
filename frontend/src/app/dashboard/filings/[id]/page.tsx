@@ -61,6 +61,7 @@ export default function FilingDetailPage({
   const [showProductionModal, setShowProductionModal] = useState(false);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [showUnifiedPicker, setShowUnifiedPicker] = useState(false);
+  const [showUnifiedSummary, setShowUnifiedSummary] = useState(false);
   const [unifiedClientIds, setUnifiedClientIds] = useState<string[]>([]);
   const [showSingleDownload, setShowSingleDownload] = useState(false);
   const [singleClientId, setSingleClientId] = useState<string>("");
@@ -131,6 +132,21 @@ export default function FilingDetailPage({
   const blockedClientIds = new Set([...unapprovedSessions, ...emptySessions].map((s) => s.client_id));
   const downloadableSessions = sessions.filter((s) => !blockedClientIds.has(s.client_id));
   const unifiedDownloadIds = unifiedClientIds.filter((c) => !blockedClientIds.has(c));
+
+  // 통합다운로드 전 요약 — 근로/사업/기타 소득별 입력·승인 건수 (matchesWhtSubTab 재사용).
+  // 미승인 건이 하나라도 있으면 통합다운로드를 막는다(백엔드도 거래처 단위로 같은 규칙을 강제함).
+  const unifiedSummaryRows = (
+    [
+      { key: "WAGE", label: "근로소득" },
+      { key: "BUSINESS", label: "사업소득" },
+      { key: "OTHER", label: "기타소득" },
+    ] as const
+  ).map(({ key, label }) => {
+    const matched = allEntries.filter((e) => matchesWhtSubTab(e, key));
+    const approved = matched.filter((e) => e.approved).length;
+    return { label, total: matched.length, approved, unapproved: matched.length - approved };
+  });
+  const unifiedTotalUnapproved = unifiedSummaryRows.reduce((sum, r) => sum + r.unapproved, 0);
 
   // Deadline calculation
   const deadlineDay = 10;
@@ -318,9 +334,7 @@ export default function FilingDetailPage({
             {showDownloadMenu && (<>
               <div className="fixed inset-0 z-40" onClick={() => setShowDownloadMenu(false)} />
               <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
-                <button onClick={() => { setShowDownloadMenu(false); openUnifiedPicker(); }} className="w-full text-left px-3 py-2 text-[12px] font-semibold text-gray-900 hover:bg-gray-50">
-                  통합 다운로드 (급여대장)
-                </button>
+                {/* 통합 다운로드는 "4대보험관리" 탭 옆 버튼으로 옮김 (2026-09-30) */}
                 <button onClick={() => { setShowDownloadMenu(false); downloadPayslips(); }} className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50">
                   급여명세서
                 </button>
@@ -351,6 +365,7 @@ export default function FilingDetailPage({
           flaggedCount={flaggedEntries.length}
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}
+          onOpenUnifiedSummary={() => setShowUnifiedSummary(true)}
         />
       )}
 
@@ -394,6 +409,55 @@ export default function FilingDetailPage({
           <label className="block text-[12px] font-medium text-gray-600 mb-1">비밀번호 확인</label>
           <input type="password" value={bulkPassword} onChange={(e) => setBulkPassword(e.target.value)} placeholder="비밀번호를 입력하세요"
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500" />
+        </Modal>
+      )}
+
+      {showUnifiedSummary && (
+        <Modal open={true} onClose={() => setShowUnifiedSummary(false)}
+          title="통합다운로드 — 소득별 입력/승인 현황"
+          footer={<>
+            <Button variant="ghost" onClick={() => setShowUnifiedSummary(false)}>취소</Button>
+            <Button
+              disabled={unifiedTotalUnapproved > 0}
+              onClick={() => { setShowUnifiedSummary(false); openUnifiedPicker(); }}
+            >
+              거래처 선택으로 계속
+            </Button>
+          </>}>
+          <div className="space-y-3">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-gray-200 text-[11px] text-gray-500 uppercase tracking-wider">
+                  <th className="text-left py-1.5">소득구분</th>
+                  <th className="text-right py-1.5">입력건</th>
+                  <th className="text-right py-1.5">승인건</th>
+                  <th className="text-right py-1.5">미승인건</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unifiedSummaryRows.map((r) => (
+                  <tr key={r.label} className="border-b border-gray-100 last:border-0">
+                    <td className="py-1.5 text-gray-900">{r.label}</td>
+                    <td className="py-1.5 text-right tabular-nums text-gray-700">{r.total}</td>
+                    <td className="py-1.5 text-right tabular-nums text-gray-700">{r.approved}</td>
+                    <td className={`py-1.5 text-right tabular-nums font-semibold ${r.unapproved > 0 ? "text-red-600" : "text-gray-400"}`}>
+                      {r.unapproved}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {unifiedTotalUnapproved > 0 ? (
+              <p className="text-[12px] text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                미승인 건이 {unifiedTotalUnapproved}건 있어 통합다운로드를 진행할 수 없습니다.
+                원천세관리에서 먼저 검증·승인을 완료해 주세요.
+              </p>
+            ) : (
+              <p className="text-[12px] text-gray-500">
+                전체 승인 완료 — 계속하면 받을 거래처를 고를 수 있습니다.
+              </p>
+            )}
+          </div>
         </Modal>
       )}
 
@@ -596,7 +660,7 @@ const QA_INTENT_META: Record<QaIntent, { label: string; hint: string; bubble: st
   },
 };
 
-function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar }: {
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar, onOpenUnifiedSummary }: {
   filingId: string;
   sessions: CollectionSession[];
   entries: PayrollEntry[];
@@ -609,6 +673,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   flaggedCount: number;
   showSidebar: boolean;
   setShowSidebar: (v: boolean) => void;
+  onOpenUnifiedSummary: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
@@ -762,6 +827,15 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
               <MainTabButton active={mainTab === "insurance"} onClick={() => setMainTab("insurance")}>
                 4대보험관리
               </MainTabButton>
+              <div className="pb-2">
+                <Button
+                  variant="secondary"
+                  className="!text-[12px] !px-2.5 !py-1"
+                  onClick={onOpenUnifiedSummary}
+                >
+                  통합다운로드
+                </Button>
+              </div>
               <div className="flex-1" />
               <div className="pb-2 text-[11px] text-gray-500 flex items-center gap-1.5">
                 <Button

@@ -63,6 +63,7 @@ class ImportedClient:
     business_item: str | None = None
     business_address: str | None = None
     contact_phone: str | None = None
+    tax_jurisdiction: str | None = None  # 관할세무서 (예: "원주 세무서")
     employees: list[ImportedEmployee] = field(default_factory=list)
 
 
@@ -167,6 +168,7 @@ async def apply_client_import(
     _fill(client, "business_item", data.business_item, target, "종목", out)
     _fill(client, "business_address", data.business_address, target, "사업장 주소", out)
     _fill(client, "contact_phone", data.contact_phone, target, "전화번호", out)
+    _fill(client, "tax_jurisdiction", data.tax_jurisdiction, target, "관할세무서", out)
     if not created and data.business_name.strip() != client.business_name:
         out.conflicts.append({"target": target, "field": "상호",
                               "current": client.business_name, "wehago": data.business_name})

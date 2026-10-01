@@ -41,6 +41,7 @@ class Client(Base, IdMixin, TimestampMixin):
     business_type: Mapped[str | None] = mapped_column(String(100))   # 업태
     business_item: Mapped[str | None] = mapped_column(String(200))   # 종목(업종)
     business_address: Mapped[str | None] = mapped_column(String(300))  # 사업장 주소
+    tax_jurisdiction: Mapped[str | None] = mapped_column(String(50))  # 관할세무서 (예: "원주 세무서") — 지방세 신고용
     wehago_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 마지막 위하고 임포트
     # 사업주 포털 PIN (plan/12-owner-portal.md §4.3.3) — None이면 게이트 뒤 구역을 노출하지 않는다
     portal_pin_hash: Mapped[str | None] = mapped_column(String(128))

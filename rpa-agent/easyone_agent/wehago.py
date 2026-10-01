@@ -604,7 +604,8 @@ class WehagoUploader:
         return result
 
     def read_company(self, business_number: str) -> dict[str, Any]:
-        """수임처정보 [기본정보] 탭 — 상호·사업자번호·대표자·업태/업종·사업장 주소·전화번호.
+        """수임처정보 [기본정보] 탭 — 상호·사업자번호·대표자·업태/업종·사업장 주소·전화번호·
+        관할세무서("수임기업 담당세무서", 2026-09-30 추가 — 지방세 신고 등에 쓰임).
 
         대표자 주민번호도 화면에 보이지만 가져오지 않는다 (이지원천에 필요 없음).
         """
@@ -2276,7 +2277,11 @@ class WehagoUploader:
             "business_type": pairs.get("업태/업종", "") or None,
             "business_class_code": pairs.get("업종코드", "") or None,
             "business_address": pairs.get("사업장 주소", "") or None,
-            "phone": pairs.get("전화번호", "") or None,
+            # 이전엔 "phone"이라는 이름으로 반환해 API 스키마(contact_phone)와 안 맞아 한 번도
+            # 저장된 적이 없었다 (2026-09-30 발견·수정) — 키 이름을 스키마와 맞춘다.
+            "contact_phone": pairs.get("전화번호", "") or None,
+            # "원주 세무서"처럼 " 세무서" 접미사가 붙어 온다 (2026-09-30 실측, 서도 → 원주 세무서).
+            "tax_jurisdiction": pairs.get("수임기업 담당세무서", "") or None,
         }
 
     def _read_business_number(self) -> str:
