@@ -22,6 +22,7 @@ from app.models.kakao_pending import KakaoPendingMessage
 from app.models.message_log import MessageLog
 from app.models.monthly_filing import MonthlyFiling, MonthlyFilingStatus
 from app.models.payroll import IncomeType, MatchStatus, PayrollEntry
+from app.models.portal_message import MessageSender, PortalMessage
 from app.models.promotion import Promotion
 from app.models.rpa import (
     RpaAgent,
@@ -61,10 +62,12 @@ __all__ = [
     "KakaoPendingMessage",
     "MatchStatus",
     "MessageLog",
+    "MessageSender",
     "MonthlyFiling",
     "MonthlyFilingStatus",
     "OfficeApprovalStatus",
     "PayrollEntry",
+    "PortalMessage",
     "Promotion",
     "RpaAgent",
     "RpaJob",

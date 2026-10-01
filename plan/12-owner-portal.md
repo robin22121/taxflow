@@ -534,7 +534,7 @@ PortalMessage
 | **2** | **입·퇴사 등록 버튼 2개** + `EmployeeChangeRequest` + 세무사 승인 UI | 중간 | 1단계 |
 | **3** | 보관함 — `ClientFilingResult` + 세무사 PDF 수동 업로드 + 예상 납부세액 | 낮음 | 1단계 |
 | **4** | 보관함 자동 적재 — RPA가 `ClientFilingResult`에 직접 기입 | Phase 2 종속 | Phase 2 RPA 산출물 |
-| **5** | 메시지 기능 — `PortalMessage`(§5.5) + 대화창 UI + 첨부 업로드 (2026-09-30 설계, 미구현) | 중간 | 1단계 |
+| **5** | 메시지 기능 — `PortalMessage`(§5.5) + 대화창 UI + 첨부 업로드 (2026-09-30 설계 → **2026-10-01 구현 완료**) | 중간 | 1단계 |
 
 **구현 상태 (2026-09-11)** — **1단계 완료**. 백엔드·프론트·세무사 UI·발송 경로까지 연결
 (`app/services/portal.py`, `frontend/src/app/r/[token]/page.tsx`,
@@ -556,6 +556,12 @@ PortalMessage
 - 남은 것: **Phase 2 RPA 자동 적재**(같은 테이블에 `source=RPA`로 기입하면 화면 변경 없음. 단 **지방소득세 결과(위택스 접수증·납부서·전자납부번호·납부세액) 칸이 없어 확장 필요** — `16-wehago-rpa.md` §6),
   그리고 §4.5의 **열람 로그**와 그에 기반한 §3.7 4단계 상태
   (발송됨/열람함/입력중/제출완료)
+- **메시지 기능(§3.8)** — 완료 (`app/models/portal_message.py`, `app/api/portal_messages.py`,
+  `app/api/public_collect.py`의 `/r/{token}/messages`, 마이그레이션 `e7f8a9b0c1d2`,
+  `tests/test_portal_messages.py`). 사장님 쪽은 `frontend/.../r/[token]/_components/MessagePanel.tsx`
+  (떠 있는 버튼 → 모달, §8.2 4-메뉴에 끼우지 않고 부차 기능으로 분리), 세무사 쪽은
+  `frontend/.../dashboard/clients/[id]/page.tsx`의 `MessagesSection`. 설계대로 알림은
+  보내지 않는다 — 직원 답변이 쌓여도 사장님에게 별도 통지가 가지 않고, 포털을 다시 열어야 보인다
 
 **1단계는 사실상 기존 자산의 수명 연장이다.** 베타 사무소 한 곳에 1단계만 붙여
 **사장님 재방문율**을 측정하는 것이 이 방향의 유일한 검증이다. 재방문이 나오지 않으면

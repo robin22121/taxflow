@@ -330,3 +330,114 @@
   margin-right: 6px;
   vertical-align: middle;
 }
+
+/* 메시지 — 자료 제출 커뮤니케이션 채널 (plan/12-owner-portal.md §3.8).
+   4개 하단 탭에 끼우지 않는다 — 부차 메뉴라 떠 있는 버튼으로만 연다. */
+.chatFab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(env(safe-area-inset-bottom, 0) + 76px);
+  z-index: 40;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #ffffff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 10px 24px -8px rgba(37, 99, 235, 0.55);
+}
+@media (min-width: 1024px) {
+  .chatFab { bottom: 24px; }
+}
+
+.chatNotice {
+  font-size: 12px;
+  color: var(--muted);
+  background: #f3f6fb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+
+.chatThread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 240px;
+}
+
+.chatBubbleRow { display: flex; }
+.chatBubbleRowOwner { justify-content: flex-end; }
+
+.chatBubble {
+  max-width: 80%;
+  border-radius: 14px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.chatBubbleStaff {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+.chatBubbleOwner {
+  background: var(--blue);
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+.chatMeta {
+  font-size: 10.5px;
+  color: var(--muted-2);
+  margin-top: 3px;
+}
+
+.chatAttachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.chatComposer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+.chatAttachBtn {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: #ffffff;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.chatTextarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  outline: none;
+  max-height: 96px;
+  font-family: inherit;
+  color: var(--text);
+}
+.chatTextarea:focus { border-color: var(--blue); }

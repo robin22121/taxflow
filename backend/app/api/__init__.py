@@ -19,6 +19,7 @@ def register_routes(app: FastAPI) -> None:
         imports,
         kakao_inbox,
         messages,
+        portal_messages,
         public_collect,
         qa,
         rpa,
@@ -42,6 +43,11 @@ def register_routes(app: FastAPI) -> None:
         employee_changes.router,
         prefix="/api/v1/employee-changes",
         tags=["employee-changes"],
+    )
+    app.include_router(
+        portal_messages.router,
+        prefix="/api/v1/clients",
+        tags=["portal-messages"],
     )
     app.include_router(public_collect.router, prefix="/api/v1/public", tags=["public"])
     app.include_router(qa.router, prefix="/api/v1/qa", tags=["qa"])

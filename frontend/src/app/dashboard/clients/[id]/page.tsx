@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   useClientArchive,
   useClientDetail,
+  useClientMessages,
   useDeleteClient,
   useIssuePortalPin,
   useMe,
@@ -15,6 +16,7 @@ import {
   usePortalPinStatus,
   useResetPayrollDefault,
   useRotatePortalLink,
+  useSendClientMessage,
   useUpdateClient,
   useUpdatePayrollDefault,
   useUploadFilingDocument,
@@ -160,6 +162,9 @@ export default function ClientDetailPage({
       )}
       {/* 사장님 화면 — 상설 링크 + PIN (plan/12-owner-portal.md §4.3) */}
       <PortalSection clientId={id} />
+
+      {/* 메시지 — 자료 제출 커뮤니케이션 채널 (plan/12-owner-portal.md §3.8) */}
+      <MessagesSection clientId={id} />
 
       {/* Payroll Defaults — 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) */}
       <PayrollDefaultSection clientId={id} />
@@ -681,6 +686,112 @@ function PortalSection({ clientId }: { clientId: string }) {
       {err && <p className="text-sm text-red-600 mt-3">{err}</p>}
     </Card>
     </>
+  );
+}
+
+/* ─── 메시지 — 자료 제출 커뮤니케이션 채널 (plan/12-owner-portal.md §3.8) ───
+   AI가 아닌 담당 직원이 직접 응대한다. 보낸 메시지에는 알림이 가지 않는다 —
+   급한 건은 기존 카톡·전화로 별도 연락한다. */
+
+function MessagesSection({ clientId }: { clientId: string }) {
+  const { data: messages, isLoading } = useClientMessages(clientId);
+  const send = useSendClientMessage(clientId);
+  const [text, setText] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleSend(file?: File) {
+    if (!text.trim() && !file) return;
+    setErr(null);
+    try {
+      await send.mutateAsync({ body: text, file });
+      setText("");
+      if (fileRef.current) fileRef.current.value = "";
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold text-gray-900">메시지</h2>
+      <p className="text-xs text-gray-500 mt-0.5">
+        사장님 화면에서 자료 제출과 관련해 보낸 메시지입니다. 여기서 답하면 AI가 아닌{" "}
+        <strong>담당 직원이 직접 답변</strong>하는 것으로 표시됩니다.
+        <br />
+        답변에는 알림이 가지 않으니, 급한 연락은 기존 카톡·전화로 따로 해 주세요.
+      </p>
+
+      <div className="mt-4 max-h-80 overflow-y-auto flex flex-col gap-2 pr-1">
+        {isLoading && <p className="text-sm text-gray-400">불러오는 중...</p>}
+        {!isLoading && (messages?.length ?? 0) === 0 && (
+          <p className="text-sm text-gray-400">아직 메시지가 없습니다.</p>
+        )}
+        {messages?.map((m) => (
+          <div
+            key={m.id}
+            className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] ${
+              m.sender_type === "OWNER"
+                ? "self-start bg-gray-100 text-gray-900"
+                : "self-end bg-blue-600 text-white"
+            }`}
+          >
+            {m.sender_type === "STAFF" && (
+              <div className="text-[10.5px] opacity-80 mb-0.5">{m.staff_name ?? "담당 직원"}</div>
+            )}
+            {m.body && <div className="whitespace-pre-wrap">{m.body}</div>}
+            {m.attachment_url && (
+              <a
+                href={m.attachment_url}
+                target="_blank"
+                rel="noreferrer"
+                className="block mt-1 text-[12px] underline"
+              >
+                📎 {m.attachment_name ?? "첨부파일"}
+              </a>
+            )}
+            <div className="text-[10px] opacity-70 mt-1">
+              {new Date(m.created_at).toLocaleString("ko-KR")}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
+
+      <div className="mt-3 flex items-end gap-2 pt-3 border-t border-gray-200">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,.xlsx,.xls,.csv,.pdf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void handleSend(f);
+          }}
+        />
+        <Button variant="secondary" onClick={() => fileRef.current?.click()} disabled={send.isPending}>
+          +
+        </Button>
+        <textarea
+          rows={1}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void handleSend();
+            }
+          }}
+          placeholder="답변을 입력하세요"
+          disabled={send.isPending}
+          className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500 resize-none"
+        />
+        <Button disabled={send.isPending || !text.trim()} onClick={() => void handleSend()}>
+          {send.isPending ? "전송 중..." : "전송"}
+        </Button>
+      </div>
+    </Card>
   );
 }
 

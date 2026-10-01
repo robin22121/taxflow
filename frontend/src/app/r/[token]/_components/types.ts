@@ -115,3 +115,18 @@ export type SubmitResult = {
 };
 
 export type ViewKey = "filing" | "payment" | "cost" | "employee";
+
+export type PortalMessageItem = {
+  id: string;
+  sender_type: "OWNER" | "STAFF";
+  staff_name: string | null;
+  body: string | null;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  created_at: string;
+};
+
+export type PortalMessageThread = {
+  staff_name: string | null;
+  items: PortalMessageItem[];
+};

@@ -8,12 +8,13 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
+from pathlib import Path as PurePath
 from typing import Literal
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,8 +28,11 @@ from app.models import (
     Employee,
     EmployeeChangeRequest,
     EmploymentStatus,
+    MessageSender,
     MonthlyFiling,
     PayrollEntry,
+    PortalMessage,
+    User,
 )
 from app.models.payroll import IncomeType
 from app.schemas.filings import CollectMessageOut
@@ -139,6 +143,34 @@ class SecureRrnSubmitIn(BaseModel):
     rrn: str = Field(pattern=r"^\d{6}-?\d{7}$")
     hired_at: date | None = None
     employee_code: str | None = None
+
+
+class PortalMessageOut(BaseModel):
+    id: str
+    sender_type: str
+    staff_name: str | None
+    body: str | None
+    attachment_url: str | None
+    attachment_name: str | None
+    created_at: datetime
+
+
+class PortalMessageThreadOut(BaseModel):
+    # 메시지가 하나도 없어도 "담당 직원 ○○○님이 답변합니다" 안내에 쓴다 (§3.8).
+    staff_name: str | None
+    items: list[PortalMessageOut]
+
+
+def _message_out(msg: PortalMessage, staff_name: str | None = None) -> PortalMessageOut:
+    return PortalMessageOut(
+        id=msg.id,
+        sender_type=msg.sender_type.value,
+        staff_name=staff_name,
+        body=msg.body,
+        attachment_url=msg.attachment_url,
+        attachment_name=msg.attachment_name,
+        created_at=msg.created_at,
+    )
 
 
 async def _require_open_link(db: AsyncSession, token_str: str) -> ResolvedLink:
@@ -838,3 +870,94 @@ async def submit_rrn(
     await db.commit()
     await db.refresh(employee)
     return {"id": employee.id, "name": employee.name, "masked_rrn": mask_rrn(rrn_formatted)}
+
+
+# --- §3.8 메시지 — 자료 제출 커뮤니케이션 채널 ------------------------------
+
+
+@router.get("/r/{token_str}/messages", response_model=PortalMessageThreadOut)
+async def list_portal_messages(
+    token_str: str, db: AsyncSession = Depends(get_db)
+) -> PortalMessageThreadOut:
+    """공개 구역 — PIN 게이트 없음(§3.8). AI가 아닌 담당 직원이 응대한다."""
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+
+    rows = (
+        await db.execute(
+            select(PortalMessage)
+            .where(PortalMessage.client_id == link.client.id)
+            .options(selectinload(PortalMessage.staff_user))
+            .order_by(PortalMessage.created_at)
+        )
+    ).scalars().all()
+
+    # 배정된 담당 직원 우선, 없으면 이 거래처에 가장 최근 답한 직원으로 대체 — 둘 다
+    # 없으면 아직 아무도 응대하지 않은 것이므로 None(화면은 "담당 직원"으로 일반 표기).
+    staff_name = None
+    if link.client.assigned_user_id:
+        staff = await db.get(User, link.client.assigned_user_id)
+        staff_name = staff.name if staff else None
+    if staff_name is None:
+        for m in reversed(rows):
+            if m.sender_type is MessageSender.STAFF and m.staff_user:
+                staff_name = m.staff_user.name
+                break
+
+    return PortalMessageThreadOut(
+        staff_name=staff_name,
+        items=[
+            _message_out(m, staff_name=m.staff_user.name if m.staff_user else None)
+            for m in rows
+        ],
+    )
+
+
+@router.post(
+    "/r/{token_str}/messages",
+    response_model=PortalMessageOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def post_portal_message(
+    token_str: str,
+    body: str | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> PortalMessageOut:
+    """사장님이 보낸 메시지 — AI를 거치지 않고 그대로 담당 직원 앞으로 쌓인다.
+
+    답변에는 알림이 가지 않는다(§3.8) — 사장님은 포털을 다시 열어야 확인할 수 있다.
+    """
+    link = await resolve_public_link(db, token_str, create_session=False)
+    if not link:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "유효하지 않은 링크입니다")
+
+    text = (body or "").strip()
+    attachment_url = attachment_name = None
+    if file is not None and file.filename:
+        content = await file.read()
+        if content:
+            if len(content) > 25 * 1024 * 1024:
+                raise HTTPException(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "25MB 초과 파일은 허용되지 않습니다"
+                )
+            storage = get_storage()
+            key = storage.make_key("portal_message", PurePath(file.filename).suffix)
+            attachment_url = storage.put_object(key, content, file.content_type)
+            attachment_name = file.filename
+
+    if not text and not attachment_url:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "내용을 입력하거나 파일을 첨부해 주세요")
+
+    msg = PortalMessage(
+        client_id=link.client.id,
+        sender_type=MessageSender.OWNER,
+        body=text or None,
+        attachment_url=attachment_url,
+        attachment_name=attachment_name,
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return _message_out(msg)
