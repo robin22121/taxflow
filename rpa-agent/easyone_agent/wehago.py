@@ -1691,28 +1691,30 @@ class WehagoUploader:
     def _select_local_tax_district(self, smarta, business_address: str | None) -> None:
         """지방세 마감 전 "법정동"(취급청) 선택 — 안 하면 [마감] 버튼이 비활성 상태로 막힌다.
 
-        사용자가 직접 수동으로 끝낸 Chrome Recorder 녹화(2026-10-02, `지방세.json`)를
-        보고 짰다 — 녹화 단계: ① "법정동" 칸의 아이콘(`div.fake_inputbox` 안
-        `button > svg`) 클릭 → "법정동 코드도움" 다이얼로그가 같은 행 안에 뜸
-        ② 다이얼로그의 "찾을 내용" 표시(`div.LS_ngh_input2`)를 더블클릭해야 진짜
-        `<input>`이 나타남(다른 화면의 `_type_fresh`와 같은 fake-표시 패턴)
-        ③ 검색어 입력 ④ [확인(enter)] 클릭.
+        2026-10-02 사용자가 보내준 실제 HTML로 확인: `<th>법정동</th>` 같은 라벨 태그가
+        아예 없다(이전 버전은 이 라벨을 찾다가 못 찾아 조용히 건너뛰었다 — 실기에서
+        "법정동 입력 안 함" 증상으로 재현). 칸 자체(`div.LS_ngh_input2`)만 있고, 비어
+        있을 때 placeholder 텍스트 "법정동코드, 법정동명으로 검색"이 들어있어 이걸로
+        찾는다 — 선택되면 실제 값으로 바뀌어 더는 이 텍스트가 안 걸리므로, 선택 전/후
+        모두 "placeholder 텍스트가 보이는 칸을 찾을 수 있는가"로 상태를 판단한다.
 
-        ⚠️ 녹화에서는 "횡성" 한 단어만 검색했지만 결과가 여러 건 나와 사람이 직접
-        RealGrid 행을 눌러 골랐을 가능성이 높다(레코더가 캔버스 그리드 클릭은 못
-        담는다, §13-3-4와 동일한 한계) — `district_search_term`으로 만든 "구+동"/
-        "읍(면)+리" 두 단계 검색어를 쓰면 결과가 1건으로 좁혀져 그 수동 선택 없이도
-        확인(enter)만으로 끝날 것으로 기대하고 짰다. 실제로 1건으로 안 좁혀지면
-        이 함수가 그대로 실패할 수 있다 — 처음 실행해서 어긋나면 화면을 캡처해 알려줄 것.
+        코드도움 열기: `div.fake_inputbox` 안 `button.WSC_LUXButton`(돋보기 아이콘) 클릭 →
+        "법정동 코드도움" 다이얼로그. "찾을 내용" 표시(`div.LS_ngh_input2`)를
+        더블클릭해야 진짜 `<input>`이 나타남(다른 화면의 `_type_fresh`와 같은
+        fake-표시 패턴) → 검색어 입력 → [확인(enter)] (2026-10-02 사용자가 보내준 실제
+        다이얼로그 HTML로 구조 재확인 완료).
+
+        ⚠️ `district_search_term`으로 만든 "구+동"/"읍(면)+리" 두 단계 검색어로 결과가
+        1건으로 좁혀질 것으로 기대하고 짰다 — 실제로 안 좁혀지면 이 함수가 그대로
+        실패할 수 있다(레코더는 캔버스 그리드 수동 선택을 못 담는다, §13-3-4와 동일한
+        한계).
 
         이미 선택돼 있으면(재실행, 이미 마감 등) 건드리지 않고 건너뛴다.
         """
-        label = smarta.locator("th").filter(has_text=re.compile(r"^\s*법정동\s*$")).first
-        if label.count() == 0:
-            return  # 화면 구조가 추정과 달라 라벨을 못 찾음 — 건드리지 않고 다음 단계로
-        field = label.locator("xpath=following-sibling::td[1]").locator("div.LS_ngh_input2").first
-        if field.count() == 0 or _fake_text(field):
-            return  # 이미 값이 있음 — 건너뜀
+        placeholder = re.compile("법정동")
+        field = smarta.locator("div.LS_ngh_input2", has_text=placeholder).first
+        if field.count() == 0:
+            return  # 이미 값이 선택돼 있거나(placeholder 텍스트가 안 보임) 화면에 없음 — 건너뜀
 
         search_term = district_search_term(business_address)
         if not search_term:
@@ -1723,7 +1725,7 @@ class WehagoUploader:
 
         self.step = "지방세 취급청(법정동) 코드도움 열기"
         think("wehago")
-        field.locator("div.fake_inputbox button, button, div.fakebutton").first.click()
+        field.locator("div.fake_inputbox button.WSC_LUXButton").first.click()
         dialog = smarta.locator("div._isDialog:visible", has_text="법정동 코드도움")
         dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
 
@@ -1737,7 +1739,7 @@ class WehagoUploader:
         dialog.get_by_role("button", name="확인(enter)", exact=True).click()
         self._wait_for_no_dimmed(smarta)
 
-        if not _fake_text(field):
+        if smarta.locator("div.LS_ngh_input2", has_text=placeholder).count() > 0:
             raise WehagoError(
                 f"지방세 취급청(법정동) 선택 실패 — 검색어 '{search_term}'로 결과를 "
                 "좁히지 못했습니다 (여러 건이거나 0건일 수 있음). 위하고에서 직접 선택 후 재시도하세요."
