@@ -336,6 +336,19 @@ class WehagoUploader:
             close_buttons.nth(visible[-1]).click(force=True)
             page.wait_for_timeout(400)
 
+    def has_open_dialog(self) -> bool:
+        """지금 화면에 `_dismiss_splash`가 못 닫은 안내 팝업이 떠 있는지 — 실패 메시지용.
+
+        클릭·대기가 원인 모를 타임아웃으로 멈췄을 때, 새로 생긴(아직 코드가 모르는) 팝업이
+        범인인지 바로 구분할 수 있게 한다 (2026-10-02, §1-5 "두더지잡기" 대응 — 실패 메시지로
+        원인 파악 사이클을 줄인다). 페이지가 이미 닫혔거나 확인 중 오류가 나도 실패 메시지
+        작성을 막으면 안 되므로 조용히 False를 반환한다.
+        """
+        try:
+            return self._page.locator(_SPLASH_DIALOG).first.is_visible()
+        except Exception:
+            return False
+
     @staticmethod
     def _dismiss_notice(page) -> None:
         """SmartA 메뉴에 처음 들어갈 때 가끔 뜨는 1회성 공지(예: "국민연금 기준소득월액
@@ -398,6 +411,11 @@ class WehagoUploader:
         if all_tab.count():
             all_tab.click()
             page.wait_for_timeout(500)
+        # 2차 인증 안내 등 일부 팝업은 메인화면 진입 직후가 아니라 약간 늦게(애니메이션 등으로)
+        # 뜬다 — 위 첫 _dismiss_splash() 체크 시점엔 아직 없어서 못 닫고 넘어갈 수 있다
+        # (2026-10-02 실기 확인, "2차 인증을 설정해 보세요" 팝업이 검색을 막음). 검색 직전에
+        # 한 번 더 확인한다.
+        self._dismiss_splash()
         search = page.locator("input[placeholder*='사업자등록번호']").first
         search.wait_for(state="visible", timeout=SIDEBAR_WAIT_MS)
         target = normalize_business_number(business_number)
