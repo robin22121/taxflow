@@ -6,10 +6,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { clearTokens, getToken } from "@/lib/api";
 import { useMe } from "@/lib/queries";
-import { Modal } from "@/components/ui";
 import { HeaderSlotContext } from "@/components/header-slot";
 import { ActivityBar } from "@/components/rpa/activity-bar";
 import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
+import { AiAssistantDialog } from "@/components/ai-assistant/ai-assistant-dialog";
 
 // 2026-09-30 상단 탑 메뉴 재개편 (plan/08-action-items.md) — 거래처정보·사원정보를
 // "원천세 신고" 세부메뉴에서 다시 꺼내 평평한 상단 탭으로 배치(사용자 확정, 회귀).
@@ -182,16 +182,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <CertificateIssueModal initialClientId={certificate.clientId} onClose={() => setCertificate(null)} />
       )}
 
-      {showAiAssistant && <AiAssistantModal onClose={() => setShowAiAssistant(false)} />}
+      {showAiAssistant && <AiAssistantDialog onClose={() => setShowAiAssistant(false)} />}
     </div>
-  );
-}
-
-function AiAssistantModal({ onClose }: { onClose: () => void }) {
-  return (
-    <Modal open onClose={onClose} title="AI 도우미">
-      <p className="text-[13px] text-gray-500">준비 중입니다.</p>
-    </Modal>
   );
 }
 
