@@ -84,7 +84,7 @@ git clone https://github.com/robin22121/taxflow.git
 cd taxflow\rpa-agent
 ```
 
-업데이트는 `git pull`.
+업데이트는 `git pull` — 단 §12의 `run-agent.ps1`로 상시 실행하면 자동으로 이뤄진다. 수동으로 바로 반영하고 싶을 때만 직접 `git pull`.
 
 ---
 
@@ -229,19 +229,48 @@ uv run python .\scripts\poc1_login_check.py --session-wait 300
 
 ---
 
-## 12. 매일 실행 흐름 (PoC 1 통과 후)
+## 12. 매일 실행 흐름 (PoC 1 통과 후) — 상시 실행 + 자동 업데이트
 
-정식 운영 단계로 넘어가면:
+정식 운영 단계로 넘어가면 `easyone_agent run`을 직접 돌리는 대신, 크롬 실행과 자동
+업데이트까지 묶은 감독 스크립트를 쓴다:
 
 ```powershell
-# 아침 첫 실행 (또는 재부팅 후)
-powershell -ExecutionPolicy Bypass -File .\scripts\start-chrome.ps1
-uv run python -m easyone_agent run
+powershell -ExecutionPolicy Bypass -File .\scripts\run-agent.ps1
 ```
 
-`easyone_agent run`은 이지원천 서버에 5초마다 폴링하며 작업이 들어오면 자동으로 처리한다. 로그인 실패가 발생하면 계정 잠금 방지를 위해 자체 정지 (§8-1).
+이 스크립트가 하는 일:
 
-Windows 작업 스케줄러에 등록해 부팅 시 자동 실행하는 방법은 별도 문서 예정.
+1. `start-chrome.ps1`로 CDP 크롬을 띄운다.
+2. **원격 저장소(origin)에 새 커밋이 있는지 확인**(`git fetch`)하고, 있으면 `git pull` +
+   `uv sync` 로 코드를 최신으로 맞춘 뒤 실행한다. 크레덴셜은 전혀 건드리지 않는다 — 여전히
+   Windows 자격 증명 관리자에만 있다.
+3. `uv run python -m easyone_agent run` 실행 — 이지원천 서버에 5초마다 폴링하며 작업이
+   들어오면 자동으로 처리한다.
+4. 에이전트가 **"원격에 새 버전이 있다"며 스스로 멈추면**(기본 30분마다 확인, 종료 코드
+   3) → 다시 1번부터 돌아 업데이트를 반영하고 즉시 재시작한다.
+5. 에이전트가 **로그인 실패로 멈추면**(종료 코드 2, §8-1) → 계정 잠금을 막기 위해 **자동
+   재시작하지 않는다**. `uv run python -m easyone_agent setup`으로 자격 증명을 고친 뒤
+   `run-agent.ps1`을 다시 실행해야 한다.
+6. 그 밖의 예기치 않은 종료는 60초 후 재시도한다.
+
+업데이트 확인 주기는 `EASYONE_UPDATE_CHECK_INTERVAL_SEC` 환경변수로 바꿀 수 있다 (초 단위,
+기본 1800 = 30분, 0 이하로 주면 자동 업데이트 확인을 끈다).
+
+### Windows 작업 스케줄러 등록 (부팅·로그온 시 자동 실행)
+
+관리자 PowerShell에서 1회만 실행:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "powershell.exe" `
+    -Argument "-ExecutionPolicy Bypass -File `"$env:USERPROFILE\taxflow\rpa-agent\scripts\run-agent.ps1`""
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBattery -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+Register-ScheduledTask -TaskName "EasyoneAgent" -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest
+```
+
+등록 후에는 자동화 전용 Windows 계정으로 로그온만 해 두면(§1의 자동 로그온은 끈 채)
+`run-agent.ps1`이 자동으로 뜬다. 로그인 실패로 멈춘 경우는 작업 스케줄러가 재시작하지
+않으므로, 사무소에서 "에이전트가 꺼져 있다"는 알림을 받으면 먼저 자격 증명부터 확인한다.
 
 ---
 

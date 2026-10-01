@@ -283,6 +283,69 @@ class _Stop(Exception):
     pass
 
 
+def test_run_forever_stops_for_update_when_available(tmp_path: Path):
+    api = FakeApi([])
+    clock = iter([0.0, 100.0])  # now() 두 번째 호출에서 interval(10) 경과로 판정
+
+    def sleep(sec: float) -> None:
+        raise AssertionError("업데이트가 있으면 sleep 전에 멈춰야 한다")
+
+    reason = run_forever(
+        api,
+        FakeUploader(),
+        tmp_path / "work",
+        5,
+        sleep=sleep,
+        update_check_interval_sec=10,
+        update_available=lambda: True,
+        now=lambda: next(clock),
+    )
+    assert reason == "update_available"
+
+
+def test_run_forever_ignores_update_before_interval_elapses(tmp_path: Path):
+    api = FakeApi([JOB])
+    sleeps: list[float] = []
+
+    def sleep(sec: float) -> None:
+        sleeps.append(sec)
+        raise _Stop
+
+    with pytest.raises(_Stop):
+        run_forever(
+            api,
+            FakeUploader(),
+            tmp_path / "work",
+            5,
+            sleep=sleep,
+            update_check_interval_sec=10,
+            update_available=lambda: True,
+            now=lambda: 0.0,  # 경과 시간 0 — 아직 간격이 지나지 않았다
+        )
+    assert len(sleeps) == 1
+
+
+def test_run_forever_disabled_update_check_never_calls_it(tmp_path: Path):
+    api = FakeApi([JOB])
+
+    def update_available() -> bool:
+        raise AssertionError("update_check_interval_sec<=0 이면 호출되면 안 된다")
+
+    def sleep(sec: float) -> None:
+        raise _Stop
+
+    with pytest.raises(_Stop):
+        run_forever(
+            api,
+            FakeUploader(),
+            tmp_path / "work",
+            5,
+            sleep=sleep,
+            update_check_interval_sec=0,
+            update_available=update_available,
+        )
+
+
 def test_run_forever_rests_between_jobs(tmp_path: Path):
     """작업을 끝내면 위하고 속도(5~15초)로 쉬고, 일이 없으면 폴링 간격으로 묻는다."""
     api = FakeApi([JOB])

@@ -300,18 +300,35 @@ def run_forever(
     workdir: Path,
     poll_interval_sec: float,
     sleep: Callable[[float], None] = time.sleep,
-) -> None:
-    """작업을 계속 처리한다. LoginFailed가 나면 멈춘다 — 틀린 비밀번호로 반복하면 계정이 잠긴다."""
+    update_check_interval_sec: float = 0.0,
+    update_available: Callable[[], bool] | None = None,
+    now: Callable[[], float] = time.monotonic,
+) -> str:
+    """작업을 계속 처리한다.
+
+    두 가지 사유로만 멈춘다 — 호출자(`__main__._run`)는 돌아온 문자열로 종료 코드를 가른다:
+    - "login_failed": 틀린 비밀번호로 반복하면 계정이 잠기므로 사람이 봐야 한다 (재시작 금지).
+    - "update_available": `update_check_interval_sec`마다 `update_available()`로 origin을
+      확인해 새 버전이 있으면 깨끗이 멈춘다 (바깥 실행 스크립트가 git pull 후 재시작).
+    """
     workdir.mkdir(parents=True, exist_ok=True)
+    last_update_check = now()
     while True:
         try:
             processed = process_one(api, uploader, workdir)
         except LoginFailed:
             logger.error("위하고 로그인 실패로 에이전트를 멈춥니다. 자격 증명 확인 후 다시 실행하세요.")
-            return
+            return "login_failed"
         except Exception:
             # 서버 연결 끊김 등 — 잠시 뒤 다시 묻는다.
             logger.exception("작업 요청 실패")
             processed = False
+        if update_available is not None and update_check_interval_sec > 0:
+            current = now()
+            if current - last_update_check >= update_check_interval_sec:
+                last_update_check = current
+                if update_available():
+                    logger.info("새 버전이 origin에 있어 자동 업데이트를 위해 멈춥니다.")
+                    return "update_available"
         # 작업을 끝냈으면 사람 속도로 쉬었다가 다음 작업을 받는다 (위하고는 신중하게, §8-4).
         sleep(job_gap_sec("wehago") if processed else poll_interval_sec)

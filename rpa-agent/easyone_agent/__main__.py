@@ -32,7 +32,11 @@ from easyone_agent.config import (
     set_secret,
 )
 from easyone_agent.runner import run_forever, run_login_test
+from easyone_agent.updater import update_available
 from easyone_agent.wehago import WehagoUploader
+
+EXIT_LOGIN_FAILED = 2  # 재시작 금지 — 자격 증명을 확인하고 사람이 다시 실행해야 한다
+EXIT_UPDATE_AVAILABLE = 3  # scripts/run-agent.ps1 이 이 코드를 보고 git pull 후 재시작한다
 
 
 def _prompt_secret(name: str, secret_key: str, hidden: bool) -> None:
@@ -88,8 +92,15 @@ def _run() -> int:
     config = load_config()
     api = EasyoneApi(config.api_base_url, get_secret(SECRET_AGENT_TOKEN))
     with _uploader(config) as uploader:
-        run_forever(api, uploader, config.workdir, config.poll_interval_sec)
-    return 1  # run_forever는 로그인 실패로 멈출 때만 돌아온다
+        reason = run_forever(
+            api,
+            uploader,
+            config.workdir,
+            config.poll_interval_sec,
+            update_check_interval_sec=config.update_check_interval_sec,
+            update_available=update_available,
+        )
+    return EXIT_UPDATE_AVAILABLE if reason == "update_available" else EXIT_LOGIN_FAILED
 
 
 def _login_test() -> int:

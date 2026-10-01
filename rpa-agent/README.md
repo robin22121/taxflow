@@ -39,7 +39,9 @@ py -m easyone_agent run
 - **에이전트가 도는 동안 직원은 같은 위하고 계정으로 로그인하지 않는다** (세션이 끊겨 작업이 실패한다).
 - 위하고 로그인에 실패하면 계정 잠금을 막기 위해 에이전트가 스스로 멈춘다.
 
-환경변수(선택): `EASYONE_API_BASE_URL`, `EASYONE_POLL_INTERVAL_SEC`(기본 5), `EASYONE_AGENT_HOME`(기본 `%USERPROFILE%\.easyone-agent`).
+환경변수(선택): `EASYONE_API_BASE_URL`, `EASYONE_POLL_INTERVAL_SEC`(기본 5), `EASYONE_AGENT_HOME`(기본 `%USERPROFILE%\.easyone-agent`), `EASYONE_UPDATE_CHECK_INTERVAL_SEC`(기본 1800 — origin에 새 커밋이 있으면 자동 업데이트를 위해 멈춘다, 0 이하면 끔).
+
+상시 운영(크롬 실행 + 자동 업데이트 + 작업 스케줄러 등록)은 `scripts/run-agent.ps1` 참고 (`docs/rpa-agent-install.md` §12).
 
 ## 로그인 테스트 (업로드 없이 위하고 로그인만 확인)
 

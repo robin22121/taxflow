@@ -27,6 +27,7 @@ class AgentConfig:
     screenshot_dir: Path  # 로그인 실패·오류 스크린샷 (입력칸 마스킹 후 저장)
     chrome_profile_dir: Path  # start-chrome 스크립트가 CDP 크롬을 띄울 때 쓰는 프로필
     cdp_url: str  # 노트북 크롬의 원격 디버깅 URL — start-chrome로 미리 띄워 둔 인스턴스에 붙는다
+    update_check_interval_sec: float  # origin에 새 커밋이 있는지 git fetch로 주기 확인 (0 이하면 끔)
 
 
 def load_config() -> AgentConfig:
@@ -38,6 +39,7 @@ def load_config() -> AgentConfig:
         screenshot_dir=home / "screenshots",
         chrome_profile_dir=home / "chrome-profile",
         cdp_url=os.environ.get("EASYONE_CDP_URL", "http://127.0.0.1:9222"),
+        update_check_interval_sec=float(os.environ.get("EASYONE_UPDATE_CHECK_INTERVAL_SEC", "1800")),
     )
 
 
