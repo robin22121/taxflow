@@ -1665,7 +1665,64 @@ class WehagoUploader:
             raise WehagoError("일용근로소득지급명세 마감 결과를 확인할 수 없습니다 — 화면 상태 확인 필요")
         return "마감 완료"
 
-    def close_local_tax_payment(self, business_number: str, period: str) -> str:
+    def _select_local_tax_district(self, smarta, business_address: str | None) -> None:
+        """지방세 마감 전 "법정동"(취급청) 선택 — 안 하면 [마감] 버튼이 비활성 상태로 막힌다.
+
+        사용자가 직접 수동으로 끝낸 Chrome Recorder 녹화(2026-10-02, `지방세.json`)를
+        보고 짰다 — 녹화 단계: ① "법정동" 칸의 아이콘(`div.fake_inputbox` 안
+        `button > svg`) 클릭 → "법정동 코드도움" 다이얼로그가 같은 행 안에 뜸
+        ② 다이얼로그의 "찾을 내용" 표시(`div.LS_ngh_input2`)를 더블클릭해야 진짜
+        `<input>`이 나타남(다른 화면의 `_type_fresh`와 같은 fake-표시 패턴)
+        ③ 검색어 입력 ④ [확인(enter)] 클릭.
+
+        ⚠️ 녹화에서는 "횡성" 한 단어만 검색했지만 결과가 여러 건 나와 사람이 직접
+        RealGrid 행을 눌러 골랐을 가능성이 높다(레코더가 캔버스 그리드 클릭은 못
+        담는다, §13-3-4와 동일한 한계) — `district_search_term`으로 만든 "구+동"/
+        "읍(면)+리" 두 단계 검색어를 쓰면 결과가 1건으로 좁혀져 그 수동 선택 없이도
+        확인(enter)만으로 끝날 것으로 기대하고 짰다. 실제로 1건으로 안 좁혀지면
+        이 함수가 그대로 실패할 수 있다 — 처음 실행해서 어긋나면 화면을 캡처해 알려줄 것.
+
+        이미 선택돼 있으면(재실행, 이미 마감 등) 건드리지 않고 건너뛴다.
+        """
+        label = smarta.locator("th").filter(has_text=re.compile(r"^\s*법정동\s*$")).first
+        if label.count() == 0:
+            return  # 화면 구조가 추정과 달라 라벨을 못 찾음 — 건드리지 않고 다음 단계로
+        field = label.locator("xpath=following-sibling::td[1]").locator("div.LS_ngh_input2").first
+        if field.count() == 0 or _fake_text(field):
+            return  # 이미 값이 있음 — 건너뜀
+
+        search_term = district_search_term(business_address)
+        if not search_term:
+            raise WehagoError(
+                "지방세 취급청(법정동) 선택에 필요한 거래처 주소가 없거나 "
+                "행정구역을 알아볼 수 없습니다 — 거래처 상세에서 사업장 주소를 확인하세요."
+            )
+
+        self.step = "지방세 취급청(법정동) 코드도움 열기"
+        think("wehago")
+        field.locator("div.fake_inputbox button, button, div.fakebutton").first.click()
+        dialog = smarta.locator("div._isDialog:visible", has_text="법정동 코드도움")
+        dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+
+        self.step = "지방세 취급청(법정동) 검색"
+        search_display = dialog.locator("div.LS_ngh_input2").first
+        think("wehago")
+        search_display.dblclick()
+        search_input = dialog.locator("input").first
+        _type_fresh(search_input, search_term)
+        think("wehago")
+        dialog.get_by_role("button", name="확인(enter)", exact=True).click()
+        self._wait_for_no_dimmed(smarta)
+
+        if not _fake_text(field):
+            raise WehagoError(
+                f"지방세 취급청(법정동) 선택 실패 — 검색어 '{search_term}'로 결과를 "
+                "좁히지 못했습니다 (여러 건이거나 0건일 수 있음). 위하고에서 직접 선택 후 재시도하세요."
+            )
+
+    def close_local_tax_payment(
+        self, business_number: str, period: str, *, business_address: str | None = None
+    ) -> str:
         """지방소득세특별징수납부서(SWTA0112) 마감 (§4-4 ⑩-a).
 
         ⚠️ 미실측 — 이 화면 자체를 아직 실제로 열어보지 못했다. SWTA0101과 같은
@@ -1673,6 +1730,10 @@ class WehagoUploader:
         조회조건이 SWTA0101처럼 귀속기간 하나(연/월 4칸)인지, 마감 버튼 라벨이 정말
         "마감(F3)"인지, 완료·오류 모달 문구도 전부 close_wht_return을 본떠 추정한 것이다.
         처음 실행해서 어긋나면 화면을 캡처해 알려줘야 고칠 수 있다.
+
+        Args:
+            business_address: 거래처 주소 — 취급청(법정동) 코드도움 검색어를 만드는 데 쓴다
+                (`district_search_term`). 없으면 이 단계는 건너뛴다(자료 없는 거래처 등).
 
         Returns:
             완료 모달의 원문 텍스트.
@@ -1691,6 +1752,8 @@ class WehagoUploader:
         think("wehago")
         smarta.get_by_role("button", name="조회", exact=True).click()
         self._wait_for_no_dimmed(smarta)
+
+        self._select_local_tax_district(smarta, business_address)
 
         self.step = "지방세 마감 여부 확인"
         # 마감 버튼 라벨이 "마감(F3)"일 수도 있어(미실측) exact 매치를 못 쓴다 — 그렇다고
@@ -2498,6 +2561,39 @@ def _report_type_code(period: str, today: date | None = None) -> str:
         deadline_month, deadline_year = 1, year + 1
     deadline = date(deadline_year, deadline_month, 10)
     return "2" if (today or date.today()) > deadline else "0"
+
+
+_ADMIN_SUFFIXES = (
+    "특별자치시", "특별자치도", "광역시", "특별시", "자치구",
+    "시", "군", "구", "읍", "면", "동", "리",
+)  # 길이 긴 접미사부터 — "서울특별시"가 "시"보다 "특별시"로 먼저 잘려야 한다
+
+
+def district_search_term(address: str | None) -> str | None:
+    """지방세 마감 전 취급청/법정동 코드도움 검색어 — 주소 끝에서 두 행정구역명만 쓴다.
+
+    시/군 등 상위 단위 종류로 분기하지 않는다 — 주소를 공백 기준 토큰화해 행정구역
+    접미사(시/군/구/읍/면/동/리 등)로 끝나는 토큰만 골라 접미사를 떼고, **맨 뒤 두 개**를
+    공백으로 이어붙인다. 이러면 "시-구-동"이든 "군-읍-리"든 같은 규칙으로 처리되고,
+    드물게 더 긴 사슬(예: 시 다음에 군)이 와도 끝에서 두 단계만 보므로 깨지지 않는다
+    (2026-10-02 사용자 설명 — 예: "종로구 청운동" → "종로 청운", "횡성군 횡성읍 읍상리" →
+    "횡성 읍상"). 단일 토큰으로 검색하면 결과가 여러 건 나올 수 있어(코드도움 팝업이
+    정확히 1건으로 좁혀져야 선택이 안전하다) 두 단계를 같이 넣어 좁힌다.
+
+    Returns:
+        검색어, 또는 행정구역으로 인식되는 토큰이 2개 미만이면 None(호출자가 건너뛰어야 함).
+    """
+    if not address:
+        return None
+    admin_tokens: list[str] = []
+    for token in address.split():
+        for suffix in _ADMIN_SUFFIXES:
+            if token.endswith(suffix) and len(token) > len(suffix):
+                admin_tokens.append(token[: -len(suffix)])
+                break
+    if len(admin_tokens) < 2:
+        return None
+    return " ".join(admin_tokens[-2:])
 
 
 def _clean_business_number(value: str) -> str:
