@@ -136,9 +136,18 @@
   진짜 원인 두 가지를 찾아 고쳤다: ① xlwt(.xls/BIFF)의 숫자 저장 한계 →
   `smarta_other_income_xls.py`를 openpyxl(.xlsx)로 재작성, ② 화면이 이미 [완료]
   상태면 업로드 메뉴가 먹통이 되는 문제 → `_ensure_data_entry_unlocked` 추가해
-  급여/사업소득/기타소득/일용직 4개 업로드 함수 모두에 배선. 남은 건 RPA 작업
-  연결뿐 — `WEHAGO_OTHER_INPUT` 같은 게이트1 kind 추가, `create_wehago_uploads`에
-  기타소득 분기, `_process_other_income_input_job`, 게이트2 적격성 검사 반영.
+  급여/사업소득/기타소득/일용직 4개 업로드 함수 모두에 배선.
+  **백엔드(FastAPI) 배선 완료** — `RpaJobKind.WEHAGO_OTHER_INPUT` 추가,
+  `AUTOMATED_INCOME_TYPES`·`INPUT_JOB_KIND_BY_INCOME_TYPE`에 기타소득 추가(이
+  두 맵만 쓰는 구조라 `create_wehago_uploads`/`create_productions`/게이트2 적격성
+  검사는 자동으로 반영됨), 에이전트용 다운로드 엔드포인트
+  `GET /agent/jobs/{id}/other-income-excel` 추가(소득구분코드 없으면 409).
+  **아직 안 된 것 — rpa-agent·프론트엔드**: `easyone_agent/runner.py`에
+  `_process_other_income_input_job`(사업소득과 같은 패턴, `WEHAGO_OTHER_INPUT`
+  kind 처리) 추가, `easyone_agent/api.py`에 `WEHAGO_OTHER_INPUT` 상수·
+  `download_other_income_excel` 추가, 프론트 `rpa-api.ts`의 `RpaJobKind` 타입·
+  `INPUT_KINDS`에 추가, `activity-bar.tsx` 라벨 추가 — 이게 없으면 "위하고 전송"
+  버튼으로 기타소득 작업은 생성되지만 에이전트가 "[미구현]"으로 바로 실패 처리한다.
 - [ ] **이미 완료/마감된 화면에 자동화가 재진입하면 조용히 넘어가지 말고 사용자에게
   알리고 대기** (2026-10-01 사용자 제안, 지금 당장 구현은 보류 — 추후 작업) —
   `_ensure_data_entry_unlocked`(바로 위 항목)는 현재 [완료] 상태를 감지하면 **자동으로

@@ -78,11 +78,12 @@ async def _enqueue(http: AsyncClient, auth_headers: dict, filing_id: str, client
 async def test_send_blocked_when_unautomated_income_type_present(
     http: AsyncClient, auth_headers: dict
 ):
-    """기타소득처럼 자동화가 없는 소득유형이 섞여 있으면 거래처 전체가 전송 차단된다 (plan/16 §4-1).
+    """일용소득처럼 자동화가 없는 소득유형이 섞여 있으면 거래처 전체가 전송 차단된다 (plan/16 §4-1).
 
     원천징수이행상황신고서가 소득유형을 전부 합산한 신고서 한 장이라, 일부 유형만
     위하고에 넣을 수 없다 — 자동화가 없는 유형에 데이터가 있으면 그 거래처는 통째로 막는다.
-    (2026-09-30: 사업소득이 자동화돼 §13-3-4 이 테스트는 여전히 자동화가 없는 기타소득으로 확인한다.)
+    (2026-09-30: 사업소득이, 2026-10-01: 기타소득이 자동화돼 §13-3-4·§13-3-3 이 테스트는
+    여전히 자동화가 없는 일용소득으로 확인한다.)
     """
     filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
 
@@ -104,8 +105,8 @@ async def test_send_blocked_when_unautomated_income_type_present(
             monthly_filing_id=template.monthly_filing_id,
             collection_session_id=template.collection_session_id,
             client_id=client_id,
-            raw_name="기타소득자테스트",
-            income_type=IncomeType.OTHER,
+            raw_name="일용소득자테스트",
+            income_type=IncomeType.DAILY,
             total_amount=1_000_000,
             taxable=1_000_000,
             income_tax=30_000,
@@ -120,7 +121,7 @@ async def test_send_blocked_when_unautomated_income_type_present(
         r = await _enqueue(http, auth_headers, filing_id, [client_id])
         assert r.status_code == 409, r.text
         assert "자동화" in r.json()["detail"]
-        assert "기타소득" in r.json()["detail"]
+        assert "일용소득" in r.json()["detail"]
     finally:
         # 다른 테스트가 같은 거래처를 재사용하므로(_ready_clients), 남겨두면 뒤 테스트가 전부 막힌다.
         async with SessionLocal() as db:
@@ -144,7 +145,7 @@ async def test_preview_shows_income_type_breakdown(http: AsyncClient, auth_heade
     assert types["WAGE"]["automated"] is True
     assert types["BUSINESS"]["count"] == 0
     assert types["BUSINESS"]["automated"] is True  # 2026-09-30 §13-3-4 — 사업소득도 자동화됨
-    assert types["OTHER"]["automated"] is False
+    assert types["OTHER"]["automated"] is True  # 2026-10-01 §13-3-3 — 기타소득도 자동화됨
     assert types["DAILY"]["automated"] is False
 
 
@@ -242,16 +243,19 @@ async def test_upload_is_blocked_without_business_number_or_approval(
 
 @pytest.mark.asyncio
 async def test_pending_job_can_be_canceled_once(http: AsyncClient, auth_headers: dict):
+    """한 거래처가 소득유형별로 여러 job을 받을 수 있으므로(§4-1) 전부 취소해야 다음
+    테스트가 같은 거래처를 "이미 대기 중"으로 막히지 않고 재사용할 수 있다."""
     filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
     r = await _enqueue(http, auth_headers, filing_id, [client_id])
     assert r.status_code == 201, r.text
-    job_id = r.json()[0]["id"]
+    job_ids = [j["id"] for j in r.json()]
 
-    canceled = await http.post(f"/api/v1/rpa/jobs/{job_id}/cancel", headers=auth_headers)
-    assert canceled.status_code == 200, canceled.text
-    assert canceled.json()["status"] == "CANCELED"
+    for job_id in job_ids:
+        canceled = await http.post(f"/api/v1/rpa/jobs/{job_id}/cancel", headers=auth_headers)
+        assert canceled.status_code == 200, canceled.text
+        assert canceled.json()["status"] == "CANCELED"
 
-    again = await http.post(f"/api/v1/rpa/jobs/{job_id}/cancel", headers=auth_headers)
+    again = await http.post(f"/api/v1/rpa/jobs/{job_ids[0]}/cancel", headers=auth_headers)
     assert again.status_code == 409, again.text
 
 
@@ -428,3 +432,135 @@ async def test_upload_needs_pay_date_and_claim_carries_it(http: AsyncClient, aut
     from app.services.payroll_defaults import resolve_pay_date
 
     assert claimed["pay_date"] == resolve_pay_date(period, 1, 31).isoformat()
+
+    # 뒤따르는 테스트가 같은 거래처를 재사용하므로(_ready_clients) 남은 job을 전부 비운다
+    # — 이 거래처가 WAGE 말고 다른 자동화 소득유형도 있으면 job이 여러 개일 수 있다.
+    await http.post(
+        f"/api/v1/rpa/agent/jobs/{claimed['id']}/result",
+        json={"status": "SUCCEEDED", "message": "테스트 정리"}, headers=agent,
+    )
+    remaining = await http.post(CLAIM, headers=agent)
+    while remaining.json()["job"] is not None:
+        job = remaining.json()["job"]
+        await http.post(
+            f"/api/v1/rpa/agent/jobs/{job['id']}/result",
+            json={"status": "SUCCEEDED", "message": "테스트 정리"}, headers=agent,
+        )
+        remaining = await http.post(CLAIM, headers=agent)
+
+
+@pytest.mark.asyncio
+async def test_wehago_uploads_creates_other_input_job_for_other_income(
+    http: AsyncClient, auth_headers: dict
+):
+    """기타소득 자료가 있는 거래처는 WEHAGO_OTHER_INPUT 작업도 함께 생성된다 (2026-10-01, §13-3-3)."""
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Employee
+    from app.models.payroll import IncomeType, PayrollEntry
+
+    async with SessionLocal() as db:
+        template = (
+            await db.execute(
+                select(PayrollEntry).where(
+                    PayrollEntry.monthly_filing_id == filing_id, PayrollEntry.client_id == client_id,
+                )
+            )
+        ).scalars().first()
+        other_emp = Employee(client_id=client_id, name="기타소득잡업테스트", employee_code="O099")
+        db.add(other_emp)
+        await db.flush()
+        other_entry = PayrollEntry(
+            monthly_filing_id=template.monthly_filing_id, collection_session_id=template.collection_session_id,
+            client_id=client_id, employee_id=other_emp.id, raw_name=other_emp.name,
+            income_type=IncomeType.OTHER, other_income_code="76",
+            total_amount=1_000_000, taxable=1_000_000, income_tax=30_000, local_tax=3_000, approved=True,
+        )
+        db.add(other_entry)
+        await db.commit()
+        entry_id, emp_id = other_entry.id, other_emp.id
+
+    try:
+        r = await _enqueue(http, auth_headers, filing_id, [client_id])
+        assert r.status_code == 201, r.text
+        jobs = r.json()
+        assert {j["kind"] for j in jobs} == {"WEHAGO_PAYROLL_INPUT", "WEHAGO_OTHER_INPUT"}
+
+        # 뒤따르는 테스트가 같은 거래처를 재사용하므로(_ready_clients), PENDING으로 남기면
+        # "이미 전송 대기 중"으로 막힌다 — 클레임·회신해서 비워둔다.
+        agent = await _issue_agent(http, auth_headers, "정리용 PC")
+        for _ in jobs:
+            claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+            await http.post(
+                f"/api/v1/rpa/agent/jobs/{claimed['id']}/result",
+                json={"status": "SUCCEEDED", "message": "테스트 정리"}, headers=agent,
+            )
+    finally:
+        async with SessionLocal() as db:
+            await db.delete(await db.get(PayrollEntry, entry_id))
+            await db.delete(await db.get(Employee, emp_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_agent_other_income_excel_requires_valid_income_code(
+    http: AsyncClient, auth_headers: dict
+):
+    """소득구분코드가 없으면 빈 엑셀을 올리는 대신 409로 막는다 (2026-10-01, §13-3-3)."""
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Employee
+    from app.models.payroll import IncomeType, PayrollEntry
+
+    async with SessionLocal() as db:
+        template = (
+            await db.execute(
+                select(PayrollEntry).where(
+                    PayrollEntry.monthly_filing_id == filing_id, PayrollEntry.client_id == client_id,
+                )
+            )
+        ).scalars().first()
+        other_emp = Employee(client_id=client_id, name="코드없음테스트", employee_code="O098")
+        db.add(other_emp)
+        await db.flush()
+        other_entry = PayrollEntry(
+            monthly_filing_id=template.monthly_filing_id, collection_session_id=template.collection_session_id,
+            client_id=client_id, employee_id=other_emp.id, raw_name=other_emp.name,
+            income_type=IncomeType.OTHER, other_income_code=None,
+            total_amount=1_000_000, taxable=1_000_000, approved=True,
+        )
+        db.add(other_entry)
+        await db.commit()
+        entry_id, emp_id = other_entry.id, other_emp.id
+
+    try:
+        r = await _enqueue(http, auth_headers, filing_id, [client_id])
+        assert r.status_code == 201, r.text
+        jobs = r.json()
+        other_job = next(j for j in jobs if j["kind"] == "WEHAGO_OTHER_INPUT")
+
+        agent = await _issue_agent(http, auth_headers, "기타소득 코드없음 PC")
+        # claim 순서는 보장되지 않으므로 전부 가져와 OTHER kind 작업을 찾는다.
+        for _ in jobs:
+            claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+            if claimed["id"] == other_job["id"]:
+                excel = await http.get(
+                    f"/api/v1/rpa/agent/jobs/{other_job['id']}/other-income-excel", headers=agent
+                )
+                assert excel.status_code == 409, excel.text
+                assert "소득구분" in excel.json()["detail"]
+            await http.post(
+                f"/api/v1/rpa/agent/jobs/{claimed['id']}/result",
+                json={"status": "FAILED", "message": "테스트 정리"}, headers=agent,
+            )
+    finally:
+        async with SessionLocal() as db:
+            await db.delete(await db.get(PayrollEntry, entry_id))
+            await db.delete(await db.get(Employee, emp_id))
+            await db.commit()

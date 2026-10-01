@@ -58,17 +58,21 @@ from app.schemas.rpa import (
 from app.services.payroll_defaults import resolve_pay_date
 from app.services.payroll_excel import PayrollExcelError, generate_payroll_excel
 from app.services.smarta_business_xls import generate_smarta_business_xls
+from app.services.smarta_other_income_xls import RESIDENT_INCOME_CODE_LABELS, generate_smarta_other_income_xls
 
 router = APIRouter()
 
-# 게이트 1 자동입력이 있는 소득유형 — plan/16 §4-1·§13-3-4 (2026-09-30 사업소득 추가).
-# 기타·일용소득은 자료입력 엑셀 업로드가 아직 신뢰할 수 없어(plan/16 §13-3-1) 제외돼 있다.
+# 게이트 1 자동입력이 있는 소득유형 — plan/16 §4-1·§13-3-4 (2026-09-30 사업소득,
+# 2026-10-01 기타소득 추가 — 엑셀 생성기 openpyxl 전환 + 완료 잠금 해제까지 실전
+# 업로드 검증 완료, §13-3-3).
+# 일용소득은 자료입력 엑셀 업로드가 아직 신뢰할 수 없어(plan/16 §13-3-1) 제외돼 있다.
 # 하나가 생기면 여기와 INPUT_JOB_KIND_BY_INCOME_TYPE에 함께 추가한다.
-AUTOMATED_INCOME_TYPES = {IncomeType.WAGE, IncomeType.BUSINESS}
-# 소득유형별로 게이트 1 화면이 달라(근로=SWSA0101, 사업=SWBU0102) RpaJobKind도 나뉜다.
+AUTOMATED_INCOME_TYPES = {IncomeType.WAGE, IncomeType.BUSINESS, IncomeType.OTHER}
+# 소득유형별로 게이트 1 화면이 달라(근로=SWSA0101, 사업=SWBU0102, 기타=SWET0102) RpaJobKind도 나뉜다.
 INPUT_JOB_KIND_BY_INCOME_TYPE = {
     IncomeType.WAGE: RpaJobKind.WEHAGO_PAYROLL_INPUT,
     IncomeType.BUSINESS: RpaJobKind.WEHAGO_BUSINESS_INPUT,
+    IncomeType.OTHER: RpaJobKind.WEHAGO_OTHER_INPUT,
 }
 _INCOME_TYPE_LABEL = {
     IncomeType.WAGE: "근로소득",
@@ -305,7 +309,13 @@ async def preview_wehago_uploads(
         latest_production_step.setdefault(j.client_id, j.step_progress or {})
 
     # None이면 자료입력(게이트1) 성공만으로 완료, 문자열이면 그 step_progress 키도 "done"이어야 완료.
-    _PRODUCTION_STEP_BY_TYPE: dict[str, str | None] = {"WAGE": None, "BUSINESS": "wehago_business_income"}
+    # OTHER는 "wehago_other_income" 키를 미리 걸어두지만 아직 그 게이트2 자동화(거주자
+    # 기타소득간이지급명세서, plan/16 §13-3-3)가 없어 이 키는 영영 "done"이 안 된다 — 즉
+    # 기타소득은 자료입력이 끝나도 "전송완료"가 절대 안 뜨고 "자료입력완료"에 머문다,
+    # 명세서 자동화가 생기기 전까지는 의도된 동작이다(§4-1 "명세서 추가입력까지 완료").
+    _PRODUCTION_STEP_BY_TYPE: dict[str, str | None] = {
+        "WAGE": None, "BUSINESS": "wehago_business_income", "OTHER": "wehago_other_income",
+    }
     income_rows = (
         await db.execute(
             select(PayrollEntry.client_id, PayrollEntry.income_type, PayrollEntry.approved).where(
@@ -836,6 +846,56 @@ async def agent_download_business_income_excel(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="business_income_{job.period}.xlsx"'},
+    )
+
+
+@router.get("/agent/jobs/{job_id}/other-income-excel")
+async def agent_download_other_income_excel(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    agent: RpaAgent = Depends(get_current_agent),
+) -> Response:
+    """기타소득자료입력(SmartA SWET0102) 업로드용 엑셀 — `agent_download_business_income_excel`과 같은 구조.
+
+    소득구분코드(76·79 등)가 없거나 `RESIDENT_INCOME_CODE_LABELS`에 없는 항목은 위하고가
+    인식 못 해 생성기가 조용히 건너뛴다(plan/16 §13-3-3) — 전부 건너뛰면 빈 엑셀을 올리게
+    되므로 여기서 미리 걸러 409로 막는다.
+    """
+    job = await _agent_running_job(db, agent, job_id)
+    entries = list(
+        (
+            await db.execute(
+                select(PayrollEntry)
+                .where(
+                    PayrollEntry.monthly_filing_id == job.monthly_filing_id,
+                    PayrollEntry.client_id == job.client_id,
+                    PayrollEntry.income_type == IncomeType.OTHER,
+                    PayrollEntry.deleted.is_(False),
+                )
+                .options(selectinload(PayrollEntry.employee))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not entries:
+        raise HTTPException(status.HTTP_409_CONFLICT, "자료가 없습니다.")
+    if any(not e.approved for e in entries):
+        raise HTTPException(status.HTTP_409_CONFLICT, "미승인 자료가 있어 업로드할 수 없습니다.")
+    if not any(e.other_income_code in RESIDENT_INCOME_CODE_LABELS for e in entries):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "소득구분코드가 입력된 기타소득 자료가 없어 업로드할 수 없습니다. "
+            "사원 정보에서 소득구분을 입력하세요.",
+        )
+
+    blob = generate_smarta_other_income_xls(entries, period=job.period)
+    agent.last_seen_at = _utcnow()
+    await db.commit()
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="other_income_{job.period}.xlsx"'},
     )
 
 
