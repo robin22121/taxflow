@@ -129,7 +129,13 @@ def failure_message(e: Exception, uploader: object) -> str:
         saved = "위하고에 저장됐을 수 있으니 급여자료입력 화면에서 확인한 뒤 필요하면 다시 전송하세요."
     else:
         saved = "위하고에는 저장되지 않았습니다. 잠시 후 다시 전송하고, 반복되면 담당자에게 알려 주세요."
-    return f"{where}위하고 화면이 예상과 달라 멈췄습니다 (응답 지연 또는 화면 변경). {saved} (기술 정보: {type(e).__name__})"
+    # 실패 순간 화면에 안 닫힌 안내 팝업이 남아있으면 원인 파악이 훨씬 빨라진다 (§1-5 "두더지잡기").
+    has_dialog = getattr(uploader, "has_open_dialog", None)
+    dialog_hint = " 화면에 안 닫힌 안내 팝업(공지·2차 인증 등)이 떠 있었을 수 있습니다." if has_dialog and has_dialog() else ""
+    return (
+        f"{where}위하고 화면이 예상과 달라 멈췄습니다 (응답 지연 또는 화면 변경).{dialog_hint} {saved} "
+        f"(기술 정보: {type(e).__name__})"
+    )
 
 
 def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, job: Job) -> bool:
