@@ -2,8 +2,9 @@
 
 // 증명원 발급 팝업 — plan/17-certificate-issuance.md §4-9.
 //
-// ① 거래처 선택 (선택된 거래처가 없을 때) → ② 홈택스·지방세·직원용 증명원 선택 → [발급]
-// → ③ 진행 → ④ 완료 알림 [확인] → ⑤ 다음 작업: [폴더 열어 확인] 먼저, 그다음 문자·카톡·팩스.
+// ① 거래처 선택 + 홈택스·지방세·직원용 증명원 선택을 한 화면에서 (증명원 목록은 거래처
+//    선택 전에도 항상 펼침 상태) → [발급] → ② 진행 → ③ 완료 알림 [확인]
+// → ④ 다음 작업: [폴더 열어 확인] 먼저, 그다음 문자·카톡·팩스.
 // 하단 작업바에서 이미 요청한 건을 열 때는 jobId 로 ③부터 시작한다.
 
 import { useMemo, useState } from "react";
@@ -26,7 +27,7 @@ import {
   requestOpenFolder,
 } from "@/lib/certificates-api";
 
-type Step = "client" | "select" | "progress" | "done" | "next";
+type Step = "select" | "progress" | "done" | "next";
 
 const TABS: { key: CertCategory; label: string }[] = [
   { key: "HOMETAX", label: "홈택스" },
@@ -54,7 +55,7 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
   const qc = useQueryClient();
   const [clientId, setClientId] = useState<string | null>(initialClientId ?? null);
   const [jobId, setJobId] = useState<string | null>(initialJobId ?? null);
-  const [step, setStep] = useState<Step>(initialJobId ? "progress" : initialClientId ? "select" : "client");
+  const [step, setStep] = useState<Step>(initialJobId ? "progress" : "select");
   const [tab, setTab] = useState<CertCategory>(initialTab);
   const [checked, setChecked] = useState<string[]>([]);
   const [rrnDisclosed, setRrnDisclosed] = useState(false);
@@ -111,9 +112,6 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
   return (
     <Modal open onClose={onClose} title={title} size="lg" footer={footer()}>
       {error && <p className="mb-3 text-[12px] text-red-600">{error}</p>}
-      {shownStep === "client" && (
-        <ClientPicker clients={clients} onPick={(id) => { setClientId(id); setStep("select"); }} />
-      )}
       {shownStep === "select" && (
         <SelectStep
           catalog={catalog}
@@ -130,8 +128,10 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
           setEmployeeIds={setEmployeeIds}
           purpose={purpose}
           setPurpose={setPurpose}
-          onChangeClient={() => setStep("client")}
+          onChangeClient={() => setClientId(null)}
           clientLabel={client ? `${client.business_name}${client.business_number ? ` (${client.business_number})` : ""}` : ""}
+          clients={clients}
+          onPickClient={(id) => setClientId(id)}
         />
       )}
       {shownStep === "progress" && <ProgressStep issues={jobData?.issues ?? []} />}
@@ -151,7 +151,7 @@ export function CertificateIssueModal({ onClose, initialClientId, initialTab = "
     if (shownStep === "select") {
       return <>
         <Button variant="ghost" onClick={onClose}>취소</Button>
-        <Button onClick={() => issue.mutate()} disabled={!checked.length || (employeeMode && !employeeIds.length) || issue.isPending}>
+        <Button onClick={() => issue.mutate()} disabled={!clientId || !checked.length || (employeeMode && !employeeIds.length) || issue.isPending}>
           {issue.isPending ? "요청중..." : `발급 (${checked.length})`}
         </Button>
       </>;
@@ -193,6 +193,7 @@ function ClientPicker({ clients, onPick }: { clients: Client[]; onPick: (id: str
 function SelectStep({
   catalog, tab, setTab, checked, toggle, rrnDisclosed, setRrnDisclosed, periodYears, setPeriodYears,
   clientId, employeeIds, setEmployeeIds, purpose, setPurpose, onChangeClient, clientLabel,
+  clients, onPickClient,
 }: {
   catalog: Awaited<ReturnType<typeof getCatalog>>;
   tab: CertCategory;
@@ -210,16 +211,22 @@ function SelectStep({
   setPurpose: (v: string) => void;
   onChangeClient: () => void;
   clientLabel: string;
+  clients: Client[];
+  onPickClient: (id: string) => void;
 }) {
   const items = catalog.filter((c) => c.category === tab);
   const periodTitles = catalog.filter((c) => c.period && checked.includes(c.code)).map((c) => c.title);
   const employeeChecked = catalog.some((c) => c.category === "EMPLOYEE" && checked.includes(c.code));
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
-        <span className="text-[12.5px] text-gray-700">{clientLabel}</span>
-        <button onClick={onChangeClient} className="text-[11.5px] text-blue-600 hover:underline">거래처 변경</button>
-      </div>
+      {clientId ? (
+        <div className="flex items-center justify-between rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
+          <span className="text-[12.5px] text-gray-700">{clientLabel}</span>
+          <button onClick={onChangeClient} className="text-[11.5px] text-blue-600 hover:underline">거래처 변경</button>
+        </div>
+      ) : (
+        <ClientPicker clients={clients} onPick={onPickClient} />
+      )}
 
       <div className="flex gap-1 border-b border-gray-200">
         {TABS.map((t) => {
