@@ -141,7 +141,7 @@ _LOGIN_FAILURE_HINTS = {
 # 마지막 *보이는* [닫기] 버튼을 고르도록 함께 고쳤다.)
 _SPLASH_DIALOG = (
     "div.LUX_basic_dialog:visible, div[id^='common_pop_dialog']:visible, "
-    "div.mainDialog2__main:visible"
+    "div.mainDialog2__main:visible, div.mainDialog__item:visible"
 )
 
 # 수임처정보 화면의 우측 '기본정보' 탭 th 라벨 → 표준 필드
