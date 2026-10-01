@@ -1754,9 +1754,15 @@ class WehagoUploader:
 
         `item`에는 월 버튼이 1개(귀속년월)거나 2개(지급년월 — 시작~종료)일 수 있어
         안에 있는 버튼 전부를 같은 월로 채운다.
+
+        ⚠️ `.count()`는 Playwright에서 대기 없이 그 순간의 개수를 바로 반환한다 —
+        화면 전환 직후 조건바가 아직 안 그려진 상태에서 바로 세면 0건으로 나와 버튼을
+        하나도 못 찾고 그냥 지나칠 수 있다(2026-10-02 실기에서 발견 — 아무 것도 안
+        열고 바로 [조회]를 눌러버림). 세기 전에 첫 버튼이 보일 때까지 기다린다.
         """
         _, month = period.split("-")
         buttons = item.locator("button.WSC_LUXButton:visible")
+        buttons.first.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         for i in range(buttons.count()):
             self._pick_local_tax_month(smarta, buttons.nth(i), month)
 
