@@ -21,6 +21,7 @@ from app.core.deps import (
 )
 from app.services.access_log import log_access
 from app.models import (
+    BUSINESS_TYPE_CODES,
     AccessLog,
     CertificateIssue,
     Client,
@@ -43,6 +44,7 @@ from app.models import (
     User,
 )
 from app.schemas.clients import (
+    BusinessTypeCodeOut,
     ChannelAttempt,
     ClientAssign,
     ClientCreate,
@@ -256,6 +258,21 @@ async def bulk_upload_clients(
 
     logger.info("Bulk uploaded %d clients for tax_office %s", len(created), user.tax_office_id)
     return created
+
+
+@router.get("/business-type-codes", response_model=list[BusinessTypeCodeOut])
+async def list_business_type_codes(
+    _user: User = Depends(get_current_user),
+) -> list[BusinessTypeCodeOut]:
+    """사업소득 업종코드(소득구분코드) 40종 — 직원 등록/수정 화면 드롭다운용 참조 데이터.
+
+    정적 참조 테이블(business_type_codes)을 조회하지 않고 시드 원본(BUSINESS_TYPE_CODES)에서
+    바로 만든다 — 런타임에 바뀌지 않는 값이라 DB 왕복이 불필요하다.
+    """
+    return [
+        BusinessTypeCodeOut(code=code, name=name, description=desc, tax_rate_percent=rate)
+        for code, name, desc, rate in BUSINESS_TYPE_CODES
+    ]
 
 
 @router.get("/{client_id}", response_model=ClientOut)
@@ -729,12 +746,18 @@ _PERCENT_TO_RATE = 100.0  # UI는 백분율(4.5), DB는 실수(0.045)
 
 
 def _system_defaults_response() -> PayrollDefaultOut:
-    """레코드가 없을 때 시스템 기본값으로 채운 응답."""
+    """레코드가 없을 때 시스템 기본값으로 채운 응답.
+
+    pay_day는 실무상 가장 흔한 "당월 25일"로 시드 — 거래처 등록 직후 화면에서
+    확인을 유도하되(clients/page.tsx), 값 자체는 미리 채워 전송 차단을 피한다.
+    """
     return PayrollDefaultOut(
         nps_rate_percent=DEFAULT_NPS_RATE * _PERCENT_TO_RATE,
         hi_rate_percent=DEFAULT_HI_RATE * _PERCENT_TO_RATE,
         ltc_rate_percent=DEFAULT_LTC_RATE_OF_HI * _PERCENT_TO_RATE,
         ei_rate_percent=DEFAULT_EI_RATE * _PERCENT_TO_RATE,
+        pay_month_offset=0,
+        pay_day=25,
         system_nps_rate_percent=DEFAULT_NPS_RATE * _PERCENT_TO_RATE,
         system_hi_rate_percent=DEFAULT_HI_RATE * _PERCENT_TO_RATE,
         system_ltc_rate_percent=DEFAULT_LTC_RATE_OF_HI * _PERCENT_TO_RATE,
@@ -877,6 +900,7 @@ async def create_employee(
         job_type=payload.job_type,
         hired_at=payload.hired_at,
         income_type=income_type,
+        business_type_code=payload.business_type_code,
         dependents_count=payload.dependents_count,
         children_count=payload.children_count,
         withholding_rate_adjust=payload.withholding_rate_adjust,

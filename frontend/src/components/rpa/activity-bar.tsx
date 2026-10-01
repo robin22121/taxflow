@@ -10,6 +10,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CertificateIssueModal } from "@/components/certificates/certificate-issue-modal";
+import { useConfirm } from "@/components/confirm-dialog";
 import { Button, Modal } from "@/components/ui";
 import { type ActivityScope, type RpaActivityJob, type RpaJob, acknowledgeJob, cancelJob, importProgress, listActivity } from "@/lib/rpa-api";
 
@@ -123,6 +124,8 @@ export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } =
   const [scope, setScope] = useState<ActivityScope>("all");
   const [showHistory, setShowHistory] = useState(false);
   const [certJobId, setCertJobId] = useState<string | null>(null);
+  // 칩 호버 중 [x] 로 숨김 — 화면에서만 사라지고 작업 내역(서버 데이터)은 그대로 남는다.
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   // 작업바 칩 = 대기·진행 중 + 오늘 끝났고 아직 [확인] 안 한 작업
   const { data: jobs = [] } = useQuery({
@@ -143,21 +146,35 @@ export function ActivityBar({ insetLeftMd = false }: { insetLeftMd?: boolean } =
     <>
       <div className={`fixed bottom-0 inset-x-0 ${insetLeftMd ? "md:left-[240px]" : ""} z-30 h-11 border-t border-gray-200 bg-white/95 backdrop-blur flex items-center gap-2 px-3 md:px-5`}>
         <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto">
-          {jobs.length === 0 && <span className="text-[11.5px] text-gray-400">대기 중이거나 오늘 끝난 자동화 작업이 없습니다</span>}
-          {jobs.map((job) => {
+          {jobs.filter((j) => !dismissed.has(j.id)).length === 0 && (
+            <span className="text-[11.5px] text-gray-400">대기 중이거나 오늘 끝난 자동화 작업이 없습니다</span>
+          )}
+          {jobs.filter((j) => !dismissed.has(j.id)).map((job) => {
             const stage = jobStage(job);
             // 끝났는데 아직 확인 안 한 작업은 깜박여서 눈에 띄게 한다 (확인하면 멈추고 바에서 사라짐)
             const blink = isFinished(job) && !job.acknowledged_at;
             return (
-              <button
+              <div
                 key={job.id}
-                onClick={() => setDetail(job)}
-                className={"shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[12px] font-medium " + TONE_CLASS[stage.tone] + (blink ? " animate-pulse" : "")}
+                className={"group relative shrink-0 flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-full border text-[12px] font-medium " + TONE_CLASS[stage.tone] + (blink ? " animate-pulse" : "")}
               >
-                <span className={"w-1.5 h-1.5 rounded-full " + DOT_CLASS[stage.tone]} />
-                <span>{jobOwner(job)}</span>
-                <StageLabel stage={stage} />
-              </button>
+                <button type="button" onClick={() => setDetail(job)} className="flex items-center gap-1.5">
+                  <span className={"w-1.5 h-1.5 rounded-full " + DOT_CLASS[stage.tone]} />
+                  <span>{jobOwner(job)}</span>
+                  <StageLabel stage={stage} />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDismissed((prev) => new Set(prev).add(job.id));
+                  }}
+                  title="화면에서만 숨기기 (작업 내역은 그대로 남습니다)"
+                  className="shrink-0 w-3.5 h-3.5 rounded-full flex items-center justify-center leading-none opacity-0 group-hover:opacity-100 hover:bg-black/10 transition-opacity"
+                >
+                  ×
+                </button>
+              </div>
             );
           })}
         </div>
@@ -205,10 +222,14 @@ function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
   const steps = job.step_progress ?? {};
   const shownSteps = PRODUCTION_STEPS.filter((s) => s.key in steps);
   const canAck = job.is_mine && isFinished(job) && !job.acknowledged_at;
-  // 대기 중(에이전트가 아직 안 가져감)인 작업만 취소 가능 — 위하고에서 이미 작업 중이면
-  // 중간에 멈출 수 없다 (plan/16-wehago-rpa.md §7).
-  const canCancel = job.is_mine && job.status === "PENDING";
+  // 대기 중(PENDING)은 그냥 취소. 진행 중(RUNNING)은 "강제 중지" — 서버 기록만 즉시
+  // 실패 처리한다. 에이전트는 서버에 접속할 수 없어(폴링 전용) 위하고에서 이미 진행 중인
+  // 자동화 자체를 중간에 멈추지는 못한다 (plan/16-wehago-rpa.md §7) — 눌러도 되는지
+  // 확인창으로 먼저 알린다.
+  const canCancel = job.is_mine && (job.status === "PENDING" || job.status === "RUNNING");
+  const forceStop = job.status === "RUNNING";
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
   const cancel = useMutation({
     mutationFn: () => cancelJob(job.id),
     onSuccess: () => {
@@ -218,7 +239,20 @@ function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
     onError: (e) => setCancelError((e as Error).message),
   });
 
+  async function onCancelClick() {
+    if (forceStop) {
+      const ok = await confirm(
+        "서버 기록만 즉시 \"실패\"로 바꿉니다. 자동화 PC가 이미 위하고에서 작업 중이었다면 " +
+        "그 화면 조작은 별도로 계속되거나 끝날 수 있습니다.\n\n그래도 강제 중지하시겠습니까?",
+      );
+      if (!ok) return;
+    }
+    cancel.mutate();
+  }
+
   return (
+    <>
+    {confirmDialog}
     <Modal
       open
       onClose={onClose}
@@ -226,8 +260,8 @@ function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
       footer={<>
         <Button variant="ghost" onClick={onClose}>닫기</Button>
         {canCancel && (
-          <Button variant="danger" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
-            {cancel.isPending ? "취소 중..." : "취소"}
+          <Button variant="danger" onClick={onCancelClick} disabled={cancel.isPending}>
+            {cancel.isPending ? (forceStop ? "중지 중..." : "취소 중...") : forceStop ? "강제 중지" : "취소"}
           </Button>
         )}
         {job.is_mine && job.kind === "CERTIFICATE_ISSUE" && (
@@ -267,13 +301,17 @@ function JobDetailModal({ job, onClose, onAck, acking, onOpenCertificate }: {
         )}
         {cancelError && <p className="text-[11.5px] text-red-600">{cancelError}</p>}
         {job.is_mine && job.status === "RUNNING" && (
-          <p className="text-[11.5px] text-gray-400">위하고에서 이미 작업 중이라 취소할 수 없습니다. 15분 넘게 멈추면 자동으로 실패 처리됩니다.</p>
+          <p className="text-[11.5px] text-gray-400">
+            &ldquo;강제 중지&rdquo;는 서버 기록만 바꿉니다 — 자동화 PC의 위하고 작업 자체는 멈추지 못할 수 있습니다.
+            15분 넘게 응답이 없으면 자동으로 실패 처리됩니다.
+          </p>
         )}
         {job.is_mine && job.status === "PENDING" && (
           <p className="text-[11.5px] text-gray-400">진행 중인 작업은 끝난 뒤에 확인 처리할 수 있습니다.</p>
         )}
       </div>
     </Modal>
+    </>
   );
 }
 

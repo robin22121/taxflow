@@ -6,7 +6,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 
-import { useClientEmployees, useCreateEmployee, useImportEmployees, useUpdateEmployee } from "@/lib/queries";
+import { useBusinessTypeCodes, useClientEmployees, useCreateEmployee, useImportEmployees, useUpdateEmployee } from "@/lib/queries";
 import { Badge, Button, Card, Chip, Modal } from "@/components/ui";
 import { ClientPicker, useSelectedClientId } from "@/components/clients/client-picker";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
@@ -193,6 +193,31 @@ function RosterContent({ clientId }: { clientId: string }) {
   );
 }
 
+/* ─── 사업소득 업종코드(소득구분코드) 선택 — 위하고 T 사업소득자등록 화면과 같은 코드 체계
+   (국세청 간이지급명세서 업종코드 40종, BUSINESS_TYPE_CODES). income_type이 BUSINESS일 때만 보인다. ─── */
+
+function BusinessTypeCodeField({
+  value,
+  onChange,
+  className,
+}: {
+  value: string;
+  onChange: (code: string) => void;
+  className: string;
+}) {
+  const { data: codes = [] } = useBusinessTypeCodes();
+  return (
+    <label className="space-y-1">업종코드 (소득구분)
+      <select className={className} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">선택 안 함</option>
+        {codes.map((c) => (
+          <option key={c.code} value={c.code}>{c.code} {c.name}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 /* ─── 직원 정보 수정 ─── */
 
 function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; employee: Employee; onClose: () => void }) {
@@ -206,6 +231,7 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
     hired_at: employee.hired_at ?? "",
     resigned_at: employee.resigned_at ?? "",
     income_type: employee.income_type,
+    business_type_code: employee.business_type_code ?? "",
     dependents_count: String(employee.dependents_count),
     children_count: String(employee.children_count),
     withholding_rate_adjust: String(employee.withholding_rate_adjust),
@@ -231,6 +257,7 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
           hired_at: form.hired_at || null,
           resigned_at: form.resigned_at || null,
           income_type: form.income_type,
+          business_type_code: form.income_type === "BUSINESS" ? (form.business_type_code || null) : null,
           dependents_count: Math.max(1, Number(form.dependents_count) || 1),
           children_count: Math.max(0, Number(form.children_count) || 0),
           withholding_rate_adjust: Number(form.withholding_rate_adjust) || 100,
@@ -262,6 +289,13 @@ function EmployeeEditModal({ clientId, employee, onClose }: { clientId: string; 
             <option value="RETIREMENT">퇴직</option>
           </select>
         </label>
+        {form.income_type === "BUSINESS" && (
+          <BusinessTypeCodeField
+            value={form.business_type_code}
+            onChange={(code) => setForm((f) => ({ ...f, business_type_code: code }))}
+            className={field}
+          />
+        )}
         <label className="space-y-1">부서<input className={field} value={form.department} onChange={set("department")} /></label>
         <label className="space-y-1">직급<input className={field} value={form.position} onChange={set("position")} /></label>
         <label className="space-y-1">직종<input className={field} value={form.job_type} onChange={set("job_type")} /></label>
@@ -321,6 +355,7 @@ function EmployeeCreateModal({ clientId, incomeType, onClose }: { clientId: stri
     job_type: "",
     hired_at: "",
     income_type: (INCOME_TYPE_TABS as readonly string[]).includes(incomeType) ? incomeType : "WAGE",
+    business_type_code: "",
     dependents_count: "1",
     children_count: "0",
     withholding_rate_adjust: "100",
@@ -343,6 +378,7 @@ function EmployeeCreateModal({ clientId, incomeType, onClose }: { clientId: stri
         job_type: form.job_type.trim() || null,
         hired_at: form.hired_at || null,
         income_type: form.income_type,
+        business_type_code: form.income_type === "BUSINESS" ? (form.business_type_code || null) : null,
         dependents_count: Math.max(1, Number(form.dependents_count) || 1),
         children_count: Math.max(0, Number(form.children_count) || 0),
         withholding_rate_adjust: Number(form.withholding_rate_adjust) || 100,
@@ -373,6 +409,13 @@ function EmployeeCreateModal({ clientId, incomeType, onClose }: { clientId: stri
             <option value="RETIREMENT">퇴직</option>
           </select>
         </label>
+        {form.income_type === "BUSINESS" && (
+          <BusinessTypeCodeField
+            value={form.business_type_code}
+            onChange={(code) => setForm((f) => ({ ...f, business_type_code: code }))}
+            className={field}
+          />
+        )}
         <label className="space-y-1">주민번호 (선택, 나중에 입력 가능)
           <input className={field} value={form.rrn} onChange={set("rrn")} placeholder="900101-1234567" />
         </label>
