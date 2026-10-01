@@ -839,7 +839,10 @@ async def agent_download_business_income_excel(
     if any(not e.approved for e in entries):
         raise HTTPException(status.HTTP_409_CONFLICT, "미승인 자료가 있어 업로드할 수 없습니다.")
 
-    blob = generate_smarta_business_xls(entries, period=job.period)
+    # 사업소득은 수동입력 화면에 지급일 칸이 없어 entry.payment_date가 거의 항상 비어 있다 —
+    # 거래처 급여지급일 기본값(근로소득과 동일 계산)을 엑셀 생성 시 기본값으로 채운다.
+    default_payment_date, _ = await _pay_date(db, job.monthly_filing_id, job.client_id, job.period)
+    blob = generate_smarta_business_xls(entries, period=job.period, default_payment_date=default_payment_date)
     agent.last_seen_at = _utcnow()
     await db.commit()
     return Response(
