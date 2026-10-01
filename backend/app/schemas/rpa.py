@@ -56,6 +56,21 @@ class WehagoUploadPreviewRow(BaseModel):
     income_types: list[IncomeTypeStatus] = []
 
 
+# --- 게이트 1 (데모 전용) : 소득유형 단위 선택 전송 — plan/16 §4-1 원자적 전송 규칙의
+# 예외 경로. "이지원 버전" 쪽 WehagoUploadCreate/create_wehago_uploads는 건드리지 않는다
+# (2026-10-02, 로그인 모드가 "데모버전"일 때만 쓰는 별도 모달용).
+
+
+class WehagoSelectiveUploadItem(BaseModel):
+    client_id: str
+    income_types: list[str] = Field(min_length=1)  # WAGE / BUSINESS / OTHER
+
+
+class WehagoSelectiveUploadCreate(BaseModel):
+    filing_id: str
+    selections: list[WehagoSelectiveUploadItem] = Field(min_length=1)
+
+
 # --- 게이트 2 : 위하고 마감·제작 + 홈택스·위택스 일괄 작업 등록 -----------
 
 
@@ -96,6 +111,15 @@ class RpaActivityJobOut(RpaJobOut):
     business_name: str | None  # type: ignore[assignment]
     requested_by_name: str | None
     is_mine: bool
+
+
+class WehagoSelectiveUploadResult(BaseModel):
+    """선택 항목별 결과 — 전체가 아니라 (거래처,소득유형) 단위로 성공/건너뜀을 따로 보고한다."""
+
+    client_id: str
+    income_type: str
+    job: RpaJobOut | None = None
+    skipped_reason: str | None = None
 
 
 class RpaClaimOut(BaseModel):

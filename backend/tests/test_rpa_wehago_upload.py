@@ -74,6 +74,16 @@ async def _enqueue(http: AsyncClient, auth_headers: dict, filing_id: str, client
     )
 
 
+async def _enqueue_selective(
+    http: AsyncClient, auth_headers: dict, filing_id: str, selections: list[dict]
+):
+    return await http.post(
+        "/api/v1/rpa/wehago-uploads/selective",
+        json={"filing_id": filing_id, "selections": selections},
+        headers=auth_headers,
+    )
+
+
 @pytest.mark.asyncio
 async def test_send_blocked_when_unautomated_income_type_present(
     http: AsyncClient, auth_headers: dict
@@ -127,6 +137,47 @@ async def test_send_blocked_when_unautomated_income_type_present(
         async with SessionLocal() as db:
             await db.delete(await db.get(PayrollEntry, entry_id))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_selective_upload_sends_only_chosen_income_type_and_skips_others(
+    http: AsyncClient, auth_headers: dict
+):
+    """데모 전용 소득유형 선택 전송 — 거래처 단위 원자적 전송(§4-1)과 달리 선택한
+    (거래처,소득유형)을 독립적으로 처리해 항목별 결과를 돌려준다."""
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+
+    r = await _enqueue_selective(
+        http, auth_headers, filing_id,
+        [{"client_id": client_id, "income_types": ["WAGE", "BUSINESS"]}],
+    )
+    assert r.status_code == 201, r.text
+    results = {row["income_type"]: row for row in r.json()}
+    assert results["WAGE"]["job"] is not None
+    assert results["WAGE"]["job"]["kind"] == "WEHAGO_PAYROLL_INPUT"
+    assert results["BUSINESS"]["job"] is None
+    assert results["BUSINESS"]["skipped_reason"] == "자료 없음"
+
+    agent = await _issue_agent(http, auth_headers, "선택전송 테스트 PC")
+    claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+    assert claimed["id"] == results["WAGE"]["job"]["id"]
+    await http.post(
+        f"/api/v1/rpa/agent/jobs/{claimed['id']}/result",
+        json={"status": "SUCCEEDED", "message": "테스트"}, headers=agent,
+    )
+
+    # 원자적 전송과 달리 "이미 전송완료"는 막지 않는다 — 교정 재전송 경로를 남겨둔다.
+    resend = await _enqueue_selective(
+        http, auth_headers, filing_id, [{"client_id": client_id, "income_types": ["WAGE"]}],
+    )
+    assert resend.status_code == 201, resend.text
+    assert resend.json()[0]["job"] is not None
+
+    claimed2 = (await http.post(CLAIM, headers=agent)).json()["job"]
+    await http.post(
+        f"/api/v1/rpa/agent/jobs/{claimed2['id']}/result",
+        json={"status": "SUCCEEDED", "message": "테스트 정리"}, headers=agent,
+    )
 
 
 @pytest.mark.asyncio

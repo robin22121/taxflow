@@ -52,6 +52,8 @@ from app.schemas.rpa import (
     RpaJobResultIn,
     RpaNotificationOut,
     IncomeTypeStatus,
+    WehagoSelectiveUploadCreate,
+    WehagoSelectiveUploadResult,
     WehagoUploadCreate,
     WehagoUploadPreviewRow,
 )
@@ -525,6 +527,139 @@ async def create_wehago_uploads(
     for job in jobs:
         await db.refresh(job)
     return jobs
+
+
+@router.post(
+    "/wehago-uploads/selective",
+    response_model=list[WehagoSelectiveUploadResult],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_wehago_uploads_selective(
+    payload: WehagoSelectiveUploadCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[WehagoSelectiveUploadResult]:
+    """소득유형 단위 선택 전송 — "데모버전" 로그인 전용 모달에서만 쓴다.
+
+    create_wehago_uploads(거래처 단위 원자적 전송, plan/16 §4-1)는 건드리지 않는 별도
+    경로다. 여기는 선택한 (거래처,소득유형) 각각을 독립적으로 검증해, 되는 것만 작업으로
+    올리고 안 되는 건 사유와 함께 건너뛴다 — 전체 아니면 전무가 아니라 항목별 결과를
+    돌려준다 (2026-10-02, 사용자 요청).
+    """
+    office_id = _office_id(user)
+    filing = await db.get(MonthlyFiling, payload.filing_id)
+    if not filing or filing.tax_office_id != office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Filing not found")
+
+    client_ids = list({item.client_id for item in payload.selections})
+    clients = (
+        await db.execute(
+            select(Client).where(Client.id.in_(client_ids), Client.tax_office_id == office_id)
+        )
+    ).scalars().all()
+    by_id = {c.id: c for c in clients}
+
+    # 거래처·소득유형별로 쪼개 승인·사원코드 여부를 한 번에 확인한다. 엑셀 생성 쪽
+    # (download_*_income_excel)과 똑같이 income_type 정확히 일치하는 자료만 본다 —
+    # 퇴직소득을 "기타"에 묶어 보여주는 건 미리보기 표시 전용이라 여기선 따르지 않는다.
+    rows = (
+        await db.execute(
+            select(
+                PayrollEntry.client_id, PayrollEntry.income_type, PayrollEntry.approved,
+                Employee.employee_code,
+            )
+            .outerjoin(Employee, PayrollEntry.employee_id == Employee.id)
+            .where(
+                PayrollEntry.monthly_filing_id == filing.id,
+                PayrollEntry.client_id.in_(client_ids),
+                PayrollEntry.deleted.is_(False),
+            )
+        )
+    ).all()
+    by_client_type: dict[tuple[str, str], list[tuple[bool, str | None]]] = {}
+    for cid, income_type, approved, employee_code in rows:
+        by_client_type.setdefault((cid, income_type.value), []).append((approved, employee_code))
+
+    active = set(
+        (
+            await db.execute(
+                select(RpaJob.client_id, RpaJob.kind).where(
+                    RpaJob.monthly_filing_id == filing.id,
+                    RpaJob.client_id.in_(client_ids),
+                    RpaJob.kind.in_(WEHAGO_INPUT_KINDS),
+                    RpaJob.status.in_(ACTIVE_STATUSES),
+                )
+            )
+        ).all()
+    )
+
+    results: list[WehagoSelectiveUploadResult] = []
+    pending: list[tuple[int, RpaJob]] = []  # (results 인덱스, 아직 커밋 안 한 RpaJob)
+    for item in payload.selections:
+        client = by_id.get(item.client_id)
+        for raw_type in item.income_types:
+            def skip(reason: str) -> None:
+                results.append(
+                    WehagoSelectiveUploadResult(
+                        client_id=item.client_id, income_type=raw_type, skipped_reason=reason
+                    )
+                )
+
+            try:
+                income_type = IncomeType(raw_type)
+            except ValueError:
+                skip("알 수 없는 소득유형")
+                continue
+            if client is None:
+                skip("거래처를 찾을 수 없음")
+                continue
+            if income_type not in AUTOMATED_INCOME_TYPES:
+                skip("자동화가 아직 없는 소득유형")
+                continue
+            if not (client.business_number or "").strip():
+                skip("사업자번호 없음")
+                continue
+            entries = by_client_type.get((item.client_id, income_type.value), [])
+            if not entries:
+                skip("자료 없음")
+                continue
+            if any(not approved for approved, _code in entries):
+                skip("미승인 자료 있음")
+                continue
+            if any(not (code or "").strip() for _approved, code in entries):
+                skip("위하고 사원코드 없는 사원 있음")
+                continue
+            job_kind = INPUT_JOB_KIND_BY_INCOME_TYPE[income_type]
+            if (item.client_id, job_kind) in active:
+                skip("이미 전송 대기·진행 중")
+                continue
+            _pay_date_value, pay_reason = await _pay_date(db, filing.id, item.client_id, filing.period)
+            if pay_reason:
+                skip(pay_reason)
+                continue
+
+            job = RpaJob(
+                tax_office_id=office_id,
+                kind=job_kind,
+                status=RpaJobStatus.PENDING,
+                monthly_filing_id=filing.id,
+                client_id=client.id,
+                period=filing.period,
+                business_number=client.business_number.strip(),
+                business_name=client.business_name,
+                requested_by_user_id=user.id,
+            )
+            db.add(job)
+            results.append(WehagoSelectiveUploadResult(client_id=item.client_id, income_type=raw_type))
+            pending.append((len(results) - 1, job))
+
+    if pending:
+        await db.commit()
+        for _idx, job in pending:
+            await db.refresh(job)
+        for idx, job in pending:
+            results[idx].job = RpaJobOut.model_validate(job)
+    return results
 
 
 @router.get("/jobs", response_model=list[RpaJobOut])

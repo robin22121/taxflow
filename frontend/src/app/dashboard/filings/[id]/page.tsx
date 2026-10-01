@@ -32,7 +32,10 @@ import { api, apiBlob, getToken } from "@/lib/api";
 import { Badge, BezelCard, Button, Eyebrow, Input, Modal } from "@/components/ui";
 import { useHeaderSlots } from "@/components/header-slot";
 import { WehagoSendModal } from "@/components/rpa/wehago-send-modal";
+import { WehagoSendModalDemo } from "@/components/rpa/wehago-send-modal-demo";
 import { ProductionModal } from "@/components/rpa/production-modal";
+import { ProductionModalDemo } from "@/components/rpa/production-modal-demo";
+import { getLoginMode } from "@/lib/login-mode";
 import { FastPathModal } from "@/components/rpa/fast-path-modal";
 import { useConfirm } from "@/components/confirm-dialog";
 import { gateStage, indexJobsByClient, listJobs, type GateStage, type RpaJob } from "@/lib/rpa-api";
@@ -371,33 +374,62 @@ export default function FilingDetailPage({
       )}
 
       {showSendModal && (
-        <WehagoSendModal
-          filingId={id}
-          targets={sessions.map((s) => ({
-            clientId: s.client_id,
-            clientName: s.client_name,
-            blockedReason: s.entry_count === 0 ? "자료 없음" : unapprovedCounts.has(s.client_id) ? `미승인 ${unapprovedCounts.get(s.client_id)}건` : null,
-          }))}
-          currentClientId={selectedSession?.client_id ?? null}
-          onClose={() => setShowSendModal(false)}
-        />
+        getLoginMode() === "demo" ? (
+          <WehagoSendModalDemo
+            filingId={id}
+            targets={sessions.map((s) => ({
+              clientId: s.client_id,
+              clientName: s.client_name,
+              blockedReason: s.entry_count === 0 ? "자료 없음" : unapprovedCounts.has(s.client_id) ? `미승인 ${unapprovedCounts.get(s.client_id)}건` : null,
+            }))}
+            currentClientId={selectedSession?.client_id ?? null}
+            onClose={() => setShowSendModal(false)}
+          />
+        ) : (
+          <WehagoSendModal
+            filingId={id}
+            targets={sessions.map((s) => ({
+              clientId: s.client_id,
+              clientName: s.client_name,
+              blockedReason: s.entry_count === 0 ? "자료 없음" : unapprovedCounts.has(s.client_id) ? `미승인 ${unapprovedCounts.get(s.client_id)}건` : null,
+            }))}
+            currentClientId={selectedSession?.client_id ?? null}
+            onClose={() => setShowSendModal(false)}
+          />
+        )
       )}
 
       {showProductionModal && (
-        <ProductionModal
-          filingId={id}
-          targets={sessions.map((s) => {
-            const stage = productionStageOf(s.client_id);
-            // "failed"는 막지 않는다 — 재시도할 수 있어야 하고, 백엔드도 PENDING/RUNNING만 막는다.
-            const reason =
-              stage === "input_done" || stage === "failed" ? null
-              : stage === "producing" || stage === "production_done" || stage === "published" ? "이미 제작 진행·완료"
-              : "위하고 입력 미완료";
-            return { clientId: s.client_id, clientName: s.client_name, blockedReason: reason };
-          })}
-          currentClientId={selectedSession?.client_id ?? null}
-          onClose={() => setShowProductionModal(false)}
-        />
+        getLoginMode() === "demo" ? (
+          <ProductionModalDemo
+            filingId={id}
+            targets={sessions.map((s) => {
+              const stage = productionStageOf(s.client_id);
+              const reason =
+                stage === "input_done" || stage === "failed" ? null
+                : stage === "producing" || stage === "production_done" || stage === "published" ? "이미 제작 진행·완료"
+                : "위하고 입력 미완료";
+              return { clientId: s.client_id, clientName: s.client_name, blockedReason: reason };
+            })}
+            currentClientId={selectedSession?.client_id ?? null}
+            onClose={() => setShowProductionModal(false)}
+          />
+        ) : (
+          <ProductionModal
+            filingId={id}
+            targets={sessions.map((s) => {
+              const stage = productionStageOf(s.client_id);
+              // "failed"는 막지 않는다 — 재시도할 수 있어야 하고, 백엔드도 PENDING/RUNNING만 막는다.
+              const reason =
+                stage === "input_done" || stage === "failed" ? null
+                : stage === "producing" || stage === "production_done" || stage === "published" ? "이미 제작 진행·완료"
+                : "위하고 입력 미완료";
+              return { clientId: s.client_id, clientName: s.client_name, blockedReason: reason };
+            })}
+            currentClientId={selectedSession?.client_id ?? null}
+            onClose={() => setShowProductionModal(false)}
+          />
+        )
       )}
 
       {showBulkConfirm && (

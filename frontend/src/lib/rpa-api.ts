@@ -118,6 +118,26 @@ export function previewWehagoUploads(filingId: string): Promise<WehagoUploadPrev
   );
 }
 
+/** 소득유형 단위 선택 전송 — "데모버전" 로그인 전용. 거래처 단위 원자적 전송(createWehagoUploads)과
+ * 별개 경로라 결과도 거래처 단위가 아니라 (거래처,소득유형) 단위로 하나씩 내려온다. */
+export type WehagoSelectiveUploadSelection = { client_id: string; income_types: string[] };
+export type WehagoSelectiveUploadResult = {
+  client_id: string;
+  income_type: string;
+  job: RpaJob | null;
+  skipped_reason: string | null;
+};
+
+export function createWehagoUploadsSelective(
+  filingId: string,
+  selections: WehagoSelectiveUploadSelection[],
+): Promise<WehagoSelectiveUploadResult[]> {
+  return api<WehagoSelectiveUploadResult[]>("/api/v1/rpa/wehago-uploads/selective", {
+    method: "POST",
+    json: { filing_id: filingId, selections },
+  });
+}
+
 // --- 게이트 2 : 제작 ---------------------------------------------------
 
 export function createProductions(filingId: string, clientIds: string[]): Promise<RpaJob[]> {
