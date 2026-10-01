@@ -28,13 +28,50 @@ logger = logging.getLogger(__name__)
 _SEARCH_URL = "http://www.law.go.kr/DRF/lawSearch.do"
 _SERVICE_URL = "http://www.law.go.kr/DRF/lawService.do"
 
-# 세무사사무소(원천세·4대보험) 업무 범위의 핵심 법령. 이름으로 검색하면 법률과
-# 시행령이 함께 반환되므로(law.go.kr의 법령명 검색이 부분일치) 베이스 이름만 적는다.
+# 세무사사무소 업무 범위의 핵심 법령. 이름으로 검색하면 법률과 시행령이 함께
+# 반환되므로(law.go.kr의 법령명 검색이 부분일치) 베이스 이름만 적는다.
+#
+# 국세법령정보시스템(taxlaw.nts.go.kr) "조세법령목록"(action.do, actionId=
+# ASISTA001MR01)의 주요세법·기타세법 및 관련법령 전체(2026-10-01 조회, 34건) +
+# 4대보험 관련법(국민연금법 등, NTS 목록엔 없지만 원천세·급여 업무에 필수).
 _CORE_LAWS = [
-    "소득세법",
+    # --- 주요세법 (국세법령정보시스템) ---
     "국세기본법",
     "국세징수법",
+    "조세특례제한법",
+    "농ㆍ축산ㆍ임ㆍ어업용 기자재 및 석유류에 대한 부가가치세 영세율 및 면세 적용 등에 관한 특례규정",
+    "외국인관광객 등에 대한 부가가치세 및 개별소비세 특례규정",
+    "소득세법",
+    "법인세법",
+    "국제조세조정에 관한 법률",
+    "상속세 및 증여세법",
+    "종합부동산세법",
     "부가가치세법",
+    "개별소비세법",
+    "주세법",
+    "주류 면허 등에 관한 법률",
+    "교통ㆍ에너지ㆍ환경세법",
+    "인지세법",
+    "증권거래세법",
+    # --- 기타세법 및 관련법령 (국세법령정보시스템) ---
+    "과세자료의 제출 및 관리에 관한 법률",
+    "관세법",
+    "교육세법",
+    "국세청과 그 소속기관 직제",
+    "금융실명거래 및 비밀보장에 관한 법률",
+    "농어촌특별세법",
+    "부동산 실권리자명의 등기에 관한 법률",
+    "상가건물 임대차보호법",
+    "자산재평가법",
+    "조세범 처벌법",
+    "조세범 처벌절차법",
+    "지방세법",
+    "지방세기본법",
+    "지방세징수법",
+    "지방세특례제한법",
+    "질서위반행위규제법",
+    "취업 후 학자금 상환 특별법",
+    # --- 4대보험 (NTS 목록 외, 원천세·급여 업무 필수) ---
     "국민연금법",
     "국민건강보험법",
     "고용보험법",
@@ -90,6 +127,24 @@ async def fetch_law_articles(mst: str, oc: str) -> list[dict[str, Any]]:
     return _as_list(units)
 
 
+# law.go.kr 법령명 검색은 순수 부분일치가 아니라 느슨한 매칭이라, 예를 들어
+# "지방세법"을 검색하면 "지방교부세법"이 더 먼저 나와 display 개수 안에 정작
+# "지방세법"이 못 들어오는 경우가 있다 — 넓게 가져온 뒤 정확히 일치하는 것만 쓴다.
+_SEARCH_DISPLAY = 20
+
+
+async def _with_retry(coro_fn, *, attempts: int = 2):
+    last_exc: BaseException | None = None
+    for i in range(attempts):
+        try:
+            return await coro_fn()
+        except httpx.HTTPError as e:
+            last_exc = e
+            if i < attempts - 1:
+                await asyncio.sleep(1)
+    raise last_exc  # type: ignore[misc]
+
+
 async def _load_core_law_pool(oc: str) -> dict[str, list[dict[str, Any]]]:
     """``_CORE_LAWS``의 조문을 전부 받아 ``{법령명: 조문단위[]}``로 캐싱한다.
 
@@ -106,21 +161,32 @@ async def _load_core_law_pool(oc: str) -> dict[str, list[dict[str, Any]]]:
 
         resolved: list[tuple[str, str]] = []  # (법령명, MST)
         search_results = await asyncio.gather(
-            *(search_laws(name, oc, display=_VARIANTS_PER_LAW) for name in _CORE_LAWS),
+            *(
+                _with_retry(lambda n=name: search_laws(n, oc, display=_SEARCH_DISPLAY))
+                for name in _CORE_LAWS
+            ),
             return_exceptions=True,
         )
-        for name, result in zip(_CORE_LAWS, search_results, strict=True):
+        for query_name, result in zip(_CORE_LAWS, search_results, strict=True):
             if isinstance(result, BaseException):
-                logger.warning("law.go.kr search failed for %r", name, exc_info=result)
+                logger.warning("law.go.kr search failed for %r", query_name, exc_info=result)
                 continue
-            for law in result:
+            matched = [
+                law
+                for law in result
+                if (law.get("법령명한글") or "") == query_name
+                or (law.get("법령명한글") or "").startswith(query_name + " ")
+            ]
+            if not matched:
+                logger.warning("law.go.kr search returned no exact match for %r", query_name)
+            for law in matched[:_VARIANTS_PER_LAW]:
                 mst = law.get("법령일련번호")
                 law_name = law.get("법령명한글")
                 if mst and law_name:
                     resolved.append((law_name, mst))
 
         fetch_results = await asyncio.gather(
-            *(fetch_law_articles(mst, oc) for _, mst in resolved),
+            *(_with_retry(lambda m=mst: fetch_law_articles(m, oc)) for _, mst in resolved),
             return_exceptions=True,
         )
         pool: dict[str, list[dict[str, Any]]] = {}
