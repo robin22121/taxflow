@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date
 from io import BytesIO
 
 import xlwt
@@ -146,12 +147,18 @@ def _yyyymmdd(value) -> str:
     return value.strftime("%Y.%m.%d") if value else ""
 
 
-def generate_smarta_business_xls(entries: list[PayrollEntry], period: str) -> bytes:
+def generate_smarta_business_xls(
+    entries: list[PayrollEntry], period: str, default_payment_date: date | None = None
+) -> bytes:
     """사업소득 항목을 SmartA 일괄등록 .xls로 변환.
 
     Args:
         entries: income_type=BUSINESS인 PayrollEntry 리스트. employee가 eager-load되어야 함.
         period: "YYYY-MM"
+        default_payment_date: entry.payment_date가 없을 때 쓸 기본 지급일. 사업소득은 수동입력
+            화면에 지급일 칸이 없어 거의 항상 비어 있는데, 빈칸으로 올리면 위하고가 "지급연월이
+            잘못되었다"고 거부한다(2026-10-02 서도 실기 확인) — 거래처 급여지급일 기본값
+            (`ClientPayrollDefault`, `_pay_date`와 동일한 값)으로 채운다.
 
     Note:
         기본주소·상세주소는 Employee에 해당 필드가 없어 빈칸으로 나간다.
@@ -178,7 +185,7 @@ def generate_smarta_business_xls(entries: list[PayrollEntry], period: str) -> by
         if not emp:
             continue
         code = entry.business_type_code or emp.business_type_code or _DEFAULT_CODE
-        paid_on = _yyyymmdd(entry.payment_date)
+        paid_on = _yyyymmdd(entry.payment_date or default_payment_date)
 
         ws.write(row, 0, written + 1)
         ws.write(row, 1, _yyyymm(period))
