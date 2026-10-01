@@ -16,6 +16,7 @@ import { useMe } from "@/lib/queries";
 import {
   type ImportClientEntry,
   type RpaJob,
+  cancelJob,
   createClientImport,
   createMasterImport,
   importProgress,
@@ -157,12 +158,17 @@ export function WehagoImportModal({
 }
 
 function ImportJobRow({ job }: { job: RpaJob }) {
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const { total, clients } = importProgress(job);
   const done = clients.length;
   const failed = clients.filter((c) => c.status === "FAILED").length;
   const conflicts = clients.reduce((n, c) => n + (c.conflicts?.length ?? 0), 0);
   const isAll = job.kind === "WEHAGO_MASTER_IMPORT_ALL";
+  const cancel = useMutation({
+    mutationFn: () => cancelJob(job.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rpa"] }),
+  });
 
   return (
     <div className="rounded-lg border border-gray-200">
@@ -174,11 +180,24 @@ function ImportJobRow({ job }: { job: RpaJob }) {
               <span className="ml-1.5 text-gray-400 t-num">{formatBizNumber(job.business_number)}</span>
             )}
           </span>
-          <span className="text-[12px] text-gray-500">
+          <span className="flex items-center gap-2 text-[12px] text-gray-500">
             {STATUS_TEXT[job.status] ?? job.status}
             {isAll && ` · ${done}${total ? `/${total}` : ""}곳`}
             {failed > 0 && <span className="text-red-600"> · 실패 {failed}</span>}
             {conflicts > 0 && <span className="text-amber-700"> · 차이 {conflicts}</span>}
+            {job.status === "PENDING" && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cancel.mutate();
+                }}
+                disabled={cancel.isPending}
+                className="rounded px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-100 hover:text-red-600"
+              >
+                취소
+              </button>
+            )}
           </span>
         </div>
         {isAll && total ? (
