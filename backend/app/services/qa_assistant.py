@@ -3,8 +3,9 @@
 `frontend/.../filings/[id]/page.tsx` 의 `QAAssistantDialog` 팝업(사용법/법령/고객응대 3탭)이
 호출하는 백엔드. `ai_parser.py` 와 달리 구조화 출력이 아니라 자유 텍스트 답변을 반환한다.
 
-법령(law) 탭은 아직 법령 MCP(국가법령정보센터 등)와 연결되어 있지 않다 — 학습된 지식 기반
-답변이므로 시스템 프롬프트에서 원문 확인을 권고하도록 지시한다. MCP 연결은 후속 작업.
+법령(law) 탭은 국가법령정보 공동활용(law.go.kr) API로 관련 조문을 찾아 grounding 자료로
+LLM에 넣는다(`law_search.build_law_context`). OC(`settings.lawgokr_oc`)가 비어 있거나 조문을
+못 찾으면 학습된 지식만으로 답하고 원문 확인을 권고하는 문구를 덧붙인다.
 """
 
 from __future__ import annotations
@@ -12,7 +13,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
+import httpx
+
 from app.config import get_settings
+from app.services import law_search
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +33,12 @@ _SYSTEM_PROMPTS: dict[QaIntent, str] = {
     ),
     "law": (
         "당신은 한국 세무사사무소 담당자를 돕는 세법 Q&A 도우미입니다.\n"
-        "소득세·부가가치세·원천세·상속세·4대보험 등과 관련된 조문·시행령·시행규칙·예규·판례·서식을 "
-        "근거로 정확하게 답변하세요.\n"
-        "주의: 실시간 법령 검색(MCP)이 아직 연결되어 있지 않아 학습된 지식에 기반한 답변입니다. "
-        "최신 개정 여부·세부 기한·세율은 국세법령정보시스템 등 원문으로 반드시 재확인하라는 안내를 "
-        "답변 끝에 짧게 덧붙이세요."
+        "[제1원칙] 답변은 반드시 법령·예규·판례·해석 등 근거에 기반해서 답하고, 확실하지 않은 "
+        "내용을 추측해서 답하지 마세요. 이번 질문에는 관련 조문을 찾지 못해 근거 자료 없이 "
+        "답해야 하는 상황입니다 — 자신 없는 내용은 '확인 필요'라고 밝히고, 그래도 답하는 부분은 "
+        "전부 '(이것은 AI의 판단이며 틀릴 수 있습니다)'를 붙이세요. 국세법령정보시스템 등 원문으로 "
+        "반드시 재확인하라는 안내를 답변 끝에 덧붙이세요.\n"
+        "[제2원칙] 질문과 직접 관련된 내용만 다루고, 관련 없는 법령·논점을 끌어오지 마세요."
     ),
     "customer": (
         "당신은 세무사사무소 담당자가 수임업체(고객사) 카카오톡 문의에 답할 때 쓸 답변 초안을 "
@@ -43,6 +48,18 @@ _SYSTEM_PROMPTS: dict[QaIntent, str] = {
         "'확인 후 다시 안내드리겠다' 식으로 여지를 두세요."
     ),
 }
+
+_LAW_GROUNDED_SYSTEM_PROMPT = (
+    "당신은 한국 세무사사무소 담당자를 돕는 세법 Q&A 도우미입니다.\n"
+    "질문과 함께 국가법령정보 공동활용 API에서 가져온 관련 조문 원문이 주어집니다.\n"
+    "[제1원칙] 답변은 반드시 아래 제공된 조문(향후 예규·판례·해석도 포함될 수 있음)에 근거해서 "
+    "답하고, 확실하지 않은 내용을 추측해서 답하지 마세요. 질문에 대해 현행 법상 어떻게 규정되어 "
+    "있는지 먼저 조문을 인용해 설명하세요. 조문 해석·적용에 당신의 판단이나 의견이 들어가는 "
+    "경우, 그 구절에는 반드시 '(이것은 AI의 판단이며 틀릴 수 있습니다)'라고 명시하세요. 제공된 "
+    "조문만으로 답하기 부족하면 억지로 답하지 말고 그 사실을 분명히 밝히세요. 조문에 없는 "
+    "세율·금액·기한을 단정하지 마세요.\n"
+    "[제2원칙] 질문과 직접 관련된 조문만 근거로 쓰고, 관련 없는 조문을 끌어와 답을 늘리지 마세요."
+)
 
 
 async def answer_question(
@@ -63,12 +80,24 @@ async def answer_question(
     settings = get_settings()
     provider = provider or settings.ai_provider
     system_prompt = _SYSTEM_PROMPTS[intent]
+    question_for_llm = question
+
+    if intent == "law" and settings.lawgokr_oc:
+        try:
+            law_context = await law_search.build_law_context(question, settings.lawgokr_oc)
+        except httpx.HTTPError:
+            logger.warning("law.go.kr lookup failed, falling back to ungrounded answer", exc_info=True)
+            law_context = ""
+        if law_context:
+            system_prompt = _LAW_GROUNDED_SYSTEM_PROMPT
+            question_for_llm = f"[관련 조문]\n{law_context}\n\n[질문]\n{question}"
+
     trimmed_history = (history or [])[-_MAX_HISTORY:]
 
     if provider == "gemini":
-        return await _answer_with_gemini(system_prompt, question, trimmed_history, settings)
+        return await _answer_with_gemini(system_prompt, question_for_llm, trimmed_history, settings)
     elif provider == "anthropic":
-        return await _answer_with_anthropic(system_prompt, question, trimmed_history, settings)
+        return await _answer_with_anthropic(system_prompt, question_for_llm, trimmed_history, settings)
     else:
         raise ValueError(f"Unknown AI provider: {provider}")
 
