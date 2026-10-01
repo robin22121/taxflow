@@ -37,6 +37,15 @@ export type AccessLogEntry = {
   endpoint: string | null;
 };
 
+export type KakaoPendingMessage = {
+  id: string;
+  plusfriend_key: string;
+  utterance: string | null;
+  file_text: string | null;
+  attachments_meta: Record<string, unknown> | null;
+  created_at: string;
+};
+
 // ── 서버 관리자 회원 관리 ───────────────────────────────
 export type Promotion = {
   id: string;

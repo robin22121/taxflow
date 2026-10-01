@@ -148,7 +148,12 @@ async def get_scoped_client(client_id: str, user=Depends(get_current_user), db=D
 > collect.py·employee_changes.py)에 `visible_clients`/`get_scoped_client`/`_scoped_filing`/
 > `_scoped_session`/`_scoped_entry`/`require_write` 게이트를 적용. §5.4 회귀 테스트(격리
 > in-memory DB로 STAFF가 담당 외 거래처의 엔트리·세션 접근 시 404, OWNER는 전체 접근)
-> 통과 확인. 단, `access_log`(§8.1 접속기록 로깅)는 별개 — 아직 미구현.
+> 통과 확인.
+>
+> **2026-10-01 추가.** `access_log`(§8.1)에 VIEW(거래처 단건 조회)·EDIT(거래처/직원
+> 수정·배정·삭제)·DOWNLOAD(위하고/급여대장/간이지급명세서/4대보험/통합다운로드/급여명세서/
+> 증명원 파일)·DECRYPT_RRN(직원 증명서 발급 시 주민번호 복호화) 로깅 추가
+> (`clients.py`·`filings.py`·`certificates.py`). LOGIN/LOGIN_FAILED는 기존 구현.
 
 ### 5.3 세션 인증 경로가 아닌 곳 — 변경 없음
 
@@ -338,8 +343,8 @@ action ∈ VIEW | EDIT | DOWNLOAD | DECRYPT_RRN | LOGIN | LOGIN_FAILED
 |:---:|------|----------|
 | **1** | ✅ **완료(2026-09-30)** 마이그레이션: `users.role/login_code/can_write`(+백필), `clients.assigned_user_id`, `client_assignment_history` | 기존 대표 계정 로그인·전 거래처 조회가 **변경 전과 동일** — 확인됨 |
 | **2** | ✅ **완료(2026-09-30)** `visible_clients`/`get_scoped_client`/`_scoped_filing`/`_scoped_session`/`_scoped_entry`/`require_write` 도입, §5.2 표 전체 전환 | §5.4 회귀 테스트 통과 — 확인됨 |
-| **3** | ✅ **완료(2026-09-30)** 직원 등록/변경 API+화면(§6.6.1), 로그인 잠금(5회 실패·30분), 최초 비번 변경 강제(`/change-password`) | 신규 STAFF가 미배정 거래처 0건 조회 — 확인됨 / 비활성화 즉시 401은 미검증 |
-| **4** | ⚠️ **부분 완료** 담당 배정 UI(§6.6.2)는 완료. 미분류함(카카오) OWNER 전용화는 미구현 | 재배정 후 이전 담당자 404, 이력 1행 생성 — 확인됨 |
+| **3** | ✅ **완료(2026-09-30)** 직원 등록/변경 API+화면(§6.6.1), 로그인 잠금(5회 실패·30분), 최초 비번 변경 강제(`/change-password`) | 신규 STAFF가 미배정 거래처 0건 조회 — 확인됨 / 비활성화 즉시 401 **2026-10-01 검증 완료**(`tests/test_account_permissions_extra.py::test_deactivated_staff_gets_401_immediately`) |
+| **4** | ✅ **완료(2026-10-01)** 담당 배정 UI(§6.6.2) + 미분류함(카카오) OWNER 전용화(`GET/DELETE /api/v1/kakao-inbox`, 화면 `dashboard/(account)/kakao-inbox`) | 재배정 후 이전 담당자 404, 이력 1행 생성 — 확인됨 / 미분류함 STAFF 403·OWNER 200·삭제 204 — `test_kakao_inbox_owner_only`로 확인 |
 | **5** | `access_log` + RRN 복호화·다운로드 명시 로깅 | STAFF 조회 1회 → 로그 1행, 복호화 → `DECRYPT_RRN` 행 |
 | **6** | OWNER 현황 보드 (§7) | 담당자 필터·미배정 경고 동작 |
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Suspense } from "react";
 
 // "사원정보" 세부메뉴 — 좌측 칼럼 ((tax-other)/layout.tsx와 같은 패턴).
 // 거래처정보에 있던 "사원 목록"·"급여명세서"(급여 이력)·"위하고에서 가져오기"를
@@ -36,7 +37,9 @@ export default function EmployeeInfoLayout({ children }: { children: React.React
           })}
         </nav>
       </aside>
-      <div className="flex-1 min-w-0">{children}</div>
+      {/* 자식 페이지(급여명세서·사원 목록)가 useSearchParams로 ?client= 쿼리를 읽는다 —
+          정적 prerender가 Suspense 경계를 요구한다. */}
+      <div className="flex-1 min-w-0"><Suspense fallback={null}>{children}</Suspense></div>
     </div>
   );
 }

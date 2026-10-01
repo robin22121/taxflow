@@ -19,6 +19,7 @@ from app.core.deps import (
     require_write,
     visible_clients,
 )
+from app.services.access_log import log_access
 from app.models import (
     CertificateIssue,
     Client,
@@ -257,7 +258,16 @@ async def bulk_upload_clients(
 
 
 @router.get("/{client_id}", response_model=ClientOut)
-async def get_client(client: Client = Depends(get_scoped_client)) -> Client:
+async def get_client(
+    client: Client = Depends(get_scoped_client),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Client:
+    await log_access(
+        db, "VIEW", user_id=user.id, tax_office_id=user.tax_office_id,
+        client_id=client.id, endpoint="GET /clients/{id}",
+    )
+    await db.commit()
     return client
 
 
@@ -273,6 +283,10 @@ async def update_client(
         if field_name == "contact_email" and value is not None:
             value = str(value)
         setattr(client, field_name, value)
+    await log_access(
+        db, "EDIT", user_id=_writer.id, tax_office_id=_writer.tax_office_id,
+        client_id=client.id, endpoint="PATCH /clients/{id}",
+    )
     await db.commit()
     await db.refresh(client)
     return client
@@ -306,6 +320,10 @@ async def assign_client(
         )
         client.assigned_user_id = payload.user_id
 
+    await log_access(
+        db, "EDIT", user_id=owner.id, tax_office_id=owner.tax_office_id,
+        client_id=client.id, endpoint="POST /clients/{id}/assign",
+    )
     await db.commit()
     await db.refresh(client)
     return client
@@ -357,6 +375,11 @@ async def delete_client(
     await db.execute(update(RpaJob).where(RpaJob.client_id == client_id).values(client_id=None))
     await db.execute(delete(Employee).where(Employee.client_id == client_id))
     # ClientPayrollDefault는 FK가 ondelete=CASCADE라 아래 client 삭제 시 DB가 알아서 지운다.
+    # client_id를 남기지 않는다 — 곧 지워질 거래처라 access_log.client_id FK가 끊긴다.
+    await log_access(
+        db, "DELETE", user_id=user.id, tax_office_id=user.tax_office_id,
+        endpoint=f"DELETE /clients/{client_id} ({client.business_name})",
+    )
     await db.delete(client)
     await db.commit()
     logger.info("Client %s (%s) deleted by admin %s", client_id, client.business_name, user.id)
@@ -826,6 +849,11 @@ async def create_employee(
         status=EmploymentStatus.ACTIVE if payload.rrn else EmploymentStatus.PENDING,
     )
     db.add(emp)
+    await db.flush()
+    await log_access(
+        db, "EDIT", user_id=_writer.id, tax_office_id=_writer.tax_office_id,
+        client_id=client.id, subject_employee_id=emp.id, endpoint="POST /clients/{id}/employees",
+    )
     await db.commit()
     await db.refresh(emp)
     return emp
@@ -862,6 +890,10 @@ async def update_employee(
         patch["employee_code"] = code
     for key, value in patch.items():
         setattr(emp, key, value.strip() if isinstance(value, str) else value)
+    await log_access(
+        db, "EDIT", user_id=user.id, tax_office_id=user.tax_office_id,
+        client_id=client_id, subject_employee_id=emp.id, endpoint="PATCH /clients/{id}/employees/{employee_id}",
+    )
     await db.commit()
     await db.refresh(emp)
     return emp
