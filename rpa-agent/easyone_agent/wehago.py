@@ -1744,56 +1744,57 @@ class WehagoUploader:
             )
 
     def _select_local_tax_period(self, smarta, item, period: str) -> None:
-        """지방세 귀속연월 — `_fill_closing_period`(숫자 타이핑)와 다른 위젯이다.
+        """지방세 귀속년월·지급년월 — `_fill_closing_period`(숫자 타이핑)와 다른 위젯이다.
 
-        2026-10-02 사용자 실측(Chrome Recorder 녹화 `지방세.json`): 표시 칸(fake_inputbox
-        텍스트)을 클릭하면 아무 반응이 없어 멈춘다 — 칸 끝의 작은 화살표 버튼
-        (`button.WSC_LUXButton`, 다른 화면의 `div.fakebutton`과 같은 역할)을 직접 눌러야
-        연도 목록(`<ul><li>`)이 뜨고, 연도를 고르면 월 목록이 이어서(캐스케이드) 뜬다.
-        녹화에서는 연·월 각각 9번째 항목을 클릭했는데(2026년·9월 테스트), 이게 "9번째
-        항목이라서"가 아니라 "텍스트가 2026/9라서" 고른 것일 뿐이므로 항목 텍스트로
-        매칭한다. 목록 항목의 정확한 표기(앞자리 0·"년"/"월" 접미사 유무)는 추정이라
-        여러 건이 걸리거나 하나도 안 걸리면 화면을 캡처해 알려줘야 고칠 수 있다.
+        2026-10-02 사용자가 보내준 실제 HTML로 확인: 연(年) 칸은 `tabindex="-1"`의
+        비활성·읽기전용 표시라 SmartA 귀속 연도에 고정돼 있고 건드릴 수 없다(이전 버전은
+        존재하지도 않는 "연도 선택" 단계를 기다리다 멈췄다 — 실패 스크린샷에서 연은
+        이미 맞고 월만 빈 채로 계속 멈춰 있던 게 그 증거). 월만 작은 버튼
+        (`button.WSC_LUXButton`)을 눌러 여는 목록에서 고른다.
+
+        `item`에는 월 버튼이 1개(귀속년월)거나 2개(지급년월 — 시작~종료)일 수 있어
+        안에 있는 버튼 전부를 같은 월로 채운다.
         """
-        year, month = period.split("-")
+        _, month = period.split("-")
+        buttons = item.locator("button.WSC_LUXButton:visible")
+        for i in range(buttons.count()):
+            self._pick_local_tax_month(smarta, buttons.nth(i), month)
+
+    def _pick_local_tax_month(self, smarta, button, month: str) -> None:
         month_num = str(int(month))
-        text = _fake_text(item)
-        if year in text and (month in text or month_num in text):
+        wanted = {month_num, f"{int(month):02d}", f"{month_num}월", f"{int(month):02d}월"}
+        display = button.locator("xpath=preceding-sibling::div[@tabindex='0']").first
+        if display.inner_text().strip() in wanted:
             return  # 이미 값이 맞음 — 건너뜀
 
-        self.step = "지방세 귀속연월 — 연도 선택"
+        self.step = "지방세 귀속/지급년월 — 월 선택"
         think("wehago")
-        item.locator("button.WSC_LUXButton").first.click()
-        self._pick_cascading_list_item(smarta, year)
-
-        self.step = "지방세 귀속연월 — 월 선택"
-        think("wehago")
-        self._pick_cascading_list_item(smarta, month_num)
-
-    def _pick_cascading_list_item(self, smarta, target_number: str) -> None:
+        button.click()
         option = smarta.locator(
-            "li:visible", has_text=re.compile(rf"^0*{re.escape(target_number)}\s*(년|월)?$")
+            "li:visible, button:visible", has_text=re.compile(rf"^0*{month_num}\s*월?$")
         )
         try:
             option.first.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         except Exception:
             raise WehagoError(
-                f"지방세 귀속연월 목록에서 '{target_number}' 항목을 찾지 못했습니다 "
-                "— 위하고에서 화면을 캡처해 알려주세요."
+                f"지방세 귀속/지급년월에서 '{month}월'을 고르는 목록을 찾지 못했습니다 "
+                "— 버튼을 눌렀을 때 뜨는 화면을 캡처해 알려주세요."
             )
         think("wehago")
-        option.first.locator("div").first.click()
+        option.first.click()
+
+        if display.inner_text().strip() not in wanted:
+            raise WehagoError(f"지방세 귀속/지급년월 — '{month}월' 선택이 반영되지 않았습니다.")
 
     def close_local_tax_payment(
         self, business_number: str, period: str, *, business_address: str | None = None
     ) -> str:
         """지방소득세특별징수납부서(SWTA0112) 마감 (§4-4 ⑩-a).
 
-        ⚠️ 부분 실측 — 귀속연월 입력(`_select_local_tax_period`)·취급청 선택
-        (`_select_local_tax_district`)은 사용자 Chrome Recorder 녹화로 확인했지만, 그 뒤
-        마감 버튼 라벨이 정말 "마감(F3)"인지, 완료·오류 모달 문구는 close_wht_return을
-        본떠 추정한 것이라 아직 실행 검증 전이다. 처음 실행해서 어긋나면 화면을 캡처해
-        알려줘야 고칠 수 있다.
+        ⚠️ 부분 실측 — 귀속년월·지급년월 입력(`_select_local_tax_period`)은 사용자가
+        보내준 실제 HTML로 확인했지만, 그 뒤 마감 버튼 라벨이 정말 "마감(F3)"인지,
+        완료·오류 모달 문구는 close_wht_return을 본떠 추정한 것이라 아직 실행 검증
+        전이다. 처음 실행해서 어긋나면 화면을 캡처해 알려줘야 고칠 수 있다.
 
         Args:
             business_address: 거래처 주소 — 취급청(법정동) 코드도움 검색어를 만드는 데 쓴다
@@ -1810,8 +1811,9 @@ class WehagoUploader:
         )
 
         self.step = "지방세 조회 조건 입력"
-        item = smarta.locator(_COND_BAR).locator("div.item").first
-        self._select_local_tax_period(smarta, item, period)
+        items = smarta.locator(_COND_BAR).locator("div.item")
+        self._select_local_tax_period(smarta, items.nth(0), period)  # 귀속년월
+        self._select_local_tax_period(smarta, items.nth(1), period)  # 지급년월(시작~종료)
 
         think("wehago")
         smarta.get_by_role("button", name="조회", exact=True).click()
