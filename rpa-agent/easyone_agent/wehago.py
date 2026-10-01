@@ -495,6 +495,7 @@ class WehagoUploader:
         page.locator(_COND_BAR).get_by_role("button", name="조회").click()
         self._wait_for_no_dimmed(page)
         page.wait_for_timeout(1_000)  # 그리드가 조회 결과로 바뀔 시간
+        self._ensure_data_entry_unlocked(page)
 
         self.step = "기존 급여 확인"
         existing = _grid_total(self._payroll_totals(page))
@@ -806,6 +807,7 @@ class WehagoUploader:
         """
         smarta = self._business_income_page()
         self._business_income_select_period(smarta, period)
+        self._ensure_data_entry_unlocked(smarta)
 
         self.step = "더보기 메뉴 열기"
         more = smarta.locator(_MORE_BUTTON)
@@ -953,6 +955,7 @@ class WehagoUploader:
         """
         smarta = self._daily_income_page()
         self._daily_income_select_period(smarta, period)
+        self._ensure_data_entry_unlocked(smarta)
 
         self.step = "더보기 메뉴 열기"
         more = smarta.locator(_MORE_BUTTON)
@@ -1302,6 +1305,7 @@ class WehagoUploader:
         """
         smarta = self._other_income_page()
         self._other_income_select_period(smarta, period)
+        self._ensure_data_entry_unlocked(smarta)
 
         self.step = "기능모음 메뉴 열기 (hover)"
         think("wehago")
@@ -2229,6 +2233,42 @@ class WehagoUploader:
         except PlaywrightTimeout:
             # 오버레이가 끝나지 않으면 그대로 진행 — 클릭 실패로 상위에서 잡힌다
             pass
+
+    def _ensure_data_entry_unlocked(self, page) -> bool:
+        """자료입력 화면이 [완료] 상태(버튼이 [완료 해제]/[완료해제]로 바뀜)면 눌러서 푼다.
+
+        2026-10-01 실기로 발견: 기타소득자료입력에서 이미 [완료] 처리된 달은 "엑셀서식
+        불러오기" 메뉴를 클릭해도 화면이 전혀 반응하지 않는다(다이얼로그도 안 뜨고 DOM도
+        안 바뀜) — [완료] 상태에서 하위 편집 기능이 비활성화되기 때문으로 보인다. 재시도가
+        아니라 먼저 [완료 해제]를 눌러 잠금을 풀어야 업로드가 진행된다(사용자 실측 확인).
+
+        이 "완료"는 신고서 마감(close_wht_return 등의 [마감])과는 **다른 개념**이다 —
+        단순히 "이 화면 데이터입력 다 끝남" 표시일 뿐 국세청에 제출되는 상태가 아니므로
+        자동으로 풀고 계속 진행해도 안전하다고 판단했다(2026-10-01). 반면 [마감]은 실제
+        신고 상태라 자동으로 풀지 않고 지금처럼 건너뛴다(close_wht_return 등 §4-4 참고) —
+        화면마다 버튼 레이블 공백이 다르다(실기로 "완료 해제"/"완료해제" 둘 다 확인).
+
+        [완료 해제] 클릭 뒤 "완료를 해제하시겠습니까?" 확인 다이얼로그(❓ 아이콘 +
+        [취소]/[확인])가 한 번 더 뜬다 — 사용자가 실기로 확인, [확인]까지 눌러야 실제로
+        풀린다. 이 다이얼로그를 처리 안 하면 화면 전체를 가리는 모달이라 이후 어떤 클릭도
+        막혀버린다(2026-10-01 실기 확인).
+
+        Returns:
+            실제로 해제 버튼을 눌렀으면 True.
+        """
+        for label in ("완료 해제", "완료해제"):
+            btn = page.get_by_role("button", name=label, exact=True)
+            if btn.count() and btn.first.is_visible():
+                self.step = f"[{label}] 눌러 잠금 해제"
+                think("wehago")
+                btn.first.click()
+                confirm = page.locator("div._isDialog:visible", has_text="완료를 해제하시겠습니까?")
+                confirm.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+                think("wehago")
+                confirm.get_by_role("button", name="확인", exact=True).click()
+                self._wait_for_no_dimmed(page)
+                return True
+        return False
 
     def _sidebar_company_names(self) -> list[str]:
         """사이드바에 보이는 회사명 리스트. 항목 텍스트의 첫 줄이 회사명이다."""
