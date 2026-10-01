@@ -148,7 +148,10 @@ function SelectiveBody({
           .filter((s) => interactive(classify(s), itemKey(r.clientId, s.income_type)))
           .map((s) => itemKey(r.clientId, s.income_type)),
   );
-  const selectedInteractiveCount = allInteractiveKeys.filter((k) => selected.has(k)).length;
+  // 실제로 전송될 항목 — selected에는 잠긴(전송완료·재전송 미허용) 항목도 기본 체크로
+  // 들어있지만, "재전송 허용"을 누르지 않은 잠긴 항목은 화면엔 체크로 보여도 전송 대상이
+  // 아니다. allInteractiveKeys와의 교집합만 실제 제출 대상 — 버튼 개수·전송 둘 다 이 값을 쓴다.
+  const submittableKeys = allInteractiveKeys.filter((k) => selected.has(k));
 
   function toggleAll() {
     setSelected((prev) => {
@@ -175,7 +178,7 @@ function SelectiveBody({
     setError(null);
     try {
       const byClient = new Map<string, string[]>();
-      for (const key of selected) {
+      for (const key of submittableKeys) {
         const [clientId, incomeType] = key.split(":");
         if (!byClient.has(clientId)) byClient.set(clientId, []);
         byClient.get(clientId)!.push(incomeType);
@@ -244,7 +247,7 @@ function SelectiveBody({
             </button>
           )}
         </div>
-        <span className="text-gray-500">선택됨 {selectedInteractiveCount} / 선택 가능 {allInteractiveKeys.length}</span>
+        <span className="text-gray-500">선택됨 {submittableKeys.length} / 선택 가능 {allInteractiveKeys.length}</span>
       </div>
 
       <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-100">
@@ -297,8 +300,8 @@ function SelectiveBody({
 
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="ghost" onClick={onClose}>취소</Button>
-        <Button disabled={selected.size === 0 || sending} onClick={send}>
-          {sending ? "전송 중..." : `${selected.size}개 항목 전송`}
+        <Button disabled={submittableKeys.length === 0 || sending} onClick={send}>
+          {sending ? "전송 중..." : `${submittableKeys.length}개 항목 전송`}
         </Button>
       </div>
     </div>
