@@ -29,6 +29,12 @@ class ClientOut(BaseModel):
     sincere_filing: bool = False
     collect_email: str | None = None
     invite_sent: bool = False
+    # 위하고 수임처정보에서 가져오는 참고용 필드 (plan/16 §12) — 읽기·수정 다 가능하지만
+    # 보통은 "위하고에서 가져오기"로 채운다.
+    business_type: str | None = None
+    business_item: str | None = None
+    business_address: str | None = None
+    tax_jurisdiction: str | None = None
     # 담당자 이름은 별도 조인 없이 프론트에서 /api/v1/staff 목록과 대조해 표시한다
     # (plan/14-accounts-permissions.md §6.6.2) — Client 모델에 relationship을 새로
     # 얹지 않기 위한 선택.
@@ -52,6 +58,10 @@ class ClientUpdate(BaseModel):
     withholding_semiannual: bool | None = None
     fiscal_year_end_month: int | None = Field(default=None, ge=1, le=12)
     sincere_filing: bool | None = None
+    business_type: str | None = None
+    business_item: str | None = None
+    business_address: str | None = None
+    tax_jurisdiction: str | None = None
 
 
 class ChannelAttempt(BaseModel):

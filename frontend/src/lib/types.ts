@@ -101,6 +101,10 @@ export type Client = {
   withholding_semiannual: boolean;
   fiscal_year_end_month: number | null;
   sincere_filing: boolean;
+  business_type: string | null;
+  business_item: string | null;
+  business_address: string | null;
+  tax_jurisdiction: string | null;
   assigned_user_id: string | null;
 };
 

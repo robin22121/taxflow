@@ -117,6 +117,22 @@ export default function ClientDetailPage({
               <p className="text-gray-900">{client.sincere_filing ? "대상" : "비대상"}</p>
             </div>
           )}
+          <div>
+            <span className="text-gray-500">업태</span>
+            <p className="text-gray-900">{client.business_type || "—"}</p>
+          </div>
+          <div>
+            <span className="text-gray-500">종목</span>
+            <p className="text-gray-900">{client.business_item || "—"}</p>
+          </div>
+          <div>
+            <span className="text-gray-500">관할세무서</span>
+            <p className="text-gray-900">{client.tax_jurisdiction || "—"}</p>
+          </div>
+          <div className="col-span-2 md:col-span-4">
+            <span className="text-gray-500">사업장 주소</span>
+            <p className="text-gray-900">{client.business_address || "—"}</p>
+          </div>
         </div>
         {client.collect_email && (
           <div className="mt-3 p-3 rounded-lg bg-blue-50/30 border border-blue-600/20">
@@ -991,6 +1007,10 @@ function ClientEditModal({
   const [withholdingSemiannual, setWithholdingSemiannual] = useState(client.withholding_semiannual);
   const [fiscalYearEndMonth, setFiscalYearEndMonth] = useState<number | null>(client.fiscal_year_end_month);
   const [sincereFiling, setSincereFiling] = useState(client.sincere_filing);
+  const [businessType, setBusinessType] = useState(client.business_type ?? "");
+  const [businessItem, setBusinessItem] = useState(client.business_item ?? "");
+  const [businessAddress, setBusinessAddress] = useState(client.business_address ?? "");
+  const [taxJurisdiction, setTaxJurisdiction] = useState(client.tax_jurisdiction ?? "");
   const [err, setErr] = useState<string | null>(null);
 
   return (
@@ -1024,6 +1044,10 @@ function ClientEditModal({
                   ...(isCorporation
                     ? { fiscal_year_end_month: fiscalYearEndMonth }
                     : { sincere_filing: sincereFiling }),
+                  business_type: businessType.trim() || null,
+                  business_item: businessItem.trim() || null,
+                  business_address: businessAddress.trim() || null,
+                  tax_jurisdiction: taxJurisdiction.trim() || null,
                 });
               } catch (e) {
                 setErr((e as Error).message);
@@ -1150,6 +1174,27 @@ function ClientEditModal({
             </label>
           </div>
         )}
+        <div className="pt-2 border-t border-gray-200">
+          <p className="text-[11px] text-gray-400 mb-2">위하고 T 참고 정보 — 보통 &ldquo;위하고에서 가져오기&rdquo;로 채워집니다.</p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">업태</label>
+              <Input placeholder="부동산업" value={businessType} onChange={(e) => setBusinessType(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">종목</label>
+              <Input placeholder="비주거용 건물 임대업" value={businessItem} onChange={(e) => setBusinessItem(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">사업장 주소</label>
+              <Input value={businessAddress} onChange={(e) => setBusinessAddress(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">관할세무서</label>
+              <Input placeholder="원주 세무서" value={taxJurisdiction} onChange={(e) => setTaxJurisdiction(e.target.value)} />
+            </div>
+          </div>
+        </div>
         {err && <p className="text-red-600">{err}</p>}
       </div>
     </Modal>
