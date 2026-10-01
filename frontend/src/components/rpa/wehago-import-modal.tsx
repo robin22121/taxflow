@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button, Input, Modal } from "@/components/ui";
+import { Button, Chip, Input, Modal } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { digitsOnly, formatBizNumber } from "@/lib/format";
 import { useMe } from "@/lib/queries";
@@ -62,10 +62,31 @@ export function WehagoImportModal({
   }, [activeCount, qc]);
 
   const [bn, setBn] = useState(initialBusinessNumber);
+  const [queue, setQueue] = useState<string[]>([]);
+  const addToQueue = () => {
+    const digits = digitsOnly(bn);
+    if (digits.length !== 10) return;
+    setQueue((q) => (q.includes(digits) ? q : [...q, digits]));
+    setBn("");
+  };
   const one = useMutation({
-    mutationFn: () => createClientImport(digitsOnly(bn)),
-    onSuccess: () => {
-      setBn("");
+    mutationFn: async () => {
+      const typed = digitsOnly(bn);
+      const targets = [...queue, ...(typed.length === 10 && !queue.includes(typed) ? [typed] : [])];
+      const results = await Promise.allSettled(targets.map((t) => createClientImport(t)));
+      const failed = results.flatMap((r, i) =>
+        r.status === "rejected" ? [{ bn: targets[i], message: errorText(r.reason) }] : [],
+      );
+      return { total: targets.length, failed };
+    },
+    onSuccess: (result) => {
+      if (result.failed.length === 0) {
+        setBn("");
+        setQueue([]);
+      } else {
+        // 실패한 것만 큐에 남겨 재시도할 수 있게 한다
+        setQueue(result.failed.map((f) => f.bn));
+      }
       qc.invalidateQueries({ queryKey: ["rpa"] });
     },
   });
@@ -89,7 +110,7 @@ export function WehagoImportModal({
           사원코드는 위하고 급여 업로드에 쓰이므로 위하고 값으로 맞춥니다.
         </p>
 
-        {/* 1. 개별 */}
+        {/* 1. 개별 — 여러 사업자번호를 담아 한 번에 가져올 수 있다 */}
         <section className="space-y-2">
           <h3 className="text-[13px] font-semibold text-gray-900">개별 수임처 가져오기</h3>
           <div className="flex gap-2">
@@ -97,18 +118,53 @@ export function WehagoImportModal({
               placeholder="사업자번호 (예: 224-02-38407)"
               value={bn}
               onChange={(e) => setBn(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addToQueue();
+                }
+              }}
               maxLength={12}
               className="max-w-xs"
             />
-            <Button
-              onClick={() => one.mutate()}
-              disabled={digitsOnly(bn).length !== 10 || one.isPending || allRunning}
-              className="shrink-0"
-            >
-              가져오기
+            <Button variant="secondary" onClick={addToQueue} disabled={digitsOnly(bn).length !== 10} className="shrink-0">
+              추가
             </Button>
           </div>
+          {queue.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {queue.map((q) => (
+                <Chip key={q} className="gap-1.5">
+                  {formatBizNumber(q)}
+                  <button
+                    type="button"
+                    onClick={() => setQueue((prev) => prev.filter((d) => d !== q))}
+                    className="text-gray-400 hover:text-red-600"
+                  >
+                    ×
+                  </button>
+                </Chip>
+              ))}
+            </div>
+          )}
+          <Button
+            onClick={() => one.mutate()}
+            disabled={(queue.length === 0 && digitsOnly(bn).length !== 10) || one.isPending || allRunning}
+            className="shrink-0"
+          >
+            가져오기{queue.length > 1 ? ` (${queue.length}건)` : ""}
+          </Button>
           {allRunning && <p className="text-[12px] text-gray-400">전체 가져오기가 끝난 뒤 사용할 수 있습니다.</p>}
+          {one.isSuccess && one.data.failed.length === 0 && (
+            <p className="text-[12px] text-green-600">
+              가져오기 작업 {one.data.total}건을 등록했습니다 — 이 창을 닫아도 계속 진행됩니다.
+            </p>
+          )}
+          {one.isSuccess && one.data.failed.length > 0 && (
+            <p className="text-[12px] text-red-600">
+              {one.data.failed.map((f) => `${formatBizNumber(f.bn)}: ${f.message}`).join(" · ")}
+            </p>
+          )}
           {one.isError && <p className="text-[12px] text-red-600">{errorText(one.error)}</p>}
         </section>
 
@@ -140,6 +196,9 @@ export function WehagoImportModal({
             </div>
           ) : (
             <p className="text-[12px] text-gray-500">전체 가져오기는 사무소 관리자만 실행할 수 있습니다. 관리자에게 요청하세요.</p>
+          )}
+          {all.isSuccess && (
+            <p className="text-[12px] text-green-600">전체 가져오기를 등록했습니다 — 이 창을 닫아도 계속 진행됩니다.</p>
           )}
           {all.isError && <p className="text-[12px] text-red-600">{errorText(all.error)}</p>}
         </section>

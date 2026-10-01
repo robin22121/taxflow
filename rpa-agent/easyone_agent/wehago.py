@@ -747,8 +747,12 @@ class WehagoUploader:
             # 연월 입력칸(fake_inputbox) 자체는 건드리지 않는다 — 달력 아이콘(fakebutton)만
             # 클릭해 팝업을 연 뒤 월 버튼을 고른다 (`_payroll_select_period`와 동일 패턴,
             # 2026-09-30 사용자 확인).
+            # ⚠️ 이 필드는 fake_inputbox·fakebutton이 DOM에 중복 렌더링된다(2026-10-01
+            # 실기 HTML로 확인 — 같은 div.item 안에 fakebutton이 2개). .first 없이
+            # 클릭하면 어느 걸 눌러야 할지 모호해 클릭이 씹히고(화면 변화 없음) 이후
+            # 달력 팝업 대기에서 타임아웃났다.
             think("wehago")
-            items.nth(0).locator("div.fakebutton").click()
+            items.nth(0).locator("div.fakebutton").first.click()
             months = page.locator("div.date_tbl td.date_day button")
             months.first.wait_for(state="visible", timeout=5_000)
             think("wehago")
