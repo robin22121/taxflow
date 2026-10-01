@@ -238,6 +238,13 @@ function ImportClientResult({ entry }: { entry: ImportClientEntry }) {
           </tbody>
         </table>
       )}
+      {(entry.possibly_removed ?? []).length > 0 && (
+        <p className="rounded border border-amber-200 bg-amber-50/50 px-2 py-1 text-amber-800">
+          위하고 명단에 더 이상 없는데 이지원천엔 재직 중으로 남은 사원:{" "}
+          {entry.possibly_removed!.join(", ")} — 위하고에서 삭제했거나 퇴사 처리를 안 보냈을 수
+          있습니다. 자동으로 퇴사 처리하지 않았으니 직접 확인해주세요.
+        </p>
+      )}
     </div>
   );
 }

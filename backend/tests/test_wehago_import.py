@@ -176,6 +176,42 @@ async def test_employee_code_is_scoped_by_income_type():
         assert wage_emp.employee_code == "1"  # 기존 근로소득 사원은 그대로
 
 
+@pytest.mark.asyncio
+async def test_possibly_removed_flags_employees_missing_from_same_income_type_import():
+    """위하고 명단에 더 이상 없는 재직 중 사원은 이름만 보고하고 자동 퇴사 처리하지 않는다."""
+    from app.db import SessionLocal
+    from app.models import Client, Employee
+    from app.models.income_type import IncomeType
+    from app.services.wehago_import import ImportedClient, ImportedEmployee, apply_client_import
+
+    office_id = await _office_id()
+    async with SessionLocal() as db:
+        client = Client(tax_office_id=office_id, business_name="삭제감지상사", business_number="224-02-38408")
+        db.add(client)
+        await db.flush()
+        gone = Employee(client_id=client.id, name="퇴사미반영", employee_code="1")  # 기본 income_type=WAGE
+        other_type = Employee(client_id=client.id, name="사업소득자유지", employee_code="1",
+                              income_type=IncomeType.BUSINESS)
+        db.add_all([gone, other_type])
+        await db.commit()
+
+        # WAGE만 다시 가져오는데 "퇴사미반영"이 명단에 없다 — WAGE 스코프 안에서만 보고되고
+        # income_type이 다른 "사업소득자유지"는 이번 import 대상이 아니므로 보고되지 않는다.
+        out = await apply_client_import(
+            db, office_id,
+            ImportedClient(
+                business_number="224-02-38408",
+                business_name="삭제감지상사",
+                employees=[ImportedEmployee("2", "새직원", income_type="WAGE")],
+            ),
+        )
+        await db.commit()
+
+        assert out.possibly_removed == ["퇴사미반영"]
+        gone_after = await db.get(Employee, gone.id)
+        assert gone_after.status.value == "ACTIVE"  # 자동 퇴사 처리는 안 한다
+
+
 # --- 작업 흐름 (API) ---------------------------------------------------------
 
 

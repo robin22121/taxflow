@@ -145,7 +145,17 @@ function RosterContent({ clientId }: { clientId: string }) {
                 <tbody>
                   {filtered.map((e) => (
                     <tr key={e.id} className="border-b border-gray-100">
-                      <td className="py-2 pr-3 font-medium text-gray-900">{e.name}</td>
+                      <td className="py-2 pr-3 font-medium text-gray-900">
+                        {e.name}
+                        {e.other_income_types.length > 0 && (
+                          <span
+                            className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[10.5px] font-normal bg-blue-50 text-blue-600"
+                            title="주민번호가 같은 다른 소득유형 행이 있습니다 — 같은 사람일 수 있습니다"
+                          >
+                            동일인: {e.other_income_types.map(incomeTypeKo).join("·")}
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 pr-3 text-gray-500">{e.employee_code || "—"}</td>
                       <td className="py-2 pr-3 text-gray-500">{e.rrn_last4 ? `******-*${e.rrn_last4}` : "—"}</td>
                       <td className="py-2 pr-3 text-gray-500">{e.hired_at || "—"}</td>

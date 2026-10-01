@@ -208,6 +208,7 @@ export type ImportClientEntry = {
   employees_created?: number;
   employees_updated?: number;
   conflicts?: { target: string; field: string; current: string; wehago: string }[];
+  possibly_removed?: string[];
 };
 
 export function importProgress(job: Pick<RpaJob, "step_progress">): { total: number | null; clients: ImportClientEntry[] } {

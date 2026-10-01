@@ -75,6 +75,10 @@ class ImportOutcome:
     employees_updated: int = 0
     # {"target": "수임처"|사원명, "field": 항목, "current": 이지원천 값, "wehago": 위하고 값}
     conflicts: list[dict[str, Any]] = field(default_factory=list)
+    # 이번에 가져온 소득유형 안에서, 위하고 명단에 더 이상 없는데 이지원천엔 아직 재직 중으로
+    # 남아있는 사원 이름 — 위하고에서 삭제했거나 퇴사 처리를 안 보낸 경우 (plan/16 §12-2-1
+    # "위하고 삭제 미반영" 갭). 자동으로 퇴사 처리하지 않고 이름만 보고한다.
+    possibly_removed: list[str] = field(default_factory=list)
 
 
 def _safe_rrn(raw: str | None) -> str:
@@ -271,3 +275,15 @@ async def _apply_employees(
         changed |= _fill(emp, "business_type_code", row.business_type_code, row.name, "업종코드", out)
         if changed:
             out.employees_updated += 1
+
+    # 이번에 가져온 income_type 안에서, 위하고 쪽 명단에 없는데 이지원천엔 아직 재직 중으로
+    # 남은 사원 — 위하고에서 삭제했거나 퇴사 처리가 안 된 경우. 자동 퇴사 처리는 하지 않고
+    # 이름만 보고한다(§12-2-1 "위하고 삭제 미반영" 갭).
+    income_types_present = {_income_type(row.income_type) for row in incoming}
+    for e in existing:
+        if (
+            e.income_type in income_types_present
+            and e.id not in claimed
+            and e.status == EmploymentStatus.ACTIVE
+        ):
+            out.possibly_removed.append(e.name)

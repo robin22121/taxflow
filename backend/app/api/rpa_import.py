@@ -192,6 +192,7 @@ async def agent_report_client_import(
                 employees_created=result.employees_created,
                 employees_updated=result.employees_updated,
                 conflicts=result.conflicts,
+                possibly_removed=result.possibly_removed,
             )
             entry |= {
                 "status": "SUCCEEDED",
@@ -201,6 +202,7 @@ async def agent_report_client_import(
                 "employees_created": result.employees_created,
                 "employees_updated": result.employees_updated,
                 "conflicts": result.conflicts,
+                "possibly_removed": result.possibly_removed,
             }
 
     # JSON 컬럼은 새 객체를 넣어야 변경이 저장된다.

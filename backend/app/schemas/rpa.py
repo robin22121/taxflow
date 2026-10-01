@@ -223,3 +223,4 @@ class WehagoImportClientOut(BaseModel):
     employees_created: int
     employees_updated: int
     conflicts: list[dict[str, str]]
+    possibly_removed: list[str] = []

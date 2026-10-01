@@ -290,6 +290,7 @@ export type Employee = {
   dependents_count: number;
   children_count: number;
   withholding_rate_adjust: number;
+  other_income_types: string[]; // 같은 주민번호의 다른 소득유형 행 — "동일인 다중등록" 표시용
 };
 
 export type ImportEmployeeResult = {

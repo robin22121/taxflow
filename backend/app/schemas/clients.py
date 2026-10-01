@@ -125,6 +125,9 @@ class EmployeeOut(BaseModel):
     dependents_count: int
     children_count: int
     withholding_rate_adjust: int
+    # 같은 거래처에서 주민번호가 같은 다른 income_type 행 — income_type 스코핑(§13-3-4)으로
+    # 동일인이 여러 줄로 나뉠 때 화면에서 "같은 사람"임을 알려준다. list_employees가 채운다.
+    other_income_types: list[str] = []
 
     model_config = {"from_attributes": True}
 

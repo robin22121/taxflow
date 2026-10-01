@@ -56,7 +56,7 @@ from app.schemas.clients import (
     PayrollHistoryPeriod,
     PayrollHistoryRow,
 )
-from app.services.crypto import encrypt_rrn, rrn_last4 as _rrn_last4
+from app.services.crypto import decrypt_rrn, encrypt_rrn, rrn_last4 as _rrn_last4
 from app.services.employee_codes import employee_code_taken, next_employee_code
 from app.services.storage import get_storage
 from app.services.invite import get_or_create_session, send_invite_to_client
@@ -681,11 +681,34 @@ async def invite_client(
 async def list_employees(
     db: AsyncSession = Depends(get_db),
     client: Client = Depends(get_scoped_client),
-) -> list[Employee]:
+) -> list[EmployeeOut]:
     rows = (
         await db.execute(select(Employee).where(Employee.client_id == client.id).order_by(Employee.name))
     ).scalars().all()
-    return list(rows)
+
+    # 동일인이 소득유형별로 여러 줄로 나뉘는 경우를 주민번호로 찾아 화면에 알려준다
+    # (income_type 스코핑, plan/16 §12-2-1 "동일인 다중등록" 갭).
+    rrn_by_id: dict[str, str] = {}
+    by_rrn: dict[str, list[Employee]] = {}
+    for e in rows:
+        if not e.rrn_encrypted:
+            continue
+        try:
+            rrn = decrypt_rrn(e.rrn_encrypted)
+        except Exception:
+            continue
+        rrn_by_id[e.id] = rrn
+        by_rrn.setdefault(rrn, []).append(e)
+
+    out = []
+    for e in rows:
+        item = EmployeeOut.model_validate(e)
+        rrn = rrn_by_id.get(e.id)
+        if rrn:
+            peers = [p for p in by_rrn[rrn] if p.id != e.id]
+            item.other_income_types = sorted({p.income_type.value for p in peers})
+        out.append(item)
+    return out
 
 
 # ─── 거래처별 지급항목·4대보험 기본 세팅 (plan.md 3.8) ───
