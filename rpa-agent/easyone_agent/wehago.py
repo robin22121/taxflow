@@ -1840,6 +1840,20 @@ class WehagoUploader:
 
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
+        # [마감] 클릭 직후 제출 서식 목록("마감 리스트" — 납부서/영수필 통지서·계산서/명세서
+        # 등 제출여부 O 행들)을 보여주는 다이얼로그가 먼저 뜬다. 여기서 [마감(F3)]을 한 번
+        # 더 눌러야 실제 마감이 진행된다(2026-10-02 사용자 실기 확인) — 다른 마감 화면에는
+        # 없는 이 화면만의 중간 확인 단계.
+        self.step = "지방세 마감 리스트 확인"
+        close_list = smarta.locator("div._isDialog:visible", has_text="마감 리스트")
+        try:
+            close_list.wait_for(state="visible", timeout=5_000)
+        except PlaywrightTimeout:
+            pass
+        else:
+            think("wehago")
+            close_list.get_by_role("button", name="마감(F3)", exact=True).click()
+
         self.step = "지방세 마감 결과 확인"
         error_dialog = smarta.locator("div._isDialog:visible", has_text="마감 오류리스트")
         try:
