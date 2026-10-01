@@ -354,6 +354,34 @@ class WehagoUploader:
             return False
 
     @staticmethod
+    def _skip_if_already_finalized(page, active_label: str, undo_label: str) -> str | None:
+        """조회 직후 이미 완료(마감) 처리된 화면인지 확인 — 맞으면 건드리지 않고 건너뛴다.
+
+        위하고는 완료·마감 화면마다 "완료"/"마감" 버튼이 이미 처리된 상태에서는
+        "완료해제"/"마감해제"로 바뀐다. 이 상태를 모르고 그대로 업로드·마감을 진행하면
+        이미 확정된 자료 위에 덮어쓰거나(§4-2 "replace_existing" 원칙과 충돌), 정규식으로
+        느슨하게 버튼을 찾다가 의도치 않게 [마감해제]를 눌러 이미 끝난 신고를 되돌릴
+        위험이 있다(2026-10-02 close_local_tax_payment에서 발견). 그래서 작업을 시작하기
+        전에 반드시 먼저 확인한다 — 사용자 요청(2026-10-02): "자료입력 화면에 접근하자마자
+        완료/마감 여부를 확인해서, 이미 처리됐으면 더 진행하지 않고 바로 스킵·다음 작업으로".
+
+        버튼이 아직 안 그려졌을 때 섣불리 "없다"고 판단하지 않도록(close_wht_return에서
+        발견된 렌더링 타이밍 문제) active_label을 포함하는 버튼이 뜰 때까지 먼저 기다린다.
+
+        Returns:
+            이미 처리돼 있으면 건너뜀 안내 메시지(성공으로 회신해 다음 작업을 막지 않는다),
+            아직이면 None — 호출자가 평소대로 진행한다.
+        """
+        page.locator("button", has_text=re.compile(re.escape(active_label))).first.wait_for(
+            state="visible", timeout=UPLOAD_WAIT_MS
+        )
+        active_btn = page.get_by_role("button", name=active_label, exact=True)
+        undo_btn = page.get_by_role("button", name=undo_label, exact=True)
+        if undo_btn.count() and not active_btn.count():
+            return f"이미 {active_label} 처리되어 있습니다 (건너뜀 — 다시 하려면 위하고에서 [{undo_label}] 후 재시도)"
+        return None
+
+    @staticmethod
     def _dismiss_notice(page) -> None:
         """SmartA 메뉴에 처음 들어갈 때 가끔 뜨는 1회성 공지(예: "국민연금 기준소득월액
         상/하한액 변경 안내")를 닫는다 (2026-09-29 실측 — 신규 등록한 거래처의 급여자료입력
@@ -517,6 +545,11 @@ class WehagoUploader:
         page.locator(_COND_BAR).get_by_role("button", name="조회").click()
         self._wait_for_no_dimmed(page)
         page.wait_for_timeout(1_000)  # 그리드가 조회 결과로 바뀔 시간
+
+        self.step = "완료 여부 확인"
+        already = self._skip_if_already_finalized(page, "완료", "완료해제")
+        if already is not None:
+            return already
 
         self.step = "기존 급여 확인"
         existing = _grid_total(self._payroll_totals(page))
@@ -832,6 +865,11 @@ class WehagoUploader:
         """
         smarta = self._business_income_page()
         self._business_income_select_period(smarta, period)
+
+        self.step = "완료 여부 확인"
+        already = self._skip_if_already_finalized(smarta, "완료", "완료해제")
+        if already is not None:
+            return already
 
         self.step = "더보기 메뉴 열기"
         more = smarta.locator(_MORE_BUTTON)
@@ -1437,12 +1475,16 @@ class WehagoUploader:
             reload_confirm.get_by_role("button", name="확인", exact=True).click()
             self._wait_for_no_dimmed(smarta)
 
-        self.step = "사업소득 마감"
+        self.step = "사업소득 마감 여부 확인"
         # 이미 마감된 달은 버튼이 [마감해제]로 바뀐다(재실행 판별용, close_wht_return과 동일
         # 원칙) — 이 경우 새로 마감할 필요 없이 이미 끝난 것으로 간주하고 건너뛴다
         # (2026-09-30 실기 확인: 사용자가 같은 달을 수동으로 먼저 마감해 둔 상태에서 발견).
-        if smarta.get_by_role("button", name="마감해제", exact=True).count():
-            return "이미 마감되어 있습니다 (건너뜀)"
+        # 버튼이 아직 안 그려졌을 때 섣불리 판단하지 않도록 렌더링을 먼저 기다린다
+        # (2026-10-02 close_wht_return에서 발견된 동일 타이밍 문제).
+        already = self._skip_if_already_finalized(smarta, "마감", "마감해제")
+        if already is not None:
+            return already
+        self.step = "사업소득 마감"
         think("wehago")
         smarta.get_by_role("button", name="마감", exact=True).click()
 
@@ -1656,9 +1698,22 @@ class WehagoUploader:
         smarta.get_by_role("button", name="조회", exact=True).click()
         self._wait_for_no_dimmed(smarta)
 
+        self.step = "지방세 마감 여부 확인"
+        # 마감 버튼 라벨이 "마감(F3)"일 수도 있어(미실측) exact 매치를 못 쓴다 — 그렇다고
+        # 느슨한 "^마감" 정규식만 쓰면 "마감해제"도 걸려서, 이미 마감된 상태에서 실수로
+        # [마감해제]를 눌러 끝난 신고를 되돌릴 위험이 있었다(2026-10-02 발견). "마감"으로
+        # 시작하되 "마감해제"는 제외하는 정규식으로 안전하게 구분한다. 버튼이 아직 안
+        # 그려졌을 때 섣불리 판단하지 않도록 렌더링도 먼저 기다린다.
+        smarta.locator("button", has_text=re.compile("마감")).first.wait_for(
+            state="visible", timeout=UPLOAD_WAIT_MS
+        )
+        close_btn = smarta.get_by_role("button", name=re.compile(r"^마감(?!해제)"))
+        reopen_btn = smarta.get_by_role("button", name="마감해제", exact=True)
+        if reopen_btn.count() and not close_btn.count():
+            return "이미 마감되어 있습니다 (건너뜀 — 다시 마감하려면 위하고에서 [마감해제] 후 재시도)"
         self.step = "지방세 마감"
         think("wehago")
-        smarta.get_by_role("button", name=re.compile(r"^마감"), exact=False).click()
+        close_btn.click()
 
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
