@@ -5,6 +5,7 @@ import { use, useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 
+import { MessagePanel } from "./_components/MessagePanel";
 import { PinGate } from "./_components/PinGate";
 import { Shell } from "./_components/Shell";
 import { CostView } from "./_views/CostView";
@@ -161,6 +162,7 @@ export default function OwnerPortalPage({
         onClose={() => setPinOpen(false)}
         onGranted={onGranted}
       />
+      <MessagePanel token={token} />
     </Shell>
   );
 }

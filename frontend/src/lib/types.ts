@@ -181,6 +181,16 @@ export type PortalPinStatus = {
   locked_until: string | null;
 };
 
+export type PortalMessageItem = {
+  id: string;
+  sender_type: "OWNER" | "STAFF";
+  staff_name: string | null;
+  body: string | null;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  created_at: string;
+};
+
 export type PayrollDefault = {
   meal_default: number;
   car_default: number;

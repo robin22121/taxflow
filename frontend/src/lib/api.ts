@@ -105,6 +105,24 @@ export async function apiUpload<T = unknown>(path: string, file: File): Promise<
   return res.json() as Promise<T>;
 }
 
+/** 텍스트+파일을 함께 보낼 때(예: 포털 메시지 첨부) — apiUpload는 file 필드 하나뿐이라 못 쓴다. */
+export async function apiSend<T = unknown>(path: string, form: FormData): Promise<T> {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`${BASE}${path}`, { method: "POST", body: form, headers, cache: "no-store" });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = await res.text();
+    }
+    throw new ApiError(res.status, body, formatErrorBody(body, res.status, res.statusText));
+  }
+  return res.json() as Promise<T>;
+}
+
 export async function apiBlob(path: string): Promise<Blob> {
   const headers = new Headers();
   const token = getToken();

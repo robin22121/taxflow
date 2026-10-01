@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "./api";
+import { apiSend } from "./api";
 import { apiUpload } from "./api";
 import type {
   AccessLogEntry,
@@ -35,6 +36,7 @@ import type {
   PayrollEntry,
   PayrollHistoryPeriod,
   PortalLink,
+  PortalMessageItem,
   PortalPinStatus,
   Promotion,
   SessionAttachment,
@@ -321,6 +323,30 @@ export function useIssuePortalPin(clientId: string) {
       }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["clients", clientId, "portal-pin"] }),
+  });
+}
+
+/* ─── 메시지 — 자료 제출 커뮤니케이션 채널 (plan/12-owner-portal.md §3.8) ─── */
+
+export function useClientMessages(clientId: string) {
+  return useQuery({
+    queryKey: ["clients", clientId, "messages"],
+    queryFn: () => api<PortalMessageItem[]>(`/api/v1/clients/${clientId}/messages`),
+  });
+}
+
+/** 담당 직원이 직접 답한다 — AI가 생성하지 않는다. 알림은 가지 않는다(§3.8). */
+export function useSendClientMessage(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ body, file }: { body?: string; file?: File }) => {
+      const form = new FormData();
+      if (body?.trim()) form.append("body", body.trim());
+      if (file) form.append("file", file);
+      return apiSend<PortalMessageItem>(`/api/v1/clients/${clientId}/messages`, form);
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["clients", clientId, "messages"] }),
   });
 }
 
