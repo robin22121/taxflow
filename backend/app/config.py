@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
 
+    # 국가법령정보 공동활용(law.go.kr) Open API — AI 도우미 법령 탭 grounding.
+    # OC = law.go.kr 가입 이메일의 @ 앞부분 (별도 API 키 없음).
+    lawgokr_oc: str = ""
+
     rrn_encryption_key: str = ""
 
     # 사업주 포털 PIN 게이트 (plan/12-owner-portal.md §4.3). 당분간 비활성 —
