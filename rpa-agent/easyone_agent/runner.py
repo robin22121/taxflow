@@ -12,6 +12,7 @@ from easyone_agent.api import (
     IMPORT_CLIENT,
     MONTHLY_PRODUCTION,
     WEHAGO_BUSINESS_INPUT,
+    WEHAGO_OTHER_INPUT,
     EasyoneApi,
     Job,
 )
@@ -45,6 +46,8 @@ def process_one(api: EasyoneApi, uploader: WehagoUploader, workdir: Path) -> boo
         return _process_payroll_input_job(api, uploader, job, workdir)
     if job.kind == WEHAGO_BUSINESS_INPUT:
         return _process_business_input_job(api, uploader, job, workdir)
+    if job.kind == WEHAGO_OTHER_INPUT:
+        return _process_other_income_input_job(api, uploader, job, workdir)
     _report(api, job.id, False, f"[미구현] '{job.kind}' 작업은 아직 자동화가 없습니다 — 수동으로 처리하세요.")
     return True
 
@@ -98,6 +101,41 @@ def _process_business_input_job(api: EasyoneApi, uploader: WehagoUploader, job: 
                 f"화면 {found_name}({found_number})"
             )
         message = uploader.upload_business_income(job.period, xlsx_path)
+    except LoginFailed as e:
+        _report(api, job.id, False, f"위하고 로그인 실패: {e}")
+        raise
+    except Exception as e:
+        logger.exception("작업 실패 %s", job.id)
+        if not isinstance(e, WehagoError):
+            capture = getattr(uploader, "save_failure_screenshot", None)
+            if capture:
+                capture(f"failed-{job.id}")
+        _report(api, job.id, False, failure_message(e, uploader))
+    else:
+        _report(api, job.id, True, message)
+    finally:
+        xlsx_path.unlink(missing_ok=True)
+    return True
+
+
+def _process_other_income_input_job(api: EasyoneApi, uploader: WehagoUploader, job: Job, workdir: Path) -> bool:
+    """기타소득자료입력(SmartA SWET0102) 자동입력 — 게이트 1 (plan/16 §13-3-3, 2026-10-01).
+
+    `_process_business_input_job`과 같은 구조. 엑셀 생성기(openpyxl 전환)·업로드 경로
+    (완료 잠금 자동 해제 포함)를 2026-10-01 실제 위하고T 세션에서 업로드 성공까지
+    검증했다.
+    """
+    xlsx_path = workdir / f"{job.id}-other-income.xlsx"
+    try:
+        xlsx_path.write_bytes(api.download_other_income_excel(job.id))
+        uploader.ensure_logged_in()
+        found_name, found_number = uploader.open_other_income_screen(job.business_number)
+        if not company_matches(job.business_name, job.business_number, found_name, found_number):
+            raise CompanyMismatch(
+                f"위하고 수임처가 다릅니다: 요청 {job.business_name}({job.business_number}), "
+                f"화면 {found_name}({found_number})"
+            )
+        message = uploader.upload_other_income(job.period, xlsx_path)
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
         raise

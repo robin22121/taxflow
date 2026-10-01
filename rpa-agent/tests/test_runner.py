@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from easyone_agent.api import MONTHLY_PRODUCTION, WEHAGO_BUSINESS_INPUT, Job
+from easyone_agent.api import MONTHLY_PRODUCTION, WEHAGO_BUSINESS_INPUT, WEHAGO_OTHER_INPUT, Job
 from easyone_agent.runner import login_test_one, process_one, run_forever, run_login_test
 from easyone_agent.wehago import LoginFailed, WehagoError
 
@@ -36,6 +36,9 @@ class FakeApi:
     def download_business_income_excel(self, job_id: str) -> bytes:
         return b"fake-business-xlsx"
 
+    def download_other_income_excel(self, job_id: str) -> bytes:
+        return b"fake-other-income-xlsx"
+
     def report(self, job_id: str, succeeded: bool, message: str, step_progress: dict | None = None) -> None:
         if self.report_error:
             raise self.report_error
@@ -62,6 +65,7 @@ class FakeUploader:
         self.close_local_tax_error = close_local_tax_error
         self.uploaded: list[tuple[Path, str, date]] = []
         self.business_uploaded: list[tuple[Path, str]] = []
+        self.other_income_uploaded: list[tuple[Path, str]] = []
         self.closed: list[tuple[str, str]] = []
 
     def ensure_logged_in(self) -> None:
@@ -87,6 +91,16 @@ class FakeUploader:
             raise self.upload_error
         self.business_uploaded.append((xlsx_path, period))
         return "사업소득 2명 업로드 완료"
+
+    def open_other_income_screen(self, business_number: str) -> tuple[str, str]:
+        return self.company
+
+    def upload_other_income(self, period: str, xlsx_path: Path) -> str:
+        assert xlsx_path.read_bytes() == b"fake-other-income-xlsx"
+        if self.upload_error:
+            raise self.upload_error
+        self.other_income_uploaded.append((xlsx_path, period))
+        return "기타소득 1명 업로드 완료"
 
     def close_wht_return(self, business_number: str, period: str) -> str:
         if self.close_wht_error:
@@ -145,6 +159,26 @@ def test_business_input_company_mismatch_is_not_uploaded(tmp_path: Path):
     uploader = FakeUploader(company=("다른회사", "9999999999"))
     assert process_one(api, uploader, tmp_path) is True
     assert uploader.business_uploaded == []
+    assert api.reports[0][1] is False
+    assert "위하고 수임처가 다릅니다" in api.reports[0][2]
+
+
+def test_other_income_input_success_reports_message_and_deletes_file(tmp_path: Path):
+    """WEHAGO_OTHER_INPUT — 지급일 없이 귀속연월만으로 기타소득자료입력 업로드 (plan/16 §13-3-3)."""
+    job = replace(JOB, kind=WEHAGO_OTHER_INPUT, pay_date=None)
+    api, uploader = FakeApi([job]), FakeUploader()
+    assert process_one(api, uploader, tmp_path) is True
+    assert api.reports == [("job1", True, "기타소득 1명 업로드 완료")]
+    assert uploader.other_income_uploaded[0][1] == "2026-08"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_other_income_input_company_mismatch_is_not_uploaded(tmp_path: Path):
+    job = replace(JOB, kind=WEHAGO_OTHER_INPUT, pay_date=None)
+    api = FakeApi([job])
+    uploader = FakeUploader(company=("다른회사", "9999999999"))
+    assert process_one(api, uploader, tmp_path) is True
+    assert uploader.other_income_uploaded == []
     assert api.reports[0][1] is False
     assert "위하고 수임처가 다릅니다" in api.reports[0][2]
 

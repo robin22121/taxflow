@@ -15,6 +15,7 @@ import { api } from "./api";
 export type RpaJobKind =
   | "WEHAGO_PAYROLL_INPUT"
   | "WEHAGO_BUSINESS_INPUT"
+  | "WEHAGO_OTHER_INPUT"
   | "MONTHLY_PRODUCTION"
   | "CERTIFICATE_ISSUE"
   | "WEHAGO_MASTER_IMPORT_ALL"  // 위하고 전체 수임처 가져오기 (관리자)
@@ -239,8 +240,9 @@ export function listImports(): Promise<RpaJob[]> {
 // --- 유틸: 작업을 client_id로 인덱싱 --------------------------------
 
 // 게이트 1 "자동입력"은 소득유형별로 kind가 나뉜다 (근로=WEHAGO_PAYROLL_INPUT,
-// 사업=WEHAGO_BUSINESS_INPUT) — 거래처 하나가 두 kind를 동시에 가질 수 있어 배열로 둔다.
-const INPUT_KINDS: RpaJobKind[] = ["WEHAGO_PAYROLL_INPUT", "WEHAGO_BUSINESS_INPUT"];
+// 사업=WEHAGO_BUSINESS_INPUT, 기타=WEHAGO_OTHER_INPUT) — 거래처 하나가 여러 kind를
+// 동시에 가질 수 있어 배열로 둔다.
+const INPUT_KINDS: RpaJobKind[] = ["WEHAGO_PAYROLL_INPUT", "WEHAGO_BUSINESS_INPUT", "WEHAGO_OTHER_INPUT"];
 
 export function indexJobsByClient(jobs: RpaJob[]): Record<string, { inputs: RpaJob[]; production?: RpaJob }> {
   const out: Record<string, { inputs: RpaJob[]; production?: RpaJob }> = {};

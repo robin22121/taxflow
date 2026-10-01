@@ -1394,11 +1394,10 @@ runner 분기 2개). 프론트는 이 워크트리에 `node_modules`가 원래 �
 못 돌렸는데, 메인 체크아웃의 `node_modules`를 심볼릭 링크해 붙여서 실제로 돌렸다 — 0 에러
 확인 후 링크는 지웠다(같은 `package.json`이면 이 방법이 npm 레지스트리 없이도 된다).
 
-**기타소득·일용소득은 여전히 제외**: `upload_daily_income`은 있지만 엑셀 반영이 안 되는
-미해결 버그(§13-3-1)가 있어 넣지 않았고, 기타소득은 자료입력 자체가 그리드 직접입력으로
-전환 결정된 상태(§13-3-3)라 아직 대상이 아니다. 둘 다 자료입력이 신뢰할 수 있게 되면
-같은 패턴(새 `RpaJobKind` + `AUTOMATED_INCOME_TYPES` + 엑셀 엔드포인트 + runner 분기 +
-게이트2 다중 kind 적격성)으로 추가하면 된다.
+**일용소득은 여전히 제외**: `upload_daily_income`은 있지만 엑셀 반영이 안 되는 미해결
+버그(§13-3-1)가 있어 넣지 않았다. 신뢰할 수 있게 되면 같은 패턴(새 `RpaJobKind` +
+`AUTOMATED_INCOME_TYPES` + 엑셀 엔드포인트 + runner 분기 + 게이트2 다중 kind 적격성)으로
+추가하면 된다. 기타소득은 2026-10-01에 같은 패턴으로 이미 추가됐다 — §13-3-6 참고.
 
 **"위하고 사원코드 없는 사원 있음" 메시지 개선** (같은 날, 사용자 질문 계기): 이 사유가
 어느 소득유형(근로/사업/기타/일용) 사원의 코드가 빠졌는지 안 보여줘서 `preview_wehago_uploads`의
@@ -1406,6 +1405,33 @@ runner 분기 2개). 프론트는 이 워크트리에 `node_modules`가 원래 �
 괄호로 밝히게 했다. `WehagoSendModal`(프론트)에도 차단 사유 배지를 누르면 원인·해결법을
 설명하는 팝업을 추가하고, 소득유형 칩(근로 자료없음 등) 글자 크기·대비를 올렸다(기존
 10.5px+회색이 안 보인다는 피드백).
+
+### 13-3-6. 게이트 1 "위하고 전송"에 기타소득 배선 (2026-10-01)
+
+§13-3-5(사업소득)와 똑같은 다섯 군데를 기타소득에도 반복했다 — `upload_other_income`이
+§13-3-3에서 완료 잠금 해제까지 포함해 실제 업로드 성공으로 검증됐으므로 바로 배선 가능했다.
+
+1. `backend/app/models/rpa.py`: `RpaJobKind.WEHAGO_OTHER_INPUT` 추가, `WEHAGO_INPUT_KINDS`에 포함.
+2. `backend/app/api/rpa.py`: `AUTOMATED_INCOME_TYPES`에 OTHER 추가,
+   `INPUT_JOB_KIND_BY_INCOME_TYPE[IncomeType.OTHER] = WEHAGO_OTHER_INPUT`. 이 두 맵만
+   참조하는 구조라 `create_wehago_uploads`/`create_productions`의 게이트2 다중 kind
+   적격성 검사는 코드 변경 없이 자동으로 기타소득을 반영한다. 새 엔드포인트
+   `GET /agent/jobs/{job_id}/other-income-excel`(`generate_smarta_other_income_xls` 재사용,
+   소득구분코드 있는 자료가 하나도 없으면 409로 막아 빈 엑셀 업로드를 방지).
+   `preview_wehago_uploads`의 `_PRODUCTION_STEP_BY_TYPE`에 `"OTHER": "wehago_other_income"`도
+   미리 걸어뒀다 — 아직 그 게이트2 자동화(거주자 기타소득간이지급명세서)가 없어 이 키는
+   영영 "done"이 안 되므로, 기타소득은 자료입력이 끝나도 "전송완료"가 아니라
+   "자료입력완료"에 계속 머문다(§4-1 "명세서 추가입력까지 완료" 원칙과 일치, 의도된 동작).
+3. `rpa-agent/easyone_agent/{api.py,runner.py}`: `download_other_income_excel`,
+   `_process_other_income_input_job`(사업소득과 동일 구조 — 지급일 없이 귀속연월만 사용).
+4. 프론트(`rpa-api.ts`/`activity-bar.tsx`): `RpaJobKind`·`INPUT_KINDS`에 추가, 라벨 추가.
+   `indexJobsByClient`는 이미 `inputs: RpaJob[]` 배열 구조라(§13-3-5) 추가 변경 불필요.
+
+**검증**: 백엔드 281개(새 테스트 2개 포함, 기존 테스트 2개를 "자동화 없음" 전제에서
+기타소득 대신 일용소득으로 갱신) + rpa-agent 71개(새 테스트 2개 포함) 전부 통과,
+`tsc --noEmit` 0 에러. 테스트 작성 중 선행 버그도 발견 — `test_pending_job_can_be_canceled_once`/
+`test_upload_needs_pay_date_and_claim_carries_it`이 거래처당 job이 여러 개일 수 있는 걸
+반영 못 해 하나만 정리하고 나머지를 PENDING으로 남기던 문제, 함께 고쳤다.
 
 ### 13-4. 세무신고관리·전자신고 — §4-4·§4-8 세부 확정
 

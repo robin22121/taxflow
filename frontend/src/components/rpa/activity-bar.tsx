@@ -27,6 +27,7 @@ const PRODUCTION_STEPS: { key: string; label: string }[] = [
 const KIND_LABEL: Record<string, string> = {
   WEHAGO_PAYROLL_INPUT: "위하고 급여자료 입력",
   WEHAGO_BUSINESS_INPUT: "위하고 사업소득자료 입력",
+  WEHAGO_OTHER_INPUT: "위하고 기타소득자료 입력",
   MONTHLY_PRODUCTION: "원천세 신고",
   CERTIFICATE_ISSUE: "증명서 발급",
   WEHAGO_MASTER_IMPORT_ALL: "위하고 전체 가져오기",
