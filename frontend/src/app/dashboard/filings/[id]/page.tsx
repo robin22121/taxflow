@@ -2833,8 +2833,6 @@ function V3Spreadsheet({
   const reviewed = mode === "approved";
   const v = (k: keyof PayrollEntry): number => Number(draft[k] ?? 0) || 0;
   const set = (k: keyof PayrollEntry, val: number) => setDraft({ ...draft, [k]: val });
-  // 총지급액/비과세 수당 편집 시작값을 붙잡아뒀다가, blur 시점에 실제로 바뀌었으면 재계산 확인을 띄운다.
-  const recalcBaseline = useRef<Partial<Record<keyof PayrollEntry, number>>>({});
 
   // 비과세 수당(식대·자가운전·육아)과 상여 구분은 상용근로(WAGE)에만 존재한다.
   // 일용·사업·기타·퇴직소득은 지급액 전액이 과세 대상.
@@ -2867,6 +2865,24 @@ function V3Spreadsheet({
   const deduct = insSum + taxSum;
   const net = gross - deduct;
 
+  // 상용근로(WAGE)는 총지급액을 직접 입력하지 않는다 — 기본급/상여/식대/자가운전/육아
+  // 중 하나를 고치면 그 네 값의 합으로 총지급액을 다시 계산해 draft에 반영한다.
+  function setPayComponent(
+    field: "basicPay" | "bonus_amount" | "meal_amount" | "car_amount" | "childcare_amount",
+    value: number,
+  ) {
+    const nextBasic = field === "basicPay" ? value : basicPay;
+    const nextBonus = field === "bonus_amount" ? value : bonus;
+    const nextMeal = field === "meal_amount" ? value : meal;
+    const nextCar = field === "car_amount" ? value : car;
+    const nextChildcare = field === "childcare_amount" ? value : childcare;
+    const patch: Record<string, number> = {
+      total_amount: nextBasic + nextBonus + nextMeal + nextCar + nextChildcare,
+    };
+    if (field !== "basicPay") patch[field] = value;
+    setDraft({ ...draft, ...patch });
+  }
+
   // 파생값 표시 전용(편집 불가) — 기본급처럼 다른 칸에서 계산되는 값에 쓴다.
   function v3Derived(value: number) {
     return (
@@ -2880,7 +2896,10 @@ function V3Spreadsheet({
     );
   }
 
-  function v3Num(field: keyof PayrollEntry, value: number, fieldChanged?: boolean, recalcOnBlur?: boolean) {
+  // customSet이 있으면 그걸로 값을 반영(예: 기본급/상여 등 → 총지급액 자동 합산),
+  // 없으면 그 필드 자신에 그대로 저장. 재계산(공제·세액)은 더 이상 blur로 자동 실행되지
+  // 않고, "공제·세액 반영" 버튼을 눌러야만 실행된다.
+  function v3Num(field: string, value: number, fieldChanged?: boolean, customSet?: (val: number) => void) {
     // 전월 대비 변동 또는 불러온 값이 자체 계산값과 다른 칸은 빨간색
     const calc = calcDiffs?.[field];
     const anomaly = fieldChanged || !!calc;
@@ -2893,15 +2912,8 @@ function V3Spreadsheet({
           value={value.toLocaleString("ko-KR")}
           onChange={(e) => {
             const digits = e.target.value.replace(/[^\d-]/g, "");
-            set(field, Number(digits) || 0);
-          }}
-          onFocus={() => {
-            if (recalcOnBlur) recalcBaseline.current[field] = value;
-          }}
-          onBlur={() => {
-            if (!recalcOnBlur) return;
-            const before = recalcBaseline.current[field];
-            if (before !== undefined && before !== v(field)) onRecalc();
+            const num = Number(digits) || 0;
+            if (customSet) customSet(num); else set(field as keyof PayrollEntry, num);
           }}
           className={`w-full font-mono tabular-nums text-right text-[13.5px] font-semibold py-0.5 px-1 rounded outline-none ${
             anomaly
@@ -2944,12 +2956,21 @@ function V3Spreadsheet({
 
       {/* 본문 라인 */}
       <div className={`${V3_GRID} border-b border-gray-200`}>
-        {/* 1: 총지급액 */}
+        {/* 1: 총지급액 — 상용근로는 기본급/상여 등의 합으로만 바뀌는 파생값(직접 입력 불가).
+            그 외 소득은 직접 입력 가능. 공통: 재계산은 더 이상 자동이 아니라 아래 버튼으로. */}
         <div className="px-3.5 py-2.5 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
           <span className="text-[11px] text-gray-500">총지급액 · {incomeLabel(incomeType)}</span>
           <span className="font-mono tabular-nums text-[13.5px] font-semibold text-gray-900">
-            ₩ {editing ? v3Num("total_amount", basic, undefined, true) : basic.toLocaleString("ko-KR")}
+            ₩ {!isWage && editing ? v3Num("total_amount", basic) : basic.toLocaleString("ko-KR")}
           </span>
+          {editing && (
+            <button
+              onClick={onRecalc}
+              className="self-start inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-600 text-white hover:bg-blue-700"
+            >
+              공제·세액 반영
+            </button>
+          )}
         </div>
 
         {/* 2: 지급항목 multi — 상용근로만. 일용·사업 등은 비과세 미적용 */}
@@ -2958,11 +2979,13 @@ function V3Spreadsheet({
             title="수당"
             sum={`지급액계 ${paySum.toLocaleString("ko-KR")}`}
             rows={[
-              ["기본급", v3Derived(basicPay)],
-              ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount, true)],
-              ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount, true)],
-              ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount, true)],
-              ["육아", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount, true)],
+              ["기본급", editing
+                ? v3Num("basicPay", basicPay, undefined, (val) => setPayComponent("basicPay", val))
+                : v3Derived(basicPay)],
+              ["상여", v3Num("bonus_amount", bonus, !!fieldChanges?.bonus_amount, (val) => setPayComponent("bonus_amount", val))],
+              ["식대", v3Num("meal_amount", meal, !!fieldChanges?.meal_amount, (val) => setPayComponent("meal_amount", val))],
+              ["자가운전", v3Num("car_amount", car, !!fieldChanges?.car_amount, (val) => setPayComponent("car_amount", val))],
+              ["육아", v3Num("childcare_amount", childcare, !!fieldChanges?.childcare_amount, (val) => setPayComponent("childcare_amount", val))],
             ]}
           />
         ) : incomeType === "DAILY" ? (
@@ -2970,7 +2993,7 @@ function V3Spreadsheet({
             <span className="text-[11px] text-gray-500">근무일수(공수)</span>
             <span className="font-mono tabular-nums text-[13.5px] font-semibold text-gray-900">
               {editing
-                ? v3Num("work_days", v("work_days"), !!fieldChanges?.work_days, true)
+                ? v3Num("work_days", v("work_days"), !!fieldChanges?.work_days)
                 : v("work_days").toLocaleString("ko-KR")}
             </span>
             <span className="text-[10px] text-gray-400 leading-snug">
