@@ -85,6 +85,7 @@ class RpaJobOut(BaseModel):
     acknowledged_at: datetime | None = None
     created_at: datetime
     pay_date: date | None = None  # 위하고 급여자료입력 지급일 — claim 응답에만 채운다
+    business_address: str | None = None  # 지방세 마감 취급청 검색용 — claim 응답에만 채운다
 
     model_config = {"from_attributes": True}
 

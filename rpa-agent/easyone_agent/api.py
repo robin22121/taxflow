@@ -25,6 +25,7 @@ class Job:
     business_name: str
     kind: str = "WEHAGO_PAYROLL_INPUT"
     pay_date: date | None = None  # 위하고 급여자료입력 지급일 — 서버가 아직 안 보내면 None
+    business_address: str | None = None  # 지방세 마감 취급청 검색용 — MONTHLY_PRODUCTION에만 채워짐
 
 
 class EasyoneApi:
@@ -55,6 +56,7 @@ class EasyoneApi:
             business_name=data["business_name"],
             kind=data["kind"],
             pay_date=date.fromisoformat(data["pay_date"]) if data.get("pay_date") else None,
+            business_address=data.get("business_address"),
         )
 
     def download_payroll_excel(self, job_id: str) -> bytes:

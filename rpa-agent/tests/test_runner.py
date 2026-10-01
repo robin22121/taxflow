@@ -114,7 +114,9 @@ class FakeUploader:
         self.closed.append(("business", period))
         return "마감할 데이터가 존재하지 않습니다 (건너뜀)"
 
-    def close_local_tax_payment(self, business_number: str, period: str) -> str:
+    def close_local_tax_payment(
+        self, business_number: str, period: str, *, business_address: str | None = None
+    ) -> str:
         if self.close_local_tax_error:
             raise self.close_local_tax_error
         self.closed.append(("local_tax", period))

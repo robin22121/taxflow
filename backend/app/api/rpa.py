@@ -753,6 +753,10 @@ async def claim_job(
     out = RpaJobOut.model_validate(job)
     if job.kind == RpaJobKind.WEHAGO_PAYROLL_INPUT and job.monthly_filing_id and job.client_id:
         out.pay_date, _ = await _pay_date(db, job.monthly_filing_id, job.client_id, job.period)
+    if job.kind == RpaJobKind.MONTHLY_PRODUCTION and job.client_id:
+        # 지방세 마감 전 취급청/법정동 코드도움 검색어를 만드는 데 쓴다 (§4-4 ⑩-a).
+        client = await db.get(Client, job.client_id)
+        out.business_address = client.business_address if client else None
     return RpaClaimOut(job=out)
 
 

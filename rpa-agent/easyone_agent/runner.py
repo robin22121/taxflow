@@ -195,7 +195,9 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
         step_progress["wehago_income_tax"] = "done"
         biz_text = uploader.close_business_income_report(job.business_number, job.period)
         step_progress["wehago_business_income"] = "done"
-        local_text = uploader.close_local_tax_payment(job.business_number, job.period)
+        local_text = uploader.close_local_tax_payment(
+            job.business_number, job.period, business_address=job.business_address
+        )
         step_progress["wehago_local_tax"] = "done"
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
