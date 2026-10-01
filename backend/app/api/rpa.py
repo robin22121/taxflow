@@ -606,18 +606,37 @@ async def cancel_job(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> RpaJob:
+    """PENDING은 그냥 취소. RUNNING은 "강제 중지" — 서버 기록만 즉시 FAILED로 바꿔
+    뒤에 막힌 작업 큐를 풀어준다. 에이전트는 서버에 접속할 수 없고(폴링 전용, claim_job의
+    15분 타임아웃 처리와 같은 제약) 자동화 단계 사이 중지요청을 확인하는 지점도 아직 없어,
+    이미 위하고에서 진행 중인 브라우저 자동화 자체를 중간에 멈추지는 못한다 — 프론트에서
+    이 제약을 사용자에게 먼저 안내한 뒤 호출한다.
+    """
     office_id = _office_id(user)
     job = await db.get(RpaJob, job_id)
     if not job or job.tax_office_id != office_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "작업을 찾을 수 없습니다")
-    # 에이전트가 이미 위하고에서 작업 중이면 중간에 멈출 수 없다.
+
+    if job.status == RpaJobStatus.PENDING:
+        new_status: RpaJobStatus = RpaJobStatus.CANCELED
+        message = None
+    elif job.status == RpaJobStatus.RUNNING:
+        new_status = RpaJobStatus.FAILED
+        message = (
+            "사용자가 강제 중지했습니다. 자동화 PC가 이미 위하고에서 작업 중이었다면 "
+            "그 화면 조작은 서버와 별개로 계속되거나 끝날 수 있습니다."
+        )
+    else:
+        raise HTTPException(status.HTTP_409_CONFLICT, "대기 중이거나 진행 중인 작업만 중지할 수 있습니다")
+
+    values: dict = {"status": new_status, "finished_at": _utcnow()}
+    if message is not None:
+        values["result_message"] = message
     result = await db.execute(
-        update(RpaJob)
-        .where(RpaJob.id == job_id, RpaJob.status == RpaJobStatus.PENDING)
-        .values(status=RpaJobStatus.CANCELED, finished_at=_utcnow())
+        update(RpaJob).where(RpaJob.id == job_id, RpaJob.status == job.status).values(**values)
     )
     if result.rowcount == 0:
-        raise HTTPException(status.HTTP_409_CONFLICT, "대기 중인 작업만 취소할 수 있습니다")
+        raise HTTPException(status.HTTP_409_CONFLICT, "작업 상태가 바뀌어 중지하지 못했습니다. 다시 시도하세요")
     await db.commit()
     await db.refresh(job)
     return job

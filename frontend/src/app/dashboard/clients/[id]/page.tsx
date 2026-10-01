@@ -2,7 +2,7 @@
 
 import { Fragment, use, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   useClientArchive,
@@ -46,6 +46,8 @@ export default function ClientDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const checkPayday = searchParams.get("checkPayday") === "1";
   const { data: me } = useMe();
   const { data: client, isLoading } = useClientDetail(id);
   const updateClient = useUpdateClient(id);
@@ -64,6 +66,18 @@ export default function ClientDetailPage({
         <span>/</span>
         <span className="text-gray-900">{client.business_name}</span>
       </div>
+
+      {checkPayday && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[13px] text-amber-800 flex items-center justify-between gap-3">
+          <span>
+            신규 거래처입니다 — 급여지급일이 실무상 가장 흔한 <strong>당월 25일</strong>로 기본 설정되어
+            있습니다. 이 거래처의 실제 지급일과 맞는지 꼭 확인해주세요.
+          </span>
+          <a href="#payroll-default-section" className="shrink-0 font-medium text-amber-900 hover:underline">
+            기본 세팅에서 확인 →
+          </a>
+        </div>
+      )}
 
       <Card>
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-2">
@@ -881,7 +895,7 @@ function PayrollDefaultEditor({
   const dirty = Object.keys(diff()).length > 0;
 
   return (
-    <Card>
+    <Card id="payroll-default-section">
       <div className="flex items-start justify-between gap-3 mb-2">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">기본 세팅</h2>

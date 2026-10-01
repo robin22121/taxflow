@@ -113,9 +113,10 @@ export function WehagoImportModal({
         {/* 1. 개별 — 여러 사업자번호를 담아 한 번에 가져올 수 있다 */}
         <section className="space-y-2">
           <h3 className="text-[13px] font-semibold text-gray-900">개별 수임처 가져오기</h3>
+          <p className="text-[12px] text-gray-500">가져올 수임처의 사업자번호를 입력하세요</p>
           <div className="flex gap-2">
             <Input
-              placeholder="사업자번호 (예: 224-02-38407)"
+              placeholder="예: 111-22-33456 또는 1112233456"
               value={bn}
               onChange={(e) => setBn(e.target.value)}
               onKeyDown={(e) => {

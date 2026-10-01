@@ -284,6 +284,13 @@ export type FilingDashboard = {
   sessions: CollectionSession[];
 };
 
+export type BusinessTypeCode = {
+  code: string;
+  name: string;
+  description: string;
+  tax_rate_percent: number;
+};
+
 export type Employee = {
   id: string;
   name: string;
@@ -375,6 +382,8 @@ export type PayrollEntry = {
   income_type: string;
   a_code: string | null;
   business_type_code: string | null;
+  necessary_expense: number;
+  other_income_code: string | null;
   total_amount: number;
   salary_amount: number | null;
   bonus_amount: number | null;

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import {
+  useBusinessTypeCodes,
   useClients,
   useCommitEntries,
   useDeleteEntry,
@@ -1710,6 +1711,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       national_pension: e.national_pension, health_insurance: e.health_insurance, employment_insurance: e.employment_insurance, longterm_care: e.longterm_care,
       income_tax: e.income_tax, local_tax: e.local_tax,
       student_loan: e.student_loan, settlement_insurance: e.settlement_insurance, rent_support: e.rent_support,
+      business_type_code: e.business_type_code, necessary_expense: e.necessary_expense, other_income_code: e.other_income_code,
       // 일용근로소득인데 아직 공수가 없으면(과거 데이터 등) 1일로 간주돼 세액이 과대
       // 계산되는 걸 막기 위해 수정 가능한 기본값 20일을 보여준다.
       work_days: e.work_days ?? (e.income_type === "DAILY" ? 20 : null),
@@ -1743,6 +1745,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
     "raw_name", "income_type", "total_amount", "bonus_amount", "meal_amount", "car_amount", "childcare_amount",
     "national_pension", "health_insurance", "employment_insurance", "longterm_care", "income_tax", "local_tax",
     "student_loan", "settlement_insurance", "rent_support", "work_days", "edit_reason",
+    "business_type_code", "necessary_expense", "other_income_code",
   ];
 
   // 급여 인풋(총지급액/상여/식대/자가운전/육아) 값이 바뀌면 blur 시 자동으로 4대보험·소득세를 재계산한다(확인 없이 즉시 반영).
@@ -2281,14 +2284,23 @@ function EntriesSummaryBar({ mode, entries }: { mode: "received" | "wht"; entrie
     (acc, e) => acc + (e.national_pension ?? 0) + (e.health_insurance ?? 0) + (e.employment_insurance ?? 0) + (e.longterm_care ?? 0),
     0,
   );
+  // 공제액계 — V3Spreadsheet 행별 계산(4대보험 + 세금 + 학자금상환액·정산보험료·월세지원금)과 동일한 항목 합산.
+  const otherDeductTotal = entries.reduce(
+    (acc, e) => acc + (e.student_loan ?? 0) + (e.settlement_insurance ?? 0) + (e.rent_support ?? 0),
+    0,
+  );
+  const deductTotal = insuranceTotal + incomeTaxTotal + localTaxTotal + otherDeductTotal;
+  const netTotal = grossTotal - deductTotal;
   return (
     <div className="sticky top-0 z-10 flex items-center justify-end gap-5 px-4 py-3 border-b-2 border-gray-200 bg-gray-50 text-[12px]">
       <span className="text-gray-500">직원 <strong className="ml-1 text-gray-900 tabular-nums">{entries.length}명</strong></span>
-      <span className="text-gray-500">총지급액 합계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(grossTotal)}</strong></span>
+      <span className="text-gray-500">총지급액 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(grossTotal)}</strong></span>
       {mode === "wht" && (
         <>
-          <span className="text-gray-500">4대보험 합계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(insuranceTotal)}</strong></span>
-          <span className="text-gray-500">원천세 합계 <strong className="ml-1 text-blue-700 font-mono tabular-nums">{formatKrw(incomeTaxTotal + localTaxTotal)}</strong></span>
+          <span className="text-gray-500">4대보험 계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(insuranceTotal)}</strong></span>
+          <span className="text-gray-500">원천세 계 <strong className="ml-1 text-blue-700 font-mono tabular-nums">{formatKrw(incomeTaxTotal + localTaxTotal)}</strong></span>
+          <span className="text-gray-500">공제액 계 <strong className="ml-1 text-gray-900 font-mono tabular-nums">{formatKrw(deductTotal)}</strong></span>
+          <span className="text-gray-500">차인지급액 <strong className="ml-1 text-emerald-700 font-mono tabular-nums">{formatKrw(netTotal)}</strong></span>
         </>
       )}
     </div>
@@ -2748,6 +2760,8 @@ function V3Spreadsheet({
   const reviewed = mode === "approved";
   const v = (k: keyof PayrollEntry): number => Number(draft[k] ?? 0) || 0;
   const set = (k: keyof PayrollEntry, val: number) => setDraft({ ...draft, [k]: val });
+  const vStr = (k: keyof PayrollEntry): string => String(draft[k] ?? "");
+  const { data: businessTypeCodes = [] } = useBusinessTypeCodes();
 
   // 비과세 수당(식대·자가운전·육아)과 상여 구분은 상용근로(WAGE)에만 존재한다.
   // 일용·사업·기타·퇴직소득은 지급액 전액이 과세 대상.
@@ -2914,6 +2928,46 @@ function V3Spreadsheet({
             <span className="text-[10px] text-gray-400 leading-snug">
               위하고 업로드 시 "공수"로 반영 · 세액은 총지급액÷근무일수(일급)로 계산
             </span>
+          </div>
+        ) : incomeType === "BUSINESS" ? (
+          <div className="px-3.5 py-2.5 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
+            <span className="text-[11px] text-gray-500">업종코드(소득구분) — 위하고 사업소득자등록과 동일</span>
+            {editing ? (
+              <select
+                value={vStr("business_type_code")}
+                onChange={(e) => setDraft({ ...draft, business_type_code: e.target.value })}
+                className="w-full text-[12.5px] py-1 px-1 rounded bg-amber-50 border border-amber-200 focus:bg-white focus:border-amber-400 outline-none"
+              >
+                <option value="">선택 안 함</option>
+                {businessTypeCodes.map((c) => (
+                  <option key={c.code} value={c.code}>{c.code} {c.name}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="font-mono text-[13.5px] font-semibold text-gray-900">
+                {vStr("business_type_code") || "—"}
+              </span>
+            )}
+          </div>
+        ) : incomeType === "OTHER" ? (
+          <div className="px-3.5 py-2.5 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">
+            <span className="text-[11px] text-gray-500">소득구분코드 · 필요경비 — 위하고 기타소득자등록과 동일</span>
+            {editing ? (
+              <div className="flex flex-col gap-1">
+                <input
+                  type="text"
+                  value={vStr("other_income_code")}
+                  onChange={(e) => setDraft({ ...draft, other_income_code: e.target.value })}
+                  placeholder="예: 76 강연료 · 77 종교인소득"
+                  className="w-full text-[12.5px] py-0.5 px-1 rounded bg-amber-50 border border-amber-200 focus:bg-white focus:border-amber-400 outline-none"
+                />
+                {v3Num("necessary_expense", v("necessary_expense"), !!fieldChanges?.necessary_expense)}
+              </div>
+            ) : (
+              <span className="text-[12.5px] text-gray-900">
+                {vStr("other_income_code") || "—"} · 필요경비 {v("necessary_expense").toLocaleString("ko-KR")}
+              </span>
+            )}
           </div>
         ) : (
           <div className="px-3.5 py-2 border-r border-gray-200 flex flex-col gap-1 min-h-[56px]">

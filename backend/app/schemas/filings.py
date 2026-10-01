@@ -53,6 +53,8 @@ class PayrollEntryOut(BaseModel):
     income_type: str
     a_code: str | None
     business_type_code: str | None
+    necessary_expense: int = 0
+    other_income_code: str | None = None
     total_amount: int
     salary_amount: int | None
     bonus_amount: int | None
@@ -93,6 +95,9 @@ class PayrollEntryUpdate(BaseModel):
     car_amount: int | None = None
     childcare_amount: int | None = None
     income_type: str | None = None
+    business_type_code: str | None = None
+    necessary_expense: int | None = None
+    other_income_code: str | None = None
     national_pension: int | None = None
     health_insurance: int | None = None
     employment_insurance: int | None = None

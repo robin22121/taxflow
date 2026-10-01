@@ -6,6 +6,7 @@
 // 실제 전송 때 서버가 같은 검사를 다시 한다.
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Badge, Button, Modal } from "@/components/ui";
@@ -103,6 +104,7 @@ export function WehagoSendModal({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const { data: preview, isLoading } = useQuery({
     queryKey: ["rpa", "wehago-preview", filingId],
     queryFn: () => previewWehagoUploads(filingId),
@@ -124,7 +126,7 @@ export function WehagoSendModal({
   const selected = (picked ?? sendable).filter((id) => sendable.includes(id));
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [detailReason, setDetailReason] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ reason: string; clientId: string } | null>(null);
 
   async function send() {
     setSending(true);
@@ -196,7 +198,7 @@ export function WehagoSendModal({
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      setDetailReason(r.reason);
+                      setDetail({ reason: r.reason as string, clientId: r.clientId });
                     }}
                     className="cursor-pointer"
                   >
@@ -214,7 +216,8 @@ export function WehagoSendModal({
 
       {rows.some((r) => r.reason === "급여지급일 미설정") && (
         <p className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-          급여지급일은 거래처 상세 → 기본 세팅에서 설정합니다 (위하고 급여자료입력은 지급일로 조회).
+          급여지급일은 거래처 상세 → 기본 세팅에서 설정합니다 (위하고 급여자료입력은 지급일로 조회). 거래처별
+          &ldquo;급여지급일 미설정 · 자세히&rdquo; 배지를 누르면 바로 이동할 수 있습니다.
         </p>
       )}
       {rows.some((r) => r.reason?.includes("자동화 미지원")) && (
@@ -225,11 +228,22 @@ export function WehagoSendModal({
       )}
     </Modal>
 
-    {detailReason && (
-      <Modal open={true} onClose={() => setDetailReason(null)} title="전송 불가 사유"
-        footer={<Button onClick={() => setDetailReason(null)}>확인</Button>}>
-        <p className="text-[13px] font-medium text-gray-900 mb-2">{detailReason}</p>
-        <p className="text-[13px] text-gray-700 leading-relaxed">{explainReason(detailReason)}</p>
+    {detail && (
+      <Modal open={true} onClose={() => setDetail(null)} title="전송 불가 사유"
+        footer={<>
+          <Button variant="ghost" onClick={() => setDetail(null)}>확인</Button>
+          {detail.reason === "급여지급일 미설정" && (
+            <Button onClick={() => {
+              router.push(`/dashboard/clients/${detail.clientId}#payroll-default-section`);
+              setDetail(null);
+              onClose();
+            }}>
+              거래처 상세 → 기본 세팅으로 이동
+            </Button>
+          )}
+        </>}>
+        <p className="text-[13px] font-medium text-gray-900 mb-2">{detail.reason}</p>
+        <p className="text-[13px] text-gray-700 leading-relaxed">{explainReason(detail.reason)}</p>
       </Modal>
     )}
     </>

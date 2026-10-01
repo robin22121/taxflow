@@ -195,7 +195,9 @@ function CreateClientModal({ onClose }: { onClose: () => void }) {
         is_corporation: isCorporation,
       });
       onClose();
-      router.push(`/dashboard/clients/${created.id}`);
+      // 급여지급일은 등록 폼에 없고 "기본 세팅"에서 별도 설정 — 신규 거래처는 기본값(당월 25일)이
+      // 맞는지 확인하도록 상세 화면에서 안내 배너를 띄운다.
+      router.push(`/dashboard/clients/${created.id}?checkPayday=1`);
     } catch (e) {
       setErr((e as Error).message);
     }

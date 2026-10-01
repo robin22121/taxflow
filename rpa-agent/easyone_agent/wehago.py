@@ -368,13 +368,32 @@ class WehagoUploader:
         버튼이 아직 안 그려졌을 때 섣불리 "없다"고 판단하지 않도록(close_wht_return에서
         발견된 렌더링 타이밍 문제) active_label을 포함하는 버튼이 뜰 때까지 먼저 기다린다.
 
+        이 대기 자체가 타임아웃나면(2026-10-02 실패 사례) 화면이 완전히 멈춘 것일 수도 있지만,
+        이미 처리된 화면이라 버튼 렌더링이 늦어 걸리는 경우도 있었다 — 포기하기 전에 "해제" 버튼이
+        떠 있는지 한 번 더 가볍게 확인해, 있으면 원인 불명의 TimeoutError 대신 "이미 처리된 건이
+        있다"는 바로 알아볼 수 있는 안내로 바꾼다 (사용자 요청, 2026-10-02).
+
         Returns:
             이미 처리돼 있으면 건너뜀 안내 메시지(성공으로 회신해 다음 작업을 막지 않는다),
             아직이면 None — 호출자가 평소대로 진행한다.
+
+        Raises:
+            WehagoError: 대기 중 타임아웃났는데 "해제" 버튼은 이미 떠 있는 경우 — 진짜로
+                이미 처리된 건이 있다는 뜻이라 일반 TimeoutError 대신 사람이 읽을 메시지로 바꾼다.
         """
-        page.locator("button", has_text=re.compile(re.escape(active_label))).first.wait_for(
-            state="visible", timeout=UPLOAD_WAIT_MS
-        )
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        try:
+            page.locator("button", has_text=re.compile(re.escape(active_label))).first.wait_for(
+                state="visible", timeout=UPLOAD_WAIT_MS
+            )
+        except PlaywrightTimeout:
+            if page.get_by_role("button", name=undo_label, exact=True).count():
+                raise WehagoError(
+                    f"위하고 T에 {active_label} 처리된 건이 이미 있습니다. 확인하세요 "
+                    f"(다시 입력하려면 위하고에서 [{undo_label}] 후 재시도)."
+                ) from None
+            raise
         active_btn = page.get_by_role("button", name=active_label, exact=True)
         undo_btn = page.get_by_role("button", name=undo_label, exact=True)
         if undo_btn.count() and not active_btn.count():

@@ -148,7 +148,7 @@ function AgentsCard() {
   });
 
   const command = issued
-    ? `EASYONE_AGENT_TOKEN=${issued.token} uv run python -m certificate_agent easyone --server ${API_BASE}`
+    ? `uv run python -m certificate_agent easyone --server ${API_BASE} --token ${issued.token}`
     : "";
 
   function copy() {

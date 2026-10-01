@@ -104,9 +104,19 @@ class EmployeeUpdate(BaseModel):
     hired_at: date | None = None
     resigned_at: date | None = None
     income_type: str | None = None  # 소득구분 (WAGE/BUSINESS/OTHER/DAILY/RETIREMENT)
+    business_type_code: str | None = None  # 사업소득 업종코드 (940xxx)
     dependents_count: int | None = None
     children_count: int | None = None
     withholding_rate_adjust: int | None = None
+
+
+class BusinessTypeCodeOut(BaseModel):
+    """사업소득 업종코드(소득구분코드) 참조값 — 직원 등록/수정 화면 드롭다운용."""
+
+    code: str
+    name: str
+    description: str
+    tax_rate_percent: int
 
 
 class EmployeeOut(BaseModel):

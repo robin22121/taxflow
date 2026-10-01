@@ -14,6 +14,7 @@ import type {
   AdminOffice,
   AdminOfficeDetail,
   ArchivePeriod,
+  BusinessTypeCode,
   Client,
   ClientInviteResult,
   CurrentUser,
@@ -101,6 +102,7 @@ export function useFilingDashboard(filingId: string) {
     queryKey: ["filings", filingId, "dashboard"],
     queryFn: () => api<FilingDashboard>(`/api/v1/filings/${filingId}/dashboard`),
     refetchInterval: 5000,
+    enabled: Boolean(filingId),
   });
 }
 
@@ -168,6 +170,15 @@ export function useClients() {
   return useQuery({
     queryKey: ["clients"],
     queryFn: () => api<Client[]>("/api/v1/clients"),
+  });
+}
+
+/** 사업소득 업종코드(소득구분코드) 40종 — 변하지 않는 참조 데이터라 재조회를 최소화한다. */
+export function useBusinessTypeCodes() {
+  return useQuery({
+    queryKey: ["business-type-codes"],
+    queryFn: () => api<BusinessTypeCode[]>("/api/v1/clients/business-type-codes"),
+    staleTime: Infinity,
   });
 }
 
@@ -366,6 +377,7 @@ export type EmployeePatch = Partial<{
   hired_at: string | null;
   resigned_at: string | null;
   income_type: string; // WAGE/BUSINESS/OTHER/DAILY/RETIREMENT
+  business_type_code: string | null; // 사업소득 업종코드(소득구분코드), 940xxx
   dependents_count: number;
   children_count: number;
   withholding_rate_adjust: number;

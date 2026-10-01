@@ -36,6 +36,11 @@ const NAV_ITEMS = [
     label: "타세목 신고·납부",
     match: (p: string) => p.startsWith("/dashboard/messages"),
   },
+  {
+    href: "/dashboard/pending-tasks",
+    label: "업무미처리내역",
+    match: (p: string) => p.startsWith("/dashboard/pending-tasks"),
+  },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
