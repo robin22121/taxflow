@@ -1228,6 +1228,12 @@ class WehagoUploader:
         self.step = "원천세 마감 여부 확인"
         # 이미 마감된 신고서는 [마감] 대신 [마감해제] 버튼으로 바뀐다(2026-09-29 문서화,
         # 2026-09-30 실측 재현) — exact 매치라 그대로 두면 [마감] 버튼을 못 찾고 타임아웃난다.
+        # 조회 직후엔 둘 다 아직 안 그려져 있을 때가 있어(2026-10-02 서도 실기 — 이미 마감된
+        # 신고서인데 "마감"/"마감해제" 둘 다 0건으로 보여 그대로 close_btn.click()을 시도하다
+        # 타임아웃) exact 매치 전에 "마감"을 포함하는 버튼이 뜰 때까지 기다린다.
+        smarta.locator("button", has_text=re.compile("마감")).first.wait_for(
+            state="visible", timeout=UPLOAD_WAIT_MS
+        )
         close_btn = smarta.get_by_role("button", name="마감", exact=True)
         reopen_btn = smarta.get_by_role("button", name="마감해제", exact=True)
         if reopen_btn.count() and not close_btn.count():
