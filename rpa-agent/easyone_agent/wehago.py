@@ -1820,21 +1820,15 @@ class WehagoUploader:
         self._select_local_tax_district(smarta, business_address)
 
         self.step = "지방세 마감 여부 확인"
-        # 마감 버튼 라벨이 "마감(F3)"일 수도 있어(미실측) exact 매치를 못 쓴다 — 그렇다고
-        # 느슨한 "^마감" 정규식만 쓰면 "마감해제"도 걸려서, 이미 마감된 상태에서 실수로
-        # [마감해제]를 눌러 끝난 신고를 되돌릴 위험이 있었다(2026-10-02 발견). "마감"으로
-        # 시작하되 "마감해제"는 제외하는 정규식으로 안전하게 구분한다. 버튼이 아직 안
-        # 그려졌을 때 섣불리 판단하지 않도록 렌더링도 먼저 기다린다.
-        smarta.locator("button", has_text=re.compile("마감")).first.wait_for(
-            state="visible", timeout=UPLOAD_WAIT_MS
-        )
-        close_btn = smarta.get_by_role("button", name=re.compile(r"^마감(?!해제)"))
-        reopen_btn = smarta.get_by_role("button", name="마감해제", exact=True)
-        if reopen_btn.count() and not close_btn.count():
-            return "이미 마감되어 있습니다 (건너뜀 — 다시 마감하려면 위하고에서 [마감해제] 후 재시도)"
+        # 이미 마감된 신고서는 [마감] 대신 [마감해제] 버튼으로 바뀐다 — 다른 마감·완료
+        # 화면과 같은 공용 헬퍼로 통일한다(렌더링 타이밍 보호 포함, close_wht_return·
+        # close_business_income_report와 동일 원칙, 2026-10-02).
+        already = self._skip_if_already_finalized(smarta, "마감", "마감해제")
+        if already is not None:
+            return already
         self.step = "지방세 마감"
         think("wehago")
-        close_btn.click()
+        smarta.get_by_role("button", name="마감", exact=True).click()
 
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
