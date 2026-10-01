@@ -99,6 +99,12 @@ _ALIASES: dict[str, list[str]] = {
     "부가세": ["부가가치세"],
 }
 
+# alias 값들(국민연금·고용보험 등 포괄 용어)은 title_weight(core_kw)로 쓰면 그
+# 법 전체가 해당 주제라서(예: 보험료징수법의 "산재보험" 관련 조문 다수) 무관한
+# 조문까지 끌어올린다. LLM이 검색어로 이런 포괄 용어를 뽑아줘도 alias_kw로
+# 강등시켜 본문 보강에만 쓰도록 build_law_context 에서 이 집합으로 판별한다.
+_BROAD_TERMS: frozenset[str] = frozenset(w for values in _ALIASES.values() for w in values)
+
 _cache_lock = asyncio.Lock()
 _articles_cache: dict[str, list[dict[str, Any]]] | None = None
 
@@ -291,20 +297,35 @@ def _keyword_score(title: str, body: str, core_kw: list[str], alias_kw: list[str
     title_nospace = title.replace(" ", "")
     score = 0
     for kw in core_kw:
-        score += _title_weight(kw) * title_nospace.count(kw)
+        kw_nospace = kw.replace(" ", "")
+        if not kw_nospace:
+            continue
+        score += _title_weight(kw_nospace) * title_nospace.count(kw_nospace)
         score += min(body.count(kw), 3)
     for kw in alias_kw:
         score += min(body.count(kw), 2)
     return score
 
 
-async def build_law_context(query: str, oc: str, *, max_articles: int = 6) -> str:
+async def build_law_context(
+    query: str, oc: str, *, max_articles: int = 6, extra_keywords: list[str] | None = None
+) -> str:
     """질문과 관련된 조문을 모아 LLM 프롬프트에 넣을 grounding 텍스트를 만든다.
+
+    ``extra_keywords``: 질문 토큰 그대로는 안 잡히는 경우(구어체 "상실기한" vs
+    법령 원문 "상실 신고")를 보강하려고 호출부(LLM 검색어 변환)가 넘기는 값.
+    핵심 키워드와 동일하게 제목 가중치를 받는다.
 
     관련 조문을 못 찾으면 빈 문자열을 반환한다 — 호출부는 이 경우 grounding
     없이(=학습 지식 기반으로만) 답하도록 처리해야 한다.
     """
     core_kw, alias_kw = _extract_keywords(query)
+    for w in extra_keywords or []:
+        if len(w) < 2:
+            continue
+        target = alias_kw if w in _BROAD_TERMS else core_kw
+        if w not in target:
+            target.append(w)
     if not core_kw:
         return ""
 

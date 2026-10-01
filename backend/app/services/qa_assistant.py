@@ -11,6 +11,7 @@ LLM에 넣는다(`law_search.build_law_context`). OC(`settings.lawgokr_oc`)가 �
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Literal
 
 import httpx
@@ -61,6 +62,34 @@ _LAW_GROUNDED_SYSTEM_PROMPT = (
     "[제2원칙] 질문과 직접 관련된 조문만 근거로 쓰고, 관련 없는 조문을 끌어와 답을 늘리지 마세요."
 )
 
+_SEARCH_TERM_PROMPT = (
+    "다음 질문에서 한국 법령 조문을 검색할 핵심 키워드를 2~6개, 쉼표로만 구분해 출력하세요.\n"
+    "질문의 구어체 표현은 법령 원문에서 실제로 쓰는 용어로 바꿔 제시하세요 "
+    "(예: '상실기한' → 상실 신고, 취득 신고 / '퇴사' → 퇴직, 상실 / '4대보험' → 국민연금, "
+    "건강보험, 고용보험, 산재보험).\n"
+    "키워드 목록 외에는 아무것도 출력하지 마세요."
+)
+
+
+async def _extract_search_terms(question: str, provider: str, settings: Any) -> list[str]:
+    """질문을 법령 원문에 가까운 검색어로 바꾼다 (law_search 의 단순 토큰 매칭 보강).
+
+    담당자 질문은 구어체("상실기한")인데 법령 원문은 다른 표현("상실 신고")을 써서
+    토큰 그대로는 못 찾는 경우가 많다 — LLM 한 번 더 호출해 법률 용어로 바꿔준다.
+    실패해도 기존 토큰 매칭으로 자연히 폴백되므로 조용히 빈 리스트를 반환한다.
+    """
+    try:
+        if provider == "gemini":
+            text = await _answer_with_gemini(_SEARCH_TERM_PROMPT, question, [], settings)
+        elif provider == "anthropic":
+            text = await _answer_with_anthropic(_SEARCH_TERM_PROMPT, question, [], settings)
+        else:
+            return []
+    except (RuntimeError, httpx.HTTPError):
+        logger.warning("law search term extraction failed", exc_info=True)
+        return []
+    return [w.strip() for w in re.split(r"[,\n、，]+", text) if w.strip()]
+
 
 async def answer_question(
     question: str,
@@ -83,8 +112,11 @@ async def answer_question(
     question_for_llm = question
 
     if intent == "law" and settings.lawgokr_oc:
+        search_terms = await _extract_search_terms(question, provider, settings)
         try:
-            law_context = await law_search.build_law_context(question, settings.lawgokr_oc)
+            law_context = await law_search.build_law_context(
+                question, settings.lawgokr_oc, extra_keywords=search_terms
+            )
         except httpx.HTTPError:
             logger.warning("law.go.kr lookup failed, falling back to ungrounded answer", exc_info=True)
             law_context = ""
