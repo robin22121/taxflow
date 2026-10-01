@@ -1743,16 +1743,57 @@ class WehagoUploader:
                 "좁히지 못했습니다 (여러 건이거나 0건일 수 있음). 위하고에서 직접 선택 후 재시도하세요."
             )
 
+    def _select_local_tax_period(self, smarta, item, period: str) -> None:
+        """지방세 귀속연월 — `_fill_closing_period`(숫자 타이핑)와 다른 위젯이다.
+
+        2026-10-02 사용자 실측(Chrome Recorder 녹화 `지방세.json`): 표시 칸(fake_inputbox
+        텍스트)을 클릭하면 아무 반응이 없어 멈춘다 — 칸 끝의 작은 화살표 버튼
+        (`button.WSC_LUXButton`, 다른 화면의 `div.fakebutton`과 같은 역할)을 직접 눌러야
+        연도 목록(`<ul><li>`)이 뜨고, 연도를 고르면 월 목록이 이어서(캐스케이드) 뜬다.
+        녹화에서는 연·월 각각 9번째 항목을 클릭했는데(2026년·9월 테스트), 이게 "9번째
+        항목이라서"가 아니라 "텍스트가 2026/9라서" 고른 것일 뿐이므로 항목 텍스트로
+        매칭한다. 목록 항목의 정확한 표기(앞자리 0·"년"/"월" 접미사 유무)는 추정이라
+        여러 건이 걸리거나 하나도 안 걸리면 화면을 캡처해 알려줘야 고칠 수 있다.
+        """
+        year, month = period.split("-")
+        month_num = str(int(month))
+        text = _fake_text(item)
+        if year in text and (month in text or month_num in text):
+            return  # 이미 값이 맞음 — 건너뜀
+
+        self.step = "지방세 귀속연월 — 연도 선택"
+        think("wehago")
+        item.locator("button.WSC_LUXButton").first.click()
+        self._pick_cascading_list_item(smarta, year)
+
+        self.step = "지방세 귀속연월 — 월 선택"
+        think("wehago")
+        self._pick_cascading_list_item(smarta, month_num)
+
+    def _pick_cascading_list_item(self, smarta, target_number: str) -> None:
+        option = smarta.locator(
+            "li:visible", has_text=re.compile(rf"^0*{re.escape(target_number)}\s*(년|월)?$")
+        )
+        try:
+            option.first.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        except Exception:
+            raise WehagoError(
+                f"지방세 귀속연월 목록에서 '{target_number}' 항목을 찾지 못했습니다 "
+                "— 위하고에서 화면을 캡처해 알려주세요."
+            )
+        think("wehago")
+        option.first.locator("div").first.click()
+
     def close_local_tax_payment(
         self, business_number: str, period: str, *, business_address: str | None = None
     ) -> str:
         """지방소득세특별징수납부서(SWTA0112) 마감 (§4-4 ⑩-a).
 
-        ⚠️ 미실측 — 이 화면 자체를 아직 실제로 열어보지 못했다. SWTA0101과 같은
-        "세무신고관리 / 전자신고 / AI원천세" 카테고리로 추정만 하고 있고(§4-4 표 근거),
-        조회조건이 SWTA0101처럼 귀속기간 하나(연/월 4칸)인지, 마감 버튼 라벨이 정말
-        "마감(F3)"인지, 완료·오류 모달 문구도 전부 close_wht_return을 본떠 추정한 것이다.
-        처음 실행해서 어긋나면 화면을 캡처해 알려줘야 고칠 수 있다.
+        ⚠️ 부분 실측 — 귀속연월 입력(`_select_local_tax_period`)·취급청 선택
+        (`_select_local_tax_district`)은 사용자 Chrome Recorder 녹화로 확인했지만, 그 뒤
+        마감 버튼 라벨이 정말 "마감(F3)"인지, 완료·오류 모달 문구는 close_wht_return을
+        본떠 추정한 것이라 아직 실행 검증 전이다. 처음 실행해서 어긋나면 화면을 캡처해
+        알려줘야 고칠 수 있다.
 
         Args:
             business_address: 거래처 주소 — 취급청(법정동) 코드도움 검색어를 만드는 데 쓴다
@@ -1770,7 +1811,7 @@ class WehagoUploader:
 
         self.step = "지방세 조회 조건 입력"
         item = smarta.locator(_COND_BAR).locator("div.item").first
-        self._fill_closing_period(smarta, item, period)
+        self._select_local_tax_period(smarta, item, period)
 
         think("wehago")
         smarta.get_by_role("button", name="조회", exact=True).click()
