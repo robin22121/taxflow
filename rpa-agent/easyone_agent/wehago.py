@@ -314,7 +314,7 @@ class WehagoUploader:
             mask=[page.locator("#inputId"), page.locator("#inputPw")],
         )
 
-    def _dismiss_splash(self) -> None:
+    def _dismiss_splash(self, page=None) -> None:
         """로그인 후·화면 진입 시 뜨는 안내 팝업(2차 인증·노란우산공제·WEHAGO 소식 등)을 모두 닫는다.
 
         같은 dialog에 [닫기] 버튼이 여러 개인 경우가 있어 보이는 dialog가 없어질 때까지
@@ -323,8 +323,12 @@ class WehagoUploader:
         DOM상 마지막 [닫기]가 "하루 동안 보지 않기" 바 쪽인데 숨겨져 있어(2026-09-30 실측)
         DOM 순서 그대로 `.last`를 쓰면 안 보이는 버튼을 눌러 안 닫혔다 — 보이는 것 중
         마지막으로 바꿔 두 경우 다 맞춘다.
+
+        `page`를 안 주면 메인 페이지(`self._page`)를 본다 — SmartA는 별도 탭이라 자기만의
+        안내 팝업을 따로 띄울 수 있어(2026-10-02 실기, 급여자료입력 조회조건 입력 중 캘린더
+        클릭이 막힘), 그 탭에서 확인하려면 `self._smarta_page`를 넘겨야 한다.
         """
-        page = self._page
+        page = page or self._page
         for _ in range(5):
             dialog = page.locator(_SPLASH_DIALOG).first
             if dialog.count() == 0:
@@ -1976,15 +1980,21 @@ class WehagoUploader:
         """
         # 화면 진입 직후 바로 닫아도(_open_smarta_menu) 이 공지 팝업이 그 다음에 뜨는 경우가
         # 있어(2026-09-29 실기: 첫 시도 실패) 실제로 클릭하기 직전에 한 번 더 확인한다.
+        # SmartA는 메인 페이지와 별개 탭이라 "2차 인증" 같은 안내 모달을 따로 띄울 수 있다
+        # (2026-10-02 실기 — 캘린더 클릭이 원인불명 타임아웃, _dismiss_splash가 메인 페이지만
+        # 보고 있어 못 닫았을 가능성).
         self._dismiss_notice(page)
+        self._dismiss_splash(page)
         year, month = period.split("-")
         want_period, want_date = f"{year}.{month}", pay_date.strftime("%Y.%m.%d")
         items = page.locator(_COND_BAR).locator("div.item")
         if _fake_text(items.nth(0)) != want_period:
             # 귀속연월은 키보드 입력이 먹히지 않는 경우가 있어(2026.03 으로 들어감, 2026-09-27 실측)
             # 달력 아이콘 → 월 버튼으로 고른다. 달력의 연도는 SmartA 귀속 연도로 고정.
+            # fake_inputbox·fakebutton 중복 렌더 가능성도 있어(2026-10-02 사업소득 화면에서
+            # 실측) .first로 명시한다.
             think("wehago")
-            self._click_dismissing_notice(page, items.nth(0).locator("div.fakebutton"))
+            self._click_dismissing_notice(page, items.nth(0).locator("div.fakebutton").first)
             months = page.locator("div.date_tbl td.date_day button")
             months.first.wait_for(state="visible", timeout=5_000)
             think("wehago")
