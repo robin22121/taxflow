@@ -32,6 +32,7 @@ from easyone_agent.config import (
     load_config,
     set_secret,
 )
+from easyone_agent.hometax import ChromeLaunchFailed, HometaxError, TaxAgentLogin
 from easyone_agent.runner import run_forever, run_login_test
 from easyone_agent.updater import update_available
 from easyone_agent.wehago import WehagoUploader
@@ -119,12 +120,27 @@ def _login_test() -> int:
     return 0 if ok else 1
 
 
+def _login_hometax() -> int:
+    """세무사 아이디로 홈택스 공동인증서 선택 팝업까지 연다 (인증서 선택·비밀번호는 사람이 이어서)."""
+    config = load_config()
+    logging.getLogger(__name__).info("홈택스 공동인증서 로그인 화면을 엽니다 (CDP %s)", config.cdp_url)
+    try:
+        with TaxAgentLogin(cdp_url=config.cdp_url, profile_dir=config.chrome_profile_dir) as login:
+            login.open_cert_login()
+    except (ChromeLaunchFailed, HometaxError) as e:
+        print(f"홈택스 로그인 화면을 열지 못했습니다: {e}")
+        return 1
+    print("공동인증서 선택 팝업을 띄웠습니다 — 크롬 창에서 인증서를 선택하고 비밀번호를 입력해 로그인을 완료하세요.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="easyone_agent")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("setup", help="토큰·위하고/홈택스/위택스 자격증명 저장")
     sub.add_parser("run", help="작업 처리 시작")
     sub.add_parser("login-test", help="작업 한 건으로 위하고 로그인만 확인")
+    sub.add_parser("login-hometax", help="홈택스 공동인증서 선택 팝업까지 열기 (세무사 아이디)")
     args = parser.parse_args(argv)
 
     from easyone_agent.logmask import configure_logging
@@ -135,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "login-test":
         return _login_test()
+    if args.command == "login-hometax":
+        return _login_hometax()
     return _run()
 
 
