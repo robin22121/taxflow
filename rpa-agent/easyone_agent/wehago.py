@@ -1698,11 +1698,22 @@ class WehagoUploader:
         찾는다 — 선택되면 실제 값으로 바뀌어 더는 이 텍스트가 안 걸리므로, 선택 전/후
         모두 "placeholder 텍스트가 보이는 칸을 찾을 수 있는가"로 상태를 판단한다.
 
-        코드도움 열기: `div.fake_inputbox` 안 `button.WSC_LUXButton`(돋보기 아이콘) 클릭 →
-        "법정동 코드도움" 다이얼로그. "찾을 내용" 표시(`div.LS_ngh_input2`)를
-        더블클릭해야 진짜 `<input>`이 나타남(다른 화면의 `_type_fresh`와 같은
-        fake-표시 패턴) → 검색어 입력 → [확인(enter)] (2026-10-02 사용자가 보내준 실제
-        다이얼로그 HTML로 구조 재확인 완료).
+        코드도움 열기: `button.WSC_LUXButton`(돋보기 아이콘) 클릭 → "법정동 코드도움"
+        다이얼로그. "찾을 내용" 표시(`div.LS_ngh_input2`)를 더블클릭해야 진짜
+        `<input>`이 나타남(다른 화면의 `_type_fresh`와 같은 fake-표시 패턴) → 검색어
+        입력 → [확인(enter)] (2026-10-02 사용자가 보내준 실제 다이얼로그 HTML로 구조
+        재확인 완료).
+
+        ⚠️ `div.fake_inputbox` 안에서만 버튼을 찾던 버전은 칸이 비어 있을 때의 구조만
+        가정한 것이라, 값이 이미 있는 상태(아래 참고)에서는 그 래퍼가 없어 버튼을 못
+        찾고 타임아웃났다(2026-10-02 사용자가 해당 상태의 버튼 HTML을 직접 보내
+        확인) — `field` 범위 안에서 `fake_inputbox` 제약 없이 버튼을 찾도록 완화.
+
+        ⚠️ 조회 직후 이 칸이 비동기로(저장된 초안 등) 늦게 채워질 수 있다 — 비어 있다고
+        판단해 버튼을 눌렀는데 그 사이 이미 값이 채워지면서 다이얼로그가 안 뜨고
+        타임아웃나는 경우를 실기로 확인(2026-10-02, 전혀 다른 지역의 기존 선택값이
+        남아 있던 사례). 이 경우 타임아웃을 실패로 보지 않고 "이미 채워졌다"로 보고
+        건너뛴다.
 
         ⚠️ `district_search_term`으로 만든 "구+동"/"읍(면)+리" 두 단계 검색어로 결과가
         1건으로 좁혀질 것으로 기대하고 짰다 — 실제로 안 좁혀지면 이 함수가 그대로
@@ -1711,6 +1722,8 @@ class WehagoUploader:
 
         이미 선택돼 있으면(재실행, 이미 마감 등) 건드리지 않고 건너뛴다.
         """
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
         placeholder = re.compile("법정동")
         field = smarta.locator("div.LS_ngh_input2", has_text=placeholder).first
         if field.count() == 0:
@@ -1725,9 +1738,14 @@ class WehagoUploader:
 
         self.step = "지방세 취급청(법정동) 코드도움 열기"
         think("wehago")
-        field.locator("div.fake_inputbox button.WSC_LUXButton").first.click()
+        field.locator("button.WSC_LUXButton").first.click()
         dialog = smarta.locator("div._isDialog:visible", has_text="법정동 코드도움")
-        dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        try:
+            dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        except PlaywrightTimeout:
+            if smarta.locator("div.LS_ngh_input2", has_text=placeholder).count() == 0:
+                return  # 버튼 클릭 사이 다른 값이 비동기로 채워져 다이얼로그가 안 뜬 것 — 건너뜀
+            raise
 
         self.step = "지방세 취급청(법정동) 검색"
         search_display = dialog.locator("div.LS_ngh_input2").first
