@@ -55,16 +55,19 @@ class FakeUploader:
         upload_error: Exception | None = None,
         close_wht_error: Exception | None = None,
         close_business_error: Exception | None = None,
+        produce_efile_error: Exception | None = None,
     ) -> None:
         self.company = company
         self.login_error = login_error
         self.upload_error = upload_error
         self.close_wht_error = close_wht_error
         self.close_business_error = close_business_error
+        self.produce_efile_error = produce_efile_error
         self.uploaded: list[tuple[Path, str, date]] = []
         self.business_uploaded: list[tuple[Path, str]] = []
         self.other_income_uploaded: list[tuple[Path, str]] = []
         self.closed: list[tuple[str, str]] = []
+        self.efile_produced: list[tuple[str, str, str]] = []
 
     def ensure_logged_in(self) -> None:
         if self.login_error:
@@ -111,6 +114,12 @@ class FakeUploader:
             raise self.close_business_error
         self.closed.append(("business", period))
         return "마감할 데이터가 존재하지 않습니다 (건너뜀)"
+
+    def produce_wht_efile(self, business_number: str, period: str, password: str) -> str:
+        if self.produce_efile_error:
+            raise self.produce_efile_error
+        self.efile_produced.append((business_number, period, password))
+        return "전자신고파일이 생성되었습니다"
 
 
 def test_no_job_does_nothing(tmp_path: Path):
@@ -175,18 +184,21 @@ def test_other_income_input_company_mismatch_is_not_uploaded(tmp_path: Path):
     assert "위하고 수임처가 다릅니다" in api.reports[0][2]
 
 
-def test_monthly_production_closes_wht_and_business(tmp_path: Path):
+def test_monthly_production_closes_wht_business_and_produces_efile(tmp_path: Path, monkeypatch):
     """지방세 마감(close_local_tax_payment)은 법정동 입력 문제로 개발 보류 중이라
-    호출하지 않는다 (2026-10-02 사용자 결정, 나중에 보완)."""
+    호출하지 않는다 (2026-10-02 사용자 결정, 나중에 보완). 원천징수 전자신고 파일
+    제작은 마감 다음 단계로 자동 진행된다 (2026-10-02 추가)."""
+    monkeypatch.setattr("easyone_agent.runner.get_secret_optional", lambda name: None)
     job = replace(JOB, kind=MONTHLY_PRODUCTION)
     api, uploader = FakeApi([job]), FakeUploader()
     assert process_one(api, uploader, tmp_path) is True
     assert uploader.closed == [("wht", "2026-08"), ("business", "2026-08")]
+    assert uploader.efile_produced == [("123-45-67890", "2026-08", "abc12345")]
     job_id, succeeded, message = api.reports[0]
     assert (job_id, succeeded) == ("job1", True)
-    assert "마감 완료" in message and "지방세 마감은 자동화 보류" in message and "제작(F4)" in message
+    assert "마감·제작 완료" in message and "지방세 마감은 자동화 보류" in message
     assert api.step_progress_by_job["job1"] == {
-        "wehago_income_tax": "done", "wehago_business_income": "done",
+        "wehago_income_tax": "done", "wehago_business_income": "done", "wht_efile": "done",
     }
 
 
@@ -200,6 +212,22 @@ def test_monthly_production_wht_failure_skips_business_income(tmp_path: Path):
     assert (job_id, succeeded) == ("job1", False)
     assert "원천세 마감 실패" in message
     assert api.step_progress_by_job["job1"] == {}
+
+
+def test_monthly_production_efile_failure_keeps_close_progress(tmp_path: Path, monkeypatch):
+    """제작(전자신고 파일)이 실패해도 그 전에 끝난 마감 단계는 step_progress에 남는다."""
+    monkeypatch.setattr("easyone_agent.runner.get_secret_optional", lambda name: None)
+    job = replace(JOB, kind=MONTHLY_PRODUCTION)
+    uploader = FakeUploader(produce_efile_error=WehagoError("맥에서는 제작을 할 수 없습니다"))
+    api = FakeApi([job])
+    assert process_one(api, uploader, tmp_path) is True
+    assert uploader.closed == [("wht", "2026-08"), ("business", "2026-08")]
+    job_id, succeeded, message = api.reports[0]
+    assert (job_id, succeeded) == ("job1", False)
+    assert "맥에서는 제작을 할 수 없습니다" in message
+    assert api.step_progress_by_job["job1"] == {
+        "wehago_income_tax": "done", "wehago_business_income": "done",
+    }
 
 
 

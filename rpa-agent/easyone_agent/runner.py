@@ -17,10 +17,16 @@ from easyone_agent.api import (
     Job,
 )
 from easyone_agent.company import company_matches
+from easyone_agent.config import SECRET_WHT_EFILE_PASSWORD, get_secret_optional
 from easyone_agent.import_runner import process_import
 from easyone_agent.logmask import mask_text
 from easyone_agent.pace import job_gap_sec
 from easyone_agent.wehago import CompanyMismatch, LoginFailed, WehagoError, WehagoUploader
+
+# 원천징수 전자신고 변환파일 비밀번호 — 자격 증명 관리자에 등록 안 돼 있으면 쓰는 기본값
+# (영문 소문자+숫자 8~15자 제약, §13-3-9). 파일 자체를 보호하는 용도라 로그인 비밀번호만큼
+# 민감하지 않지만, 사무소별로 다르게 쓰고 싶으면 `setup`에서 등록해 덮어쓸 수 있다.
+_DEFAULT_WHT_EFILE_PASSWORD = "abc12345"
 
 WEHAGO_PAYROLL_INPUT = "WEHAGO_PAYROLL_INPUT"
 
@@ -177,16 +183,17 @@ def failure_message(e: Exception, uploader: object) -> str:
 
 
 def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, job: Job) -> bool:
-    """제작(게이트 2) — 현재는 위하고 마감(원천세·사업소득)까지만 자동화
-    (plan/16 §4-4 ⑨-a·⑨-b).
+    """제작(게이트 2) — 위하고 마감(원천세·사업소득) + 원천징수 전자신고 파일 제작까지 자동화
+    (plan/16 §4-4 ⑨-a·⑨-b·⑨-c, 2026-10-02 제작 단계 추가).
 
     지방세 마감(⑩-a, `close_local_tax_payment`/SWTA0112)은 법정동(취급청) 입력이
     실기에서 계속 막혀(§13-3-7~13-3-9) **개발 보류** 상태다(2026-10-02 사용자 결정,
     나중에 보완) — 이 함수에서 호출하지 않고, 완료 메시지로 수동 처리를 안내한다.
     지방세 전자신고(SWER0109)도 같은 이유로 계속 미구현 상태로 둔다.
 
-    전자신고 파일 제작(F4, ⑨-c·⑩-b)은 Windows 전용 위하고 로컬 모듈이 필요해 이 macOS
-    에이전트에서는 못 한다. 홈택스(⑪)·위택스(⑫)는 아직 자동화가 없다.
+    전자신고 파일 제작(F4)은 위하고 로컬 모듈이 Windows 전용이라 이 노트북(이지원)이
+    Windows일 때만 성공한다 — macOS 개발 에이전트에서 돌리면 WehagoError로 표면화된다
+    (§3-5). 홈택스(⑪)·위택스(⑫) 업로드는 아직 자동화가 없다.
     """
     # 중간에 실패해도 그 전까지 성공한 단계는 남긴다 — §4-1 "명세서 추가입력 포함 완료 판정"
     # (2026-10-01 결정: close_business_income_report의 "새로불러오기"가 명세서 추가입력을
@@ -198,11 +205,14 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
         step_progress["wehago_income_tax"] = "done"
         biz_text = uploader.close_business_income_report(job.business_number, job.period)
         step_progress["wehago_business_income"] = "done"
+        efile_password = get_secret_optional(SECRET_WHT_EFILE_PASSWORD) or _DEFAULT_WHT_EFILE_PASSWORD
+        efile_text = uploader.produce_wht_efile(job.business_number, job.period, efile_password)
+        step_progress["wht_efile"] = "done"
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
         raise
     except Exception as e:
-        logger.exception("제작(마감) 실패 %s", job.id)
+        logger.exception("제작 실패 %s", job.id)
         if not isinstance(e, WehagoError):
             capture = getattr(uploader, "save_failure_screenshot", None)
             if capture:
@@ -213,10 +223,10 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
             api,
             job.id,
             True,
-            f"위하고 마감 완료 — 원천세: {wht_text} / 사업소득: {biz_text}. "
+            f"위하고 마감·제작 완료 — 원천세: {wht_text} / 사업소득: {biz_text} / "
+            f"전자신고 파일: {efile_text}. "
             "지방세 마감은 자동화 보류 중이라 위하고에서 직접 마감하세요. "
-            "전자신고 파일 제작(F4)·홈택스·위택스 신고는 아직 자동화되지 않아 "
-            "Windows 노트북·수동으로 진행하세요.",
+            "홈택스·위택스 신고는 아직 자동화되지 않아 수동으로 진행하세요.",
             step_progress=step_progress,
         )
     return True

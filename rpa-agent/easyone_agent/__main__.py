@@ -26,6 +26,7 @@ from easyone_agent.config import (
     SECRET_WEHAGO_PASSWORD,
     SECRET_WETAX_ID,
     SECRET_WETAX_PASSWORD,
+    SECRET_WHT_EFILE_PASSWORD,
     AgentConfig,
     get_secret,
     load_config,
@@ -75,6 +76,11 @@ def _setup() -> None:
     _prompt_secret("홈택스 공동인증서 비밀번호", SECRET_HOMETAX_CERT_PASSWORD, hidden=True)
     _prompt_secret("위택스 아이디", SECRET_WETAX_ID, hidden=False)
     _prompt_secret("위택스 비밀번호", SECRET_WETAX_PASSWORD, hidden=True)
+    _prompt_secret(
+        "원천징수 전자신고 변환파일 비밀번호 (영문 소문자+숫자 8~15자, 미설정 시 기본값 사용)",
+        SECRET_WHT_EFILE_PASSWORD,
+        hidden=True,
+    )
 
     print("\nWindows 자격 증명 관리자에 저장했습니다.")
 

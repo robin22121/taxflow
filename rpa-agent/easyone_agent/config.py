@@ -17,6 +17,7 @@ SECRET_HOMETAX_TAX_AGENT_PASSWORD = "hometax_tax_agent_password"
 SECRET_WETAX_ID = "wetax_id"
 SECRET_WETAX_PASSWORD = "wetax_password"
 SECRET_HOMETAX_CERT_PASSWORD = "hometax_cert_password"  # 홈택스 로그인용 세무법인 공동인증서 비밀번호
+SECRET_WHT_EFILE_PASSWORD = "wht_efile_password"  # 원천징수 전자신고(SWER0101) 변환파일 비밀번호 — 전 거래처 공용
 
 
 @dataclass(frozen=True, slots=True)
