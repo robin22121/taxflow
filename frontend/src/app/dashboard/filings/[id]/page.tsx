@@ -1133,6 +1133,8 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
   const [showSource, setShowSource] = useState(false);
   // 사이드채널 프리필된 RRN 을 무시하고 직접 입력하겠다고 사용자가 선택한 행
   const [manualRrn, setManualRrn] = useState<Record<number, true>>({});
+  // "이 사람 아닌가요?" 힌트를 "아니오, 신규 등록"으로 넘긴 행 — 넘기면 기존 RRN 입력 폼으로 바뀐다
+  const [dismissedMatch, setDismissedMatch] = useState<Record<number, true>>({});
 
   const included = rows.filter((r) => r.include).map((r) => r.entry);
   const total = included.reduce((s, e) => s + e.total_amount, 0);
@@ -1270,7 +1272,48 @@ function AiReviewModal({ filingId, sessionId, preview, meta, onClose }: {
                       {entry.prev_amount != null ? formatKrw(entry.prev_amount) : "—"}
                     </td>
                   </tr>,
-                  entry.match_status === "NEW_HIRE_SUSPECTED" && entry.mode !== "update" && (
+                  entry.match_status === "NEW_HIRE_SUSPECTED"
+                    && entry.mode !== "update"
+                    && entry.possible_match_employee_id
+                    && !dismissedMatch[i] && (
+                    <tr key={`${entry.raw_name}-${i}-possible`} className={`border-b border-gray-100 last:border-0 ${include ? "" : "opacity-40"}`}>
+                      <td />
+                      <td colSpan={5} className="px-2 pb-2">
+                        <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-2">
+                          <div className="mb-1.5 text-[11px] text-blue-900">
+                            이미 등록된 직원 <span className="font-medium">{entry.possible_match_employee_name}</span>과 같은 사람인가요?
+                            같은 사람이면 신규로 등록하지 않고 그 직원에 바로 연결합니다.
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              className="rounded border border-blue-300 bg-blue-600 px-2 py-0.5 text-[11.5px] font-medium text-white hover:bg-blue-700"
+                              onClick={() => patch(i, {
+                                employee_id: entry.possible_match_employee_id ?? null,
+                                employee_name: entry.possible_match_employee_name ?? null,
+                                match_status: "MATCHED",
+                                new_employee: null,
+                                rrn_last4: null,
+                                rrn_encrypted_b64: null,
+                              })}
+                            >
+                              예, 같은 사람입니다
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-gray-300 bg-white px-2 py-0.5 text-[11.5px] text-gray-700 hover:bg-gray-50"
+                              onClick={() => setDismissedMatch((m) => ({ ...m, [i]: true }))}
+                            >
+                              아니오, 신규 등록
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ),
+                  entry.match_status === "NEW_HIRE_SUSPECTED"
+                    && entry.mode !== "update"
+                    && (!entry.possible_match_employee_id || dismissedMatch[i]) && (
                     <tr key={`${entry.raw_name}-${i}-new`} className={`border-b border-gray-100 last:border-0 ${include ? "" : "opacity-40"}`}>
                       <td />
                       <td colSpan={5} className="px-2 pb-2">

@@ -230,6 +230,11 @@ class ParsedEntryPreview(BaseModel):
     # 행에서 UI 프리필 + 커밋 왕복용. 원본 평문은 프론트로 나가지 않는다.
     rrn_last4: str | None = None
     rrn_encrypted_b64: str | None = None
+    # NEW_HIRE_SUSPECTED인데 이름이 같은 기존 직원 마스터가 있으면 채워진다(2026-10-02)
+    # — "이 사람 아닌가요?" 확인 힌트. 자동 연결 안 함, 프론트가 확인 버튼으로
+    # employee_id를 채워 되돌려 보내면 그제서야 기존 직원에 연결된다.
+    possible_match_employee_id: str | None = None
+    possible_match_employee_name: str | None = None
 
 
 class CollectPreviewOut(BaseModel):
