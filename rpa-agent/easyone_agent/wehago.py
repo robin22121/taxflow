@@ -1992,11 +1992,15 @@ class WehagoUploader:
         modal.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
 
         self.step = "전자신고 변환파일 비밀번호 입력"
-        # 레코딩의 aria 셀렉터(`aria/비밀번호를 입력해주세요.` + `aria/[role="textbox"]`)는
-        # HTML placeholder 속성이 아니라 접근성 이름(accessible name) 매칭이었다 —
-        # get_by_placeholder는 placeholder 속성만 보기 때문에 못 찾아 타임아웃났다
-        # (2026-10-02 사용자 실기 확인). 레코딩이 실제로 쓴 role+접근성 이름 조합으로 교체.
-        pw_input = modal.get_by_role("textbox", name="비밀번호를 입력해주세요.")
+        # 사용자가 보내준 실제 HTML로 확인(2026-10-02): placeholder 속성도, 접근성 이름도
+        # 아니고 코드베이스 전체에서 반복되는 "fake_inputbox + real_inputbox" 패턴이다
+        # (법정동·지급년월과 동일) — 보이는 "비밀번호를 입력해주세요."는 span.fakeinput의
+        # 텍스트일 뿐, 진짜 <input>은 비어 있고(value="") 숨겨져 있다가 더블클릭해야
+        # 활성화된다. get_by_placeholder·get_by_role 둘 다 실기에서 타임아웃났던 이유.
+        pw_field = modal.locator("div.LS_ngh_input2").first
+        think("wehago")
+        pw_field.dblclick()
+        pw_input = pw_field.locator("input").first
         _type_fresh(pw_input, password)
 
         self.step = "전자신고 파일 제작 실행"
