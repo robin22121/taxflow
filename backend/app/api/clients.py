@@ -9,7 +9,6 @@ from typing import Literal
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import (
@@ -965,28 +964,35 @@ async def delete_employee(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
-    """소득지급자 삭제 (근로/사업/기타/일용 공통). 급여자료가 이미 있는 직원은 기록 보존을 위해 삭제 대신 퇴사 처리하도록 막는다."""
+    """소득지급자 삭제 (근로/사업/기타/일용 공통).
+
+    ⚠️ 개발 단계 한정 동작 (2026-10-02 사용자 요청) — 급여자료·증명원·변경요청이
+    이미 있어도 막지 않고 정리한 뒤 삭제한다. 실서비스 전환 전에는 급여자료가
+    있는 직원은 다시 막고 퇴사 처리로 유도하는 원래 동작으로 되돌려야 한다
+    (plan/08-action-items.md에 기록).
+
+    접근기록(AccessLog)은 "절대 수정·삭제하지 않는다"는 §8.1 원칙이 있어 로그
+    자체는 건드리지 않고 `subject_employee_id`만 비워 참조를 끊는다 — 로그의
+    실제 내용(행위·시각·사용자)은 그대로 남는다.
+    """
     await _authorize_client(db, client_id, user)
     emp = await db.get(Employee, employee_id)
     if not emp or emp.client_id != client_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
-    has_payroll = (
-        await db.execute(select(PayrollEntry.id).where(PayrollEntry.employee_id == employee_id).limit(1))
-    ).scalar_one_or_none()
-    if has_payroll is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "급여자료가 이미 등록된 직원은 삭제할 수 없습니다 — 퇴사 처리를 이용하세요",
-        )
+    await db.execute(
+        update(AccessLog).where(AccessLog.subject_employee_id == employee_id).values(subject_employee_id=None)
+    )
+    await db.execute(
+        update(CertificateIssue).where(CertificateIssue.employee_id == employee_id).values(employee_id=None)
+    )
+    await db.execute(
+        update(EmployeeChangeRequest)
+        .where(EmployeeChangeRequest.employee_id == employee_id)
+        .values(employee_id=None)
+    )
+    await db.execute(delete(PayrollEntry).where(PayrollEntry.employee_id == employee_id))
     await db.delete(emp)
-    try:
-        await db.commit()
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "다른 기록(증명원·변경요청 등)이 이 직원을 참조하고 있어 삭제할 수 없습니다",
-        ) from None
+    await db.commit()
 
 
 @router.get("/{client_id}/payroll-history", response_model=list[PayrollHistoryPeriod])

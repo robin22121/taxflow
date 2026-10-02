@@ -74,8 +74,8 @@ async def test_delete_employee_without_payroll(http: AsyncClient, auth_headers: 
 
 
 @pytest.mark.asyncio
-async def test_delete_employee_with_payroll_is_blocked(http: AsyncClient, auth_headers: dict):
-    """급여자료가 이미 등록된 직원은 삭제 대신 퇴사 처리를 유도한다 (409)."""
+async def test_delete_employee_with_payroll_cascades(http: AsyncClient, auth_headers: dict):
+    """개발 단계 한정: 급여자료가 있어도 삭제되고, 급여자료도 함께 지워진다 (2026-10-02)."""
     from sqlalchemy import select
 
     from app.db import SessionLocal
@@ -105,13 +105,36 @@ async def test_delete_employee_with_payroll_is_blocked(http: AsyncClient, auth_h
         await db.commit()
 
     r = await http.delete(f"{base}/{emp['id']}", headers=auth_headers)
-    assert r.status_code == 409
-    assert "퇴사 처리" in r.json()["detail"]
+    assert r.status_code == 204, r.text
 
-    # 정리 — 다음 테스트에 영향 주지 않도록 만든 행을 지운다.
     async with SessionLocal() as db:
-        row = (
+        remaining = (
             await db.execute(select(PayrollEntry).where(PayrollEntry.employee_id == emp["id"]))
-        ).scalar_one()
-        await db.delete(row)
+        ).scalar_one_or_none()
+        assert remaining is None
+
+
+@pytest.mark.asyncio
+async def test_delete_employee_unlinks_access_log_without_deleting_it(http: AsyncClient, auth_headers: dict):
+    """AccessLog는 절대 삭제하지 않는다(§8.1) — 참조만 끊고 로그 자체는 남긴다."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import AccessLog
+
+    cid = await _client_id(http, auth_headers)
+    base = f"/api/v1/clients/{cid}/employees"
+    emp = (await http.post(base, json={"name": "로그있음"}, headers=auth_headers)).json()
+
+    async with SessionLocal() as db:
+        log = AccessLog(action="VIEW", client_id=cid, subject_employee_id=emp["id"])
+        db.add(log)
         await db.commit()
+        log_id = log.id
+
+    r = await http.delete(f"{base}/{emp['id']}", headers=auth_headers)
+    assert r.status_code == 204, r.text
+
+    async with SessionLocal() as db:
+        row = (await db.execute(select(AccessLog).where(AccessLog.id == log_id))).scalar_one()
+        assert row.subject_employee_id is None
