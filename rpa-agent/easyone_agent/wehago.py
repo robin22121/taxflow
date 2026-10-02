@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import time
 from dataclasses import dataclass
 from datetime import date
@@ -29,6 +30,8 @@ SIDEBAR_WAIT_MS = 15_000
 RIGHT_PANE_WAIT_MS = 10_000
 DIMMED_WAIT_MS = 10_000  # 로딩 오버레이(div.dimmed)가 사라질 때까지
 UPLOAD_WAIT_MS = 30_000
+WHT_EFILE_DIR = Path(__file__).resolve().parent.parent / "withfile"  # 원천세 전자신고 파일 저장폴더 (rpa-agent/withfile)
+WEHAGO_ERS_DIR = Path(r"C:\Douzone\Wehago\ErsData")  # 위하고 로컬 프로그램이 전자신고 파일을 저장하는 곳 (실측)
 
 # SmartA 급여자료입력 (2026-09-24 실측)
 _PAY_KIND = "2. 급여+상여"  # 급여자료입력 구분 — 새로 연 화면은 비어 있다가 귀속연월 입력 후 채워진다
@@ -77,6 +80,13 @@ _EXCEL_HEADER_ROWS = 2  # 이지원천 양식은 2단 병합 헤더 — 3행부�
 _REQUIRED_COLUMNS = {"사원코드", "사원명"}  # 위하고 필수 연결 (사원번호·성명)
 _SELECTED_BG = "rgb(233, 245, 255)"  # 엑셀업로드 ① 제목행으로 선택된 칸 배경
 _BG_JS = "(e) => getComputedStyle(e).backgroundColor"
+# 요소 가운데 지점에 실제로 그려진 게 자기 자신(또는 자식)인지 — 다른 레이어에 가려 클릭이 안 닿는 후보 거르기
+_IS_TOPMOST_JS = """(e) => {
+    e.scrollIntoView({block: 'nearest'});
+    const r = e.getBoundingClientRect();
+    const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return !!t && (t === e || e.contains(t));
+}"""
 
 # RealGrid(캔버스)는 DOM으로 행을 읽을 수 없어 React 소유 컴포넌트의 _gridView 로 읽는다
 _REALGRID_VIEW_JS = """
@@ -1813,8 +1823,22 @@ class WehagoUploader:
                 f"지방세 귀속/지급년월에서 '{month}월'을 고르는 목록을 찾지 못했습니다 "
                 "— 버튼을 눌렀을 때 뜨는 화면을 캡처해 알려주세요."
             )
+        # 같은 글자("9"·"9월")를 가진 요소가 화면에 여럿일 수 있다 — 전자신고(SWER0101)에서
+        # .first가 방금 연 목록이 아닌 화면의 다른 "9" 버튼에 걸렸고, 그 위를 드롭다운이 덮고
+        # 있어 클릭이 30초 타임아웃났다 (2026-10-02 실기). 실제로 맨 위에 그려져 클릭이 닿는
+        # 후보 중 마지막(나중에 뜬 목록)을 고른다.
+        target = None
+        for i in range(option.count()):
+            if option.nth(i).evaluate(_IS_TOPMOST_JS):
+                target = option.nth(i)
+        if target is None:
+            shown = [t.strip() for t in option.all_inner_texts()]
+            raise WehagoError(
+                f"지방세 귀속/지급년월에서 '{month}월' 항목이 다른 화면에 가려 클릭할 수 없습니다 "
+                f"(후보 {len(shown)}개: {', '.join(shown)}) — 버튼을 눌렀을 때 뜨는 화면을 캡처해 알려주세요."
+            )
         think("wehago")
-        option.first.click()
+        target.click()
 
         if display.inner_text().strip() not in wanted:
             raise WehagoError(f"지방세 귀속/지급년월 — '{month}월' 선택이 반영되지 않았습니다.")
@@ -1940,7 +1964,9 @@ class WehagoUploader:
         dialog.get_by_role("button", name="확인(enter)", exact=True).click()
         self._wait_for_no_dimmed(smarta)
 
-    def produce_wht_efile(self, business_number: str, period: str, password: str) -> str:
+    def produce_wht_efile(
+        self, business_number: str, period: str, password: str, save_dir: Path = WHT_EFILE_DIR,
+    ) -> str:
         """원천징수 전자신고(SWER0101) 파일 제작 (§13-3-9 분석 기반 구현, 2026-10-02).
 
         지급기간 입력 → 수임처 선택(코드도움) → 조회 → [제작(F4)] → "변환파일 비밀번호"
@@ -1955,9 +1981,11 @@ class WehagoUploader:
                 추정(사용자 Chrome Recorder 녹화에서 7자리 입력 시 거부되고 8자리로
                 재입력한 흔적으로 추정, 미확정).
 
+        Args:
+            save_dir: 위하고가 ErsData에 저장한 파일을 "<사업자번호>_<원래 이름>"으로 복사할 폴더.
+
         Returns:
-            완료 모달의 원문 텍스트 — 만약 성공한다면 §3-5의 "맥 미지원" 기록을 뒤집는
-            새 발견이므로 plan 문서도 함께 갱신해야 한다.
+            저장폴더 팝업 원문 + 복사한 파일 경로.
 
         Raises:
             WehagoError: 맥 미지원 안내가 뜸, 또는 그 밖의 예상과 다른 화면.
@@ -1971,6 +1999,7 @@ class WehagoUploader:
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
         smarta, _name, _number = self._open_closing_menu(business_number, self._WHT_EFILE_MENU_ID)
+        started = time.time()
 
         self.step = "전자신고 지급기간 입력"
         items = smarta.locator(_COND_BAR).locator("div.item")
@@ -2024,13 +2053,41 @@ class WehagoUploader:
                 "일치). Windows PC에서 같은 화면을 열어 [제작(F4)]부터 다시 진행하세요."
             )
 
-        self.step = "전자신고 완료 대기"
-        result = smarta.locator("div._isDialog:visible", has_text="완료")
+        # 파일은 크롬 다운로드가 아니라 위하고 로컬 프로그램(WehagoAgent)이 ErsData에
+        # 저장하고, 저장폴더 안내 팝업을 띄운다 — 경로는 그대로 두고 [확인]만 누른 뒤
+        # 새로 생긴 파일을 save_dir(rpa-agent/withfile)로 복사한다 (2026-10-02 사용자 요청·
+        # 실측: C:\Douzone\Wehago\ErsData\20261002C103900.01).
+        self.step = "전자신고 저장폴더 팝업 확인"
+        result = smarta.locator("div._isDialog:visible").filter(has_text=re.compile("저장|완료")).last
         result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         text = result.inner_text().strip()
         think("wehago")
         result.get_by_role("button", name="확인", exact=True).click()
-        return text
+
+        self.step = "전자신고 파일 저장 확인"
+        # 파일명이 "제작일자+고정코드.01"이라 같은 날 다시 만들면 같은 이름으로 덮어쓴다 —
+        # 새 파일 여부를 이름이 아니라 수정 시각으로 판단한다.
+        deadline = time.monotonic() + UPLOAD_WAIT_MS / 1000
+        made: list[Path] = []
+        while time.monotonic() < deadline:
+            if WEHAGO_ERS_DIR.is_dir():
+                made = [p for p in WEHAGO_ERS_DIR.iterdir() if p.is_file() and p.stat().st_mtime >= started]
+            if made:
+                break
+            smarta.wait_for_timeout(500)
+        if not made:
+            raise WehagoError(
+                f"저장폴더 팝업에서 [확인]을 눌렀지만 {WEHAGO_ERS_DIR} 에 새 파일이 생기지 않았습니다 "
+                f"— 팝업 내용: {text}"
+            )
+        save_dir.mkdir(parents=True, exist_ok=True)
+        prefix = normalize_business_number(business_number)
+        copied = []
+        for src in made:
+            dest = save_dir / f"{prefix}_{src.name}"
+            shutil.copy2(src, dest)
+            copied.append(str(dest))
+        return f"{text}\n저장 파일: {', '.join(copied)}"
 
     # ------------------------------------------------------------------
     # 소득자 명단 읽기 (plan/16 §13-3-5, 2026-09-30) — RealGrid `_gridView`를 직접 읽는다.
