@@ -11,6 +11,14 @@ WehagoError로 그 자리에서 알려준다.
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+# 이 프로젝트는 easyone_agent를 설치 패키지로 등록하지 않는다(pyproject.toml에 빌드
+# 설정 없음) — 스크립트를 직접 실행하면 그 디렉토리(scripts/)만 sys.path에 잡혀
+# "ModuleNotFoundError: No module named 'easyone_agent'"가 난다(2026-10-02 실기
+# 확인). 상위(rpa-agent/) 디렉토리를 직접 추가해 실행 위치·방식과 무관하게 동작하게 한다.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from easyone_agent.config import (
     SECRET_WEHAGO_ID,
