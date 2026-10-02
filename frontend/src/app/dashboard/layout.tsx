@@ -37,6 +37,11 @@ const NAV_ITEMS = [
     match: (p: string) => p.startsWith("/dashboard/messages"),
   },
   {
+    href: "/dashboard/wehago-jobs",
+    label: "위하고 작업",
+    match: (p: string) => p.startsWith("/dashboard/wehago-jobs"),
+  },
+  {
     href: "/dashboard/pending-tasks",
     label: "업무미처리내역",
     match: (p: string) => p.startsWith("/dashboard/pending-tasks"),

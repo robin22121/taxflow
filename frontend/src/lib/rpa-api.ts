@@ -37,6 +37,9 @@ export type RpaJob = {
   finished_at: string | null;
   result_message: string | null;
   step_progress: Record<string, unknown> | null;
+  // 에이전트가 실행 중 보고하는 현재 단계 라벨과 마지막 신호 시각 — 멈춤 판단용
+  current_step: string | null;
+  last_progress_at: string | null;
   compare_diff: Record<string, unknown> | null;
   acknowledged_at: string | null;
   created_at: string;
