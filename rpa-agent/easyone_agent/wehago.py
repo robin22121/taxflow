@@ -1912,6 +1912,111 @@ class WehagoUploader:
         result.get_by_role("button", name="확인", exact=True).click()
         return text
 
+    def _select_efile_client(self, smarta, business_number: str) -> None:
+        """원천징수 전자신고(SWER0101) "수임처" — 회사 코드도움에서 사업자번호로 검색해 선택.
+
+        법정동 코드도움(§13-3-8)과 같은 컴포넌트(찾을 내용 입력 + 확인(enter)) 구조로
+        추정해 같은 방식을 쓴다 — "찾을 내용" input도 다이얼로그 전체에서 찾으면 RealGrid
+        캔버스의 숨은 키보드캡처용 input에 걸릴 위험이 있어(2026-10-02 법정동에서 발견한
+        버그와 동일) 검색 필드 컨테이너 범위 안에서만 찾는다. 하이픈 없는 10자리로 검색
+        (`wehago-t-dom-facts` 메모리 — 위하고 검색은 하이픈 매칭 안 됨). ⚠️ 미실측 —
+        처음 실행해서 어긋나면(버튼·다이얼로그 구조가 다르면) 화면을 캡처해 알려줄 것.
+        """
+        field = smarta.locator(_COND_BAR).locator("div.item", has_text=re.compile("수임처")).first
+        think("wehago")
+        field.locator("button.WSC_LUXButton").first.click()
+        dialog = smarta.locator("div._isDialog:visible", has_text="회사 코드도움")
+        dialog.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+
+        search_display = dialog.locator("div.LS_ngh_input2").first
+        think("wehago")
+        search_display.dblclick()
+        search_input = search_display.locator("input").first
+        _type_fresh(search_input, normalize_business_number(business_number))
+        think("wehago")
+        dialog.get_by_role("button", name="확인(enter)", exact=True).click()
+        self._wait_for_no_dimmed(smarta)
+
+    def produce_wht_efile(self, business_number: str, period: str, password: str) -> str:
+        """원천징수 전자신고(SWER0101) 파일 제작 (§13-3-9 분석 기반 구현, 2026-10-02).
+
+        지급기간 입력 → 수임처 선택(코드도움) → 조회 → [제작(F4)] → "변환파일 비밀번호"
+        입력 → [전자신고 파일 제작(Enter)]까지 전부 시도한다. plan/16 §3-5에 "맥에서는
+        제작을 할 수 없다"는 안내가 뜬다고 이미 기록돼 있어 마지막 클릭 이후 거기서
+        막힐 가능성이 높다 — 그 경우를 명확한 WehagoError로 구분해 표면화한다(사용자
+        요청: "맥이라서 안 되는 직전까지만" — 실제로 끝까지 시도해서 정확히 어디서
+        막히는지 확인하는 것이 목적).
+
+        Args:
+            password: 변환파일 비밀번호 — 위하고 쪽 제약은 영문 소문자+숫자 8~15자로
+                추정(사용자 Chrome Recorder 녹화에서 7자리 입력 시 거부되고 8자리로
+                재입력한 흔적으로 추정, 미확정).
+
+        Returns:
+            완료 모달의 원문 텍스트 — 만약 성공한다면 §3-5의 "맥 미지원" 기록을 뒤집는
+            새 발견이므로 plan 문서도 함께 갱신해야 한다.
+
+        Raises:
+            WehagoError: 맥 미지원 안내가 뜸, 또는 그 밖의 예상과 다른 화면.
+
+        ⚠️ 미실측 — 지급기간 위젯이 SWTA0112와 같다는 것과 수임처 코드도움 다이얼로그
+        구조는 화면 분석(§13-3-9)·녹화로 추정한 것이라 조회조건 입력까지는 비교적
+        확실하지만, [제작(F4)] 이후 모달·버튼 셀렉터(`get_by_placeholder`,
+        "전자신고 파일 제작(Enter)" 버튼명)는 사용자가 보내준 레코딩의 aria 셀렉터를
+        그대로 믿고 짠 것이라 실행 검증 전이다.
+        """
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        smarta, _name, _number = self._open_closing_menu(business_number, self._WHT_EFILE_MENU_ID)
+
+        self.step = "전자신고 지급기간 입력"
+        items = smarta.locator(_COND_BAR).locator("div.item")
+        self._select_local_tax_period(smarta, items.nth(0), period)  # 지급기간(시작~종료)
+
+        self.step = "전자신고 수임처 선택"
+        self._select_efile_client(smarta, business_number)
+
+        self.step = "전자신고 조회"
+        think("wehago")
+        smarta.get_by_role("button", name="조회", exact=True).click()
+        self._wait_for_no_dimmed(smarta)
+
+        self.step = "전자신고 제작 모달 열기"
+        think("wehago")
+        smarta.get_by_role("button", name="제작(F4)", exact=True).click()
+        modal = smarta.locator("div._isDialog:visible", has_text="전자신고 파일 제작")
+        modal.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+
+        self.step = "전자신고 변환파일 비밀번호 입력"
+        pw_input = modal.get_by_placeholder("비밀번호를 입력해주세요.")
+        _type_fresh(pw_input, password)
+
+        self.step = "전자신고 파일 제작 실행"
+        think("wehago")
+        modal.get_by_role("button", name="전자신고 파일 제작(Enter)", exact=True).click()
+
+        self.step = "전자신고 결과 확인 — 맥 지원 여부"
+        mac_block = smarta.locator("div:visible", has_text="맥에서는 제작을 할 수 없습니다")
+        try:
+            mac_block.wait_for(state="visible", timeout=8_000)
+        except PlaywrightTimeout:
+            mac_blocked = False
+        else:
+            mac_blocked = True
+        if mac_blocked:
+            raise WehagoError(
+                "전자신고 파일 제작 — 맥에서는 지원되지 않습니다(plan/16 §3-5 기존 기록과 "
+                "일치). Windows PC에서 같은 화면을 열어 [제작(F4)]부터 다시 진행하세요."
+            )
+
+        self.step = "전자신고 완료 대기"
+        result = smarta.locator("div._isDialog:visible", has_text="완료")
+        result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
+        text = result.inner_text().strip()
+        think("wehago")
+        result.get_by_role("button", name="확인", exact=True).click()
+        return text
+
     # ------------------------------------------------------------------
     # 소득자 명단 읽기 (plan/16 §13-3-5, 2026-09-30) — RealGrid `_gridView`를 직접 읽는다.
     # 사업소득자등록(SWBU0101)엔 엑셀 다운로드가 없다(실측 확인, 우측 상단 메뉴에
