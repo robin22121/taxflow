@@ -684,6 +684,13 @@ export type ParsedEntryPreview = {
    */
   rrn_last4?: string | null;
   rrn_encrypted_b64?: string | null;
+  /**
+   * NEW_HIRE_SUSPECTED인데 이름이 같은 기존 직원 마스터가 있으면 채워진다 —
+   * "이 사람 아닌가요?" 확인 힌트. 자동 연결 안 됨, 사용자가 확인 버튼을
+   * 눌러야 employee_id 가 채워져 기존 직원에 연결된다.
+   */
+  possible_match_employee_id?: string | null;
+  possible_match_employee_name?: string | null;
 };
 
 /** 검토 화면에서 신규 입사자를 그 자리에 등록할 때 보내는 인적사항. */

@@ -73,6 +73,13 @@ class PayrollEntryCandidate:
     # 신규 입사자 프리필용. 매칭된 기존 직원은 Employee.rrn_last4 를 UI 가 별도 조회한다.
     rrn_last4: str | None = None
     rrn_encrypted_b64: str | None = None
+    # NEW_HIRE_SUSPECTED인데 이름이 똑같은 기존 직원 마스터가 있을 때만 채운다
+    # (2026-10-02) — AI가 이름만 보고 신규로 잘못 분류해도(원문엔 RRN이 없어 AI가
+    # 대조할 수 없음), 서버가 마스터 이름과 다시 한번 대조해 "이 사람 아닌가요?"
+    # 라고 물어볼 수 있게 하는 힌트. 자동으로 연결하지 않는다 — 동명이인일 수
+    # 있으므로 사용자 확인을 거쳐야 한다.
+    possible_match_employee_id: str | None = None
+    possible_match_employee_name: str | None = None
 
 
 @dataclass(slots=True)
@@ -152,10 +159,14 @@ def reconcile(
         )
 
     # 2. new_hire_suspected — these stay unmatched until 주민번호 등록됨
+    #    (단, 이름이 똑같은 기존 직원 마스터가 있으면 "이 사람 아닌가요?" 힌트를 붙인다 —
+    #    AI는 원문(카톡 등)에 RRN이 없어 대조를 못 하고 이름만 보고 신규로 분류하기
+    #    쉽다, 2026-10-02 사용자 제보: 이미 등록된 직원인데도 매번 신규로 뜸.)
     new_hire_followups: list[dict[str, Any]] = []
     for n in parsed.new_hire_suspected:
         nh_anomaly: dict[str, Any] = {}
         _flag_abnormal_amount(nh_anomaly, n.amount, n.name)
+        possible = _find_possible_match(n.name, master, seen_ids)
         entries.append(
             PayrollEntryCandidate(
                 raw_name=n.name,
@@ -169,6 +180,8 @@ def reconcile(
                 followup_reason="new_hire_rrn",
                 rrn_last4=n.rrn_last4,
                 rrn_encrypted_b64=n.rrn_encrypted_b64,
+                possible_match_employee_id=possible.id if possible else None,
+                possible_match_employee_name=possible.name if possible else None,
             )
         )
         # 파일 반입 사이드채널로 RRN 이 함께 온 경우 프리필용으로 전달 (plan/10 §G4).
@@ -420,6 +433,28 @@ def _validate_or_rescue(
     if score >= _FUZZY_MATCH_THRESHOLD:
         return emp_id, MatchStatus.MATCHED
     return None, MatchStatus.AMBIGUOUS
+
+
+def _find_possible_match(
+    name: str, master: list[EmployeeMaster], seen_ids: set[str]
+) -> EmployeeMaster | None:
+    """신규 의심 항목의 이름과 비슷한 기존 직원 마스터가 있으면 반환 — 자동 연결하지
+    않고 힌트로만 쓴다(동명이인일 수 있어 사용자가 직접 확인해야 한다).
+
+    이번 라운드에서 이미 다른 항목에 매칭된 id(``seen_ids``)는 후보에서 뺀다 —
+    단, 근로/사업 등 소득구분별로 직원 마스터 행이 따로 있어 같은 이름이라도
+    id가 다르면(다른 소득구분) 정상적으로 후보에 남는다.
+    """
+    candidates = [e for e in master if e.id not in seen_ids]
+    if not candidates:
+        return None
+    result = process.extractOne(name, choices={e.id: e.name for e in candidates}, scorer=fuzz.ratio)
+    if result is None:
+        return None
+    _matched_name, score, emp_id = result
+    if score < _FUZZY_MATCH_THRESHOLD:
+        return None
+    return next(e for e in candidates if e.id == emp_id)
 
 
 def _to_income_type(s: str) -> IncomeType:

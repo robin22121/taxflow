@@ -189,6 +189,8 @@ def _preview_row(
         existing_amount=existing.total_amount if existing is not None else None,
         rrn_last4=cand.rrn_last4,
         rrn_encrypted_b64=cand.rrn_encrypted_b64,
+        possible_match_employee_id=cand.possible_match_employee_id,
+        possible_match_employee_name=cand.possible_match_employee_name,
     )
 
 
