@@ -55,14 +55,12 @@ class FakeUploader:
         upload_error: Exception | None = None,
         close_wht_error: Exception | None = None,
         close_business_error: Exception | None = None,
-        close_local_tax_error: Exception | None = None,
     ) -> None:
         self.company = company
         self.login_error = login_error
         self.upload_error = upload_error
         self.close_wht_error = close_wht_error
         self.close_business_error = close_business_error
-        self.close_local_tax_error = close_local_tax_error
         self.uploaded: list[tuple[Path, str, date]] = []
         self.business_uploaded: list[tuple[Path, str]] = []
         self.other_income_uploaded: list[tuple[Path, str]] = []
@@ -113,14 +111,6 @@ class FakeUploader:
             raise self.close_business_error
         self.closed.append(("business", period))
         return "마감할 데이터가 존재하지 않습니다 (건너뜀)"
-
-    def close_local_tax_payment(
-        self, business_number: str, period: str, *, business_address: str | None = None
-    ) -> str:
-        if self.close_local_tax_error:
-            raise self.close_local_tax_error
-        self.closed.append(("local_tax", period))
-        return "마감 완료!"
 
 
 def test_no_job_does_nothing(tmp_path: Path):
@@ -185,16 +175,18 @@ def test_other_income_input_company_mismatch_is_not_uploaded(tmp_path: Path):
     assert "위하고 수임처가 다릅니다" in api.reports[0][2]
 
 
-def test_monthly_production_closes_wht_business_and_local_tax(tmp_path: Path):
+def test_monthly_production_closes_wht_and_business(tmp_path: Path):
+    """지방세 마감(close_local_tax_payment)은 법정동 입력 문제로 개발 보류 중이라
+    호출하지 않는다 (2026-10-02 사용자 결정, 나중에 보완)."""
     job = replace(JOB, kind=MONTHLY_PRODUCTION)
     api, uploader = FakeApi([job]), FakeUploader()
     assert process_one(api, uploader, tmp_path) is True
-    assert uploader.closed == [("wht", "2026-08"), ("business", "2026-08"), ("local_tax", "2026-08")]
+    assert uploader.closed == [("wht", "2026-08"), ("business", "2026-08")]
     job_id, succeeded, message = api.reports[0]
     assert (job_id, succeeded) == ("job1", True)
-    assert "마감 완료" in message and "제작(F4)" in message
+    assert "마감 완료" in message and "지방세 마감은 자동화 보류" in message and "제작(F4)" in message
     assert api.step_progress_by_job["job1"] == {
-        "wehago_income_tax": "done", "wehago_business_income": "done", "wehago_local_tax": "done",
+        "wehago_income_tax": "done", "wehago_business_income": "done",
     }
 
 
@@ -209,17 +201,6 @@ def test_monthly_production_wht_failure_skips_business_income(tmp_path: Path):
     assert "원천세 마감 실패" in message
     assert api.step_progress_by_job["job1"] == {}
 
-
-def test_monthly_production_local_tax_failure_still_reports_earlier_closes(tmp_path: Path):
-    job = replace(JOB, kind=MONTHLY_PRODUCTION)
-    uploader = FakeUploader(close_local_tax_error=WehagoError("지방세 마감 오류"))
-    api = FakeApi([job])
-    assert process_one(api, uploader, tmp_path) is True
-    assert uploader.closed == [("wht", "2026-08"), ("business", "2026-08")]
-    job_id, succeeded, message = api.reports[0]
-    assert (job_id, succeeded) == ("job1", False)
-    assert "지방세 마감 오류" in message
-    assert api.step_progress_by_job["job1"] == {"wehago_income_tax": "done", "wehago_business_income": "done"}
 
 
 def test_unimplemented_job_kind_is_reported_without_touching_uploader(tmp_path: Path):

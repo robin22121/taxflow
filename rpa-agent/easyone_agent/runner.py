@@ -177,13 +177,16 @@ def failure_message(e: Exception, uploader: object) -> str:
 
 
 def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, job: Job) -> bool:
-    """제작(게이트 2) — 현재는 위하고 마감(원천세·사업소득·지방세)까지만 자동화
-    (plan/16 §4-4 ⑨-a·⑨-b·⑩-a).
+    """제작(게이트 2) — 현재는 위하고 마감(원천세·사업소득)까지만 자동화
+    (plan/16 §4-4 ⑨-a·⑨-b).
+
+    지방세 마감(⑩-a, `close_local_tax_payment`/SWTA0112)은 법정동(취급청) 입력이
+    실기에서 계속 막혀(§13-3-7~13-3-9) **개발 보류** 상태다(2026-10-02 사용자 결정,
+    나중에 보완) — 이 함수에서 호출하지 않고, 완료 메시지로 수동 처리를 안내한다.
+    지방세 전자신고(SWER0109)도 같은 이유로 계속 미구현 상태로 둔다.
 
     전자신고 파일 제작(F4, ⑨-c·⑩-b)은 Windows 전용 위하고 로컬 모듈이 필요해 이 macOS
-    에이전트에서는 못 한다. 홈택스(⑪)·위택스(⑫)는 아직 자동화가 없다. 지방세 마감은
-    아직 실제 화면으로 실측하지 못한 최초 실행이라 실패할 수 있다(close_local_tax_payment
-    docstring 참고) — 이후 단계는 완료 메시지에서 수동 처리를 안내한다.
+    에이전트에서는 못 한다. 홈택스(⑪)·위택스(⑫)는 아직 자동화가 없다.
     """
     # 중간에 실패해도 그 전까지 성공한 단계는 남긴다 — §4-1 "명세서 추가입력 포함 완료 판정"
     # (2026-10-01 결정: close_business_income_report의 "새로불러오기"가 명세서 추가입력을
@@ -195,10 +198,6 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
         step_progress["wehago_income_tax"] = "done"
         biz_text = uploader.close_business_income_report(job.business_number, job.period)
         step_progress["wehago_business_income"] = "done"
-        local_text = uploader.close_local_tax_payment(
-            job.business_number, job.period, business_address=job.business_address
-        )
-        step_progress["wehago_local_tax"] = "done"
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
         raise
@@ -214,7 +213,8 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
             api,
             job.id,
             True,
-            f"위하고 마감 완료 — 원천세: {wht_text} / 사업소득: {biz_text} / 지방세: {local_text}. "
+            f"위하고 마감 완료 — 원천세: {wht_text} / 사업소득: {biz_text}. "
+            "지방세 마감은 자동화 보류 중이라 위하고에서 직접 마감하세요. "
             "전자신고 파일 제작(F4)·홈택스·위택스 신고는 아직 자동화되지 않아 "
             "Windows 노트북·수동으로 진행하세요.",
             step_progress=step_progress,
