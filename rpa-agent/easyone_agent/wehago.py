@@ -1751,7 +1751,11 @@ class WehagoUploader:
         search_display = dialog.locator("div.LS_ngh_input2").first
         think("wehago")
         search_display.dblclick()
-        search_input = dialog.locator("input").first
+        # dialog.locator("input")로 다이얼로그 전체에서 찾으면 "찾을 내용"보다 먼저
+        # 캔버스 그리드(RealGrid)의 숨은 키보드 캡처용 input(aria-hidden, id가
+        # "..._line")이 걸려 거기로 타이핑된다 — 보이는 "찾을 내용" 칸은 계속 비어
+        # 보이는 증상으로 실기 재현(2026-10-02). search_display 범위 안에서만 찾는다.
+        search_input = search_display.locator("input").first
         _type_fresh(search_input, search_term)
         think("wehago")
         dialog.get_by_role("button", name="확인(enter)", exact=True).click()
