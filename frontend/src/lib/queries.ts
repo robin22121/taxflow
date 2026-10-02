@@ -393,6 +393,16 @@ export function useUpdateEmployee(clientId: string) {
   });
 }
 
+/** 소득지급자 삭제 — 근로/사업/기타/일용 공통. 급여자료가 있으면 서버가 409로 거부한다. */
+export function useDeleteEmployee(clientId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<void>(`/api/v1/clients/${clientId}/employees/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients", clientId, "employees"] }),
+  });
+}
+
 export type EmployeeCreatePayload = EmployeePatch & { name: string; rrn?: string | null };
 
 /** 소득지급자 수동 추가 — 사원코드를 빈 값으로 보내면 서버가 거래처의 다음 번호를 붙인다. */

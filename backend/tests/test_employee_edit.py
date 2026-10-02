@@ -57,3 +57,61 @@ async def test_same_number_allowed_across_different_income_types(http: AsyncClie
         base, json={"name": "근로-중복", "employee_code": code, "income_type": "WAGE"}, headers=auth_headers
     )
     assert dup_wage.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_delete_employee_without_payroll(http: AsyncClient, auth_headers: dict):
+    """급여자료가 없는 직원은 소득구분과 무관하게 삭제할 수 있다."""
+    cid = await _client_id(http, auth_headers)
+    base = f"/api/v1/clients/{cid}/employees"
+    emp = (await http.post(base, json={"name": "삭제테스트"}, headers=auth_headers)).json()
+
+    r = await http.delete(f"{base}/{emp['id']}", headers=auth_headers)
+    assert r.status_code == 204, r.text
+
+    remaining = (await http.get(base, headers=auth_headers)).json()
+    assert emp["id"] not in {e["id"] for e in remaining}
+
+
+@pytest.mark.asyncio
+async def test_delete_employee_with_payroll_is_blocked(http: AsyncClient, auth_headers: dict):
+    """급여자료가 이미 등록된 직원은 삭제 대신 퇴사 처리를 유도한다 (409)."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Client, CollectionSession, MonthlyFiling, PayrollEntry
+
+    cid = await _client_id(http, auth_headers)
+    base = f"/api/v1/clients/{cid}/employees"
+    emp = (await http.post(base, json={"name": "급여있음"}, headers=auth_headers)).json()
+
+    async with SessionLocal() as db:
+        client = await db.get(Client, cid)
+        filing = MonthlyFiling(tax_office_id=client.tax_office_id, period="2099-01")
+        db.add(filing)
+        await db.flush()
+        session = CollectionSession(monthly_filing_id=filing.id, client_id=cid, request_token="test-token-del")
+        db.add(session)
+        await db.flush()
+        entry = PayrollEntry(
+            monthly_filing_id=filing.id,
+            collection_session_id=session.id,
+            client_id=cid,
+            employee_id=emp["id"],
+            raw_name="급여있음",
+            total_amount=1_000_000,
+        )
+        db.add(entry)
+        await db.commit()
+
+    r = await http.delete(f"{base}/{emp['id']}", headers=auth_headers)
+    assert r.status_code == 409
+    assert "퇴사 처리" in r.json()["detail"]
+
+    # 정리 — 다음 테스트에 영향 주지 않도록 만든 행을 지운다.
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(select(PayrollEntry).where(PayrollEntry.employee_id == emp["id"]))
+        ).scalar_one()
+        await db.delete(row)
+        await db.commit()
