@@ -30,7 +30,11 @@ Playwright로 처리할 수 없다. 이 모듈은 브라우저 안에서 진행 
 
 from __future__ import annotations
 
+import platform
+import subprocess
+import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HOMETAX_LOGIN_URL = (
     "https://hometax.go.kr/websquare/websquare.html?w2xPath=/ui/pp/index.xml"
@@ -38,6 +42,21 @@ HOMETAX_LOGIN_URL = (
 HOMETAX_MAIN_URL = "https://hometax.go.kr"
 LOGIN_FORM_WAIT_MS = 15_000
 LOGIN_WAIT_MS = 60_000
+CHROME_LAUNCH_TIMEOUT_SEC = 15  # 새로 띄운 크롬이 CDP 포트를 열 때까지 기다리는 한도
+
+# scripts/start-chrome.sh·.ps1과 같은 후보 경로 — 새로 창을 열 때도 같은 설치 크롬을 쓴다
+_CHROME_PATH_CANDIDATES = {
+    "Darwin": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
+    "Windows": [
+        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+        r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
+    ],
+}
+
+# 2026-09-28 실측(hometax_login.py 아이디 로그인 경로)에서 확인된 버튼 — 로그인 페이지의
+# 기본 탭(금융·공동 인증)을 그대로 둔 채(탭 전환 없이) 누르면 공동인증서 선택 팝업이 뜬다.
+_CERT_LOGIN_BUTTON = "a.logingbtn[title='로그인']"
 
 # 지급명세ㆍ자료ㆍ공익법인 > 일용·간이지급명세/사업장제공자 과세자료 제출명세(매월·반기)/
 # 소득부인 > 직접작성 제출 (2026-09-28 실측, 메뉴 트리 코드는 세션 무관 고정값)
@@ -88,6 +107,107 @@ class HometaxLoginFailed(HometaxError):
 
 class HometaxCertRequired(HometaxError):
     """공동인증서 팝업이 필요하다 — 사람이 미리 세션을 남겨두었어야 한다."""
+
+
+class ChromeLaunchFailed(HometaxError):
+    """CDP 크롬이 없어 새로 띄우려 했지만 실행 파일을 못 찾았거나 포트가 열리지 않았다."""
+
+
+def _find_chrome_executable() -> str:
+    import os
+
+    system = platform.system()
+    candidates = [os.path.expandvars(p) for p in _CHROME_PATH_CANDIDATES.get(system, [])]
+    for path in candidates:
+        if Path(path).exists():
+            return path
+    raise ChromeLaunchFailed(f"Google Chrome 실행 파일을 찾지 못했습니다 (확인한 경로: {candidates})")
+
+
+class TaxAgentLogin:
+    """세무사 아이디로 홈택스 공동인증서 로그인 화면까지 연다 — 이지원 노트북 전용.
+
+    1) CDP 크롬(`cdp_url`)이 이미 떠 있으면 그 크롬에 새 탭을 열어 홈택스로 이동한다.
+    2) 없으면 `scripts/start-chrome.sh`·`.ps1`과 같은 옵션(전용 프로필 + 디버깅 포트)으로
+       설치된 크롬을 새로 띄운다(=새 창) — Playwright `launch()`로 띄우면 자동화 흔적이
+       남으므로 쓰지 않는다(`plan/16-wehago-rpa.md` §8-4, `wehago.py` `CdpConnectFailed`와
+       같은 원칙). 새로 띄운 뒤에는 결국 같은 CDP로 붙는다.
+    3) 로그인 페이지 기본 탭(금융·공동 인증, 탭 전환 없이 그대로)에서 [로그인] 버튼을 눌러
+       공동인증서 선택 팝업을 띄운다.
+
+    인증서 선택(OS 다이얼로그)·인증서 비밀번호 입력은 브라우저 밖이라 Playwright가 다룰 수
+    없다 — 이 클래스는 그 팝업을 띄우는 지점까지만 책임진다(`HometaxSession` 상단 문서와
+    같은 경계).
+    """
+
+    def __init__(self, cdp_url: str, profile_dir: Path) -> None:
+        self._cdp_url = cdp_url
+        self._profile_dir = profile_dir
+        self._playwright = None
+        self._browser = None
+        self._page = None
+
+    def __enter__(self) -> "TaxAgentLogin":
+        from playwright.sync_api import sync_playwright
+
+        self._playwright = sync_playwright().start()
+        self._browser = self._connect_or_launch()
+        contexts = self._browser.contexts
+        context = contexts[0] if contexts else self._browser.new_context()
+        self._page = context.new_page()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        # CDP로 붙은 경우든 새로 띄운 경우든 크롬 자체는 끄지 않는다 — 연결만 끊는다
+        # (인증서 선택은 사람이 이 창에서 이어서 완료해야 하므로 닫으면 안 된다).
+        if self._browser:
+            self._browser.close()
+        if self._playwright:
+            self._playwright.stop()
+
+    def _connect_or_launch(self):
+        from playwright.sync_api import Error as PlaywrightError
+
+        try:
+            return self._playwright.chromium.connect_over_cdp(self._cdp_url)
+        except PlaywrightError:
+            pass  # CDP 크롬이 없음 — 새로 띄운다
+
+        chrome = _find_chrome_executable()
+        self._profile_dir.mkdir(parents=True, exist_ok=True)
+        port = urlsplit(self._cdp_url).port or 9222
+        subprocess.Popen(
+            [
+                chrome,
+                f"--remote-debugging-port={port}",
+                f"--user-data-dir={self._profile_dir}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-features=BlockThirdPartyCookies,PrivacySandboxSettings4",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        deadline = time.monotonic() + CHROME_LAUNCH_TIMEOUT_SEC
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                return self._playwright.chromium.connect_over_cdp(self._cdp_url)
+            except PlaywrightError as e:
+                last_error = e
+                time.sleep(0.5)
+        raise ChromeLaunchFailed(
+            f"새로 띄운 크롬({self._cdp_url})에 연결하지 못했습니다"
+        ) from last_error
+
+    def open_cert_login(self) -> None:
+        """홈택스 로그인 페이지로 이동해 [로그인] 버튼을 눌러 공동인증서 선택 팝업을 띈다."""
+        assert self._page is not None
+        self._page.goto(HOMETAX_LOGIN_URL, wait_until="domcontentloaded")
+        button = self._page.locator(_CERT_LOGIN_BUTTON)
+        button.wait_for(state="visible", timeout=LOGIN_FORM_WAIT_MS)
+        button.click()
 
 
 class HometaxSession:
