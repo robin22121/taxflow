@@ -368,35 +368,35 @@ class WehagoUploader:
         버튼이 아직 안 그려졌을 때 섣불리 "없다"고 판단하지 않도록(close_wht_return에서
         발견된 렌더링 타이밍 문제) active_label을 포함하는 버튼이 뜰 때까지 먼저 기다린다.
 
-        이 대기 자체가 타임아웃나면(2026-10-02 실패 사례) 화면이 완전히 멈춘 것일 수도 있지만,
-        이미 처리된 화면이라 버튼 렌더링이 늦어 걸리는 경우도 있었다 — 포기하기 전에 "해제" 버튼이
-        떠 있는지 한 번 더 가볍게 확인해, 있으면 원인 불명의 TimeoutError 대신 "이미 처리된 건이
-        있다"는 바로 알아볼 수 있는 안내로 바꾼다 (사용자 요청, 2026-10-02).
+        [완료]·[완료해제] 둘 다 기다린다 — 이미 처리된 화면은 [완료]가 아예 없어서다.
 
         Returns:
             이미 처리돼 있으면 건너뜀 안내 메시지(성공으로 회신해 다음 작업을 막지 않는다),
             아직이면 None — 호출자가 평소대로 진행한다.
 
         Raises:
-            WehagoError: 대기 중 타임아웃났는데 "해제" 버튼은 이미 떠 있는 경우 — 진짜로
-                이미 처리된 건이 있다는 뜻이라 일반 TimeoutError 대신 사람이 읽을 메시지로 바꾼다.
+            WehagoError: 두 버튼 모두 시간 안에 안 보임 — 원인 불명의 TimeoutError 대신
+                그때 보이던 버튼 목록을 담아 화면이 어디서 멈췄는지 알 수 있게 한다.
         """
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
+        # 보이는 버튼만 본다 — SmartA는 같은 버튼을 숨김 상태로 DOM에 중복 렌더링해서,
+        # 그냥 `button`의 `.first`를 기다리면 숨은 버튼에 걸려 30초 타임아웃났다
+        # (2026-10-02 사업소득자료입력). 해제 버튼은 화면마다 "완료 해제"/"완료해제"로
+        # 띄어쓰기가 달라 공백을 무시하고 비교한다 (`_ensure_data_entry_unlocked` 참고).
+        undo = undo_label.replace(" ", "")
+        label = re.compile(rf"^\s*{re.escape(active_label)}(\s*{re.escape(undo[len(active_label):])})?\s*$")
+        buttons = page.locator("button:visible", has_text=label)
         try:
-            page.locator("button", has_text=re.compile(re.escape(active_label))).first.wait_for(
-                state="visible", timeout=UPLOAD_WAIT_MS
-            )
+            buttons.first.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
         except PlaywrightTimeout:
-            if page.get_by_role("button", name=undo_label, exact=True).count():
-                raise WehagoError(
-                    f"위하고 T에 {active_label} 처리된 건이 이미 있습니다. 확인하세요 "
-                    f"(다시 입력하려면 위하고에서 [{undo_label}] 후 재시도)."
-                ) from None
-            raise
-        active_btn = page.get_by_role("button", name=active_label, exact=True)
-        undo_btn = page.get_by_role("button", name=undo_label, exact=True)
-        if undo_btn.count() and not active_btn.count():
+            shown = [t.strip() for t in page.locator("button:visible").all_inner_texts() if t.strip()]
+            raise WehagoError(
+                f"{active_label} 여부를 확인하지 못했습니다 — 화면에 [{active_label}]/[{undo_label}] 버튼이 "
+                f"보이지 않습니다 (보이는 버튼: {', '.join(shown[:20]) or '없음'})"
+            ) from None
+        texts = {t.replace(" ", "").strip() for t in buttons.all_inner_texts()}
+        if undo in texts and active_label not in texts:
             return f"이미 {active_label} 처리되어 있습니다 (건너뜀 — 다시 하려면 위하고에서 [{undo_label}] 후 재시도)"
         return None
 
@@ -844,6 +844,9 @@ class WehagoUploader:
         think("wehago")
         page.locator("#SearchMain").get_by_role("button", name="조회", exact=True).click()
         self._wait_for_no_dimmed(page)
+        # [완료]/[완료 해제] 버튼이 조회 결과로 바뀔 시간 — 바로 잠금 여부를 보면 이전 상태를
+        # 읽어 잠금을 못 풀고 "이미 완료됨"으로 건너뛸 수 있다 (`upload_payroll`과 동일)
+        page.wait_for_timeout(1_000)
 
     def upload_business_income(
         self, period: str, xlsx_path: Path, *, replace_existing: bool = False,

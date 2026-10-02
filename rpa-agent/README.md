@@ -14,8 +14,12 @@
 ## 설치
 
 ```powershell
-py -m pip install httpx playwright keyring
+cd C:\Users\jhw83\v\taxflow\rpa-agent
+py -m pip install httpx playwright keyring openpyxl
 ```
+
+> 아래 `py -m easyone_agent ...` 명령은 모두 **`rpa-agent` 폴더 안에서** 실행한다.
+> 패키지를 pip로 설치하지 않으므로 다른 폴더에서 실행하면 `No module named easyone_agent`가 난다.
 
 크롬은 PC에 설치된 것을 쓰므로 `playwright install`로 브라우저를 따로 받을 필요는 없다.
 
