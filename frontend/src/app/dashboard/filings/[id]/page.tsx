@@ -289,7 +289,9 @@ export default function FilingDetailPage({
               확인필요만 보기 ✕
             </button>
           )}
-          {/* 업무 순서: 자료요청 → ① 위하고 전송 → ② 제작 → ③ 고객 발송 → 다운로드 */}
+          {/* 업무 순서: 자료요청 → ① 소득자료 전송 → ② 신고서마감 → ③ 제작/신고 → ④ 납부서/영수증 → 다운로드
+              (2026-10-02 사용자 요청으로 3단계 명칭 변경, "제작/신고" 단계 신설 — 지금은 ②까지만
+              자동화됨, §13-3-10/§3-5 참고. ③·④ 둘 다 아직 미구현) */}
           <div className="relative shrink-0">
             <Button variant="secondary"
               onClick={() => setShowSmsMenu((v) => !v)}
@@ -317,17 +319,22 @@ export default function FilingDetailPage({
           <div className="inline-flex items-center rounded-full border border-gray-200 bg-white p-0.5 shrink-0">
             <button onClick={() => setShowSendModal(true)}
               className="px-2.5 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700">
-              ① 위하고 전송
+              ① 소득자료 전송
             </button>
             <span className="text-gray-300 text-[11px] px-0.5">›</span>
             <button onClick={() => setShowProductionModal(true)}
               className="px-2.5 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700">
-              ② 제작
+              ② 신고서마감
+            </button>
+            <span className="text-gray-300 text-[11px] px-0.5">›</span>
+            <button disabled title="준비 중 — 홈택스 전송용 전자신고 파일 제작·신고"
+              className="px-2.5 py-1 rounded-full text-[12px] font-medium text-gray-400 cursor-not-allowed">
+              ③ 제작/신고
             </button>
             <span className="text-gray-300 text-[11px] px-0.5">›</span>
             <button disabled title="준비 중 — 접수증·납부서 회수 후 사장님 포털 공개·납부안내 발송"
               className="px-2.5 py-1 rounded-full text-[12px] font-medium text-gray-400 cursor-not-allowed">
-              ③ 고객 발송
+              ④ 납부서/영수증
             </button>
           </div>
           <div className="relative shrink-0">
