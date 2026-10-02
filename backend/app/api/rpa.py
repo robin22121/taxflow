@@ -49,6 +49,7 @@ from app.schemas.rpa import (
     RpaAgentOut,
     RpaClaimOut,
     RpaJobOut,
+    RpaJobProgressIn,
     RpaJobResultIn,
     RpaNotificationOut,
     IncomeTypeStatus,
@@ -1058,6 +1059,26 @@ async def agent_download_other_income_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="other_income_{job.period}.xlsx"'},
     )
+
+
+@router.post("/agent/jobs/{job_id}/progress", response_model=RpaJobOut)
+async def agent_report_progress(
+    job_id: str,
+    payload: RpaJobProgressIn,
+    db: AsyncSession = Depends(get_db),
+    agent: RpaAgent = Depends(get_current_agent),
+) -> RpaJob:
+    """실행 중 단계 보고. 현재 단계·마지막 보고 시각을 갱신하고 agent.last_seen_at도 갱신한다."""
+    job = await _agent_running_job(db, agent, job_id)
+    now = _utcnow()
+    agent.last_seen_at = now
+    job.current_step = payload.label
+    job.last_progress_at = now
+    if payload.step_key:
+        job.step_progress = {**(job.step_progress or {}), payload.step_key: payload.state}
+    await db.commit()
+    await db.refresh(job)
+    return job
 
 
 @router.post("/agent/jobs/{job_id}/result", response_model=RpaJobOut)

@@ -93,6 +93,14 @@ class EasyoneApi:
         r = self._http.post(f"/api/v1/rpa/agent/jobs/{job_id}/result", json=body)
         r.raise_for_status()
 
+    def progress(self, job_id: str, label: str, step_key: str | None = None, state: str = "running") -> None:
+        """실행 중 단계 보고 — 서버가 현재 단계·마지막 신호 시각을 갱신한다 (heartbeat 겸용)."""
+        body: dict[str, Any] = {"label": label, "state": state}
+        if step_key:
+            body["step_key"] = step_key
+        r = self._http.post(f"/api/v1/rpa/agent/jobs/{job_id}/progress", json=body)
+        r.raise_for_status()
+
     def report_import_client(self, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """가져오기 — 수임처 1건 결과. 서버가 바로 반영하고, 전체 가져오기의 생존 신호도 된다."""
         r = self._http.post(f"/api/v1/rpa/agent/imports/{job_id}/client-result", json=payload)

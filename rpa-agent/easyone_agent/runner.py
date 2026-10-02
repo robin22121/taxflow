@@ -63,14 +63,18 @@ def _process_payroll_input_job(api: EasyoneApi, uploader: WehagoUploader, job: J
     try:
         if job.pay_date is None:
             raise WehagoError("지급일이 없어 위하고 급여자료입력 조회를 할 수 없습니다")
+        _progress(api, job.id, "급여 엑셀 내려받기")
         xlsx_path.write_bytes(api.download_payroll_excel(job.id))
+        _progress(api, job.id, "위하고 로그인")
         uploader.ensure_logged_in()
+        _progress(api, job.id, "수임처 확인")
         found_name, found_number = uploader.open_payroll_screen(job.business_number, job.period)
         if not company_matches(job.business_name, job.business_number, found_name, found_number):
             raise CompanyMismatch(
                 f"위하고 수임처가 다릅니다: 요청 {job.business_name}({job.business_number}), "
                 f"화면 {found_name}({found_number})"
             )
+        _progress(api, job.id, "급여자료 업로드 중")
         message = uploader.upload_payroll(xlsx_path, job.period, job.pay_date)
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
@@ -98,14 +102,18 @@ def _process_business_input_job(api: EasyoneApi, uploader: WehagoUploader, job: 
     """
     xlsx_path = workdir / f"{job.id}-business.xlsx"
     try:
+        _progress(api, job.id, "사업소득 엑셀 내려받기")
         xlsx_path.write_bytes(api.download_business_income_excel(job.id))
+        _progress(api, job.id, "위하고 로그인")
         uploader.ensure_logged_in()
+        _progress(api, job.id, "수임처 확인")
         found_name, found_number = uploader.open_business_income_screen(job.business_number)
         if not company_matches(job.business_name, job.business_number, found_name, found_number):
             raise CompanyMismatch(
                 f"위하고 수임처가 다릅니다: 요청 {job.business_name}({job.business_number}), "
                 f"화면 {found_name}({found_number})"
             )
+        _progress(api, job.id, "사업소득자료 업로드 중")
         message = uploader.upload_business_income(job.period, xlsx_path)
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
@@ -133,14 +141,18 @@ def _process_other_income_input_job(api: EasyoneApi, uploader: WehagoUploader, j
     """
     xlsx_path = workdir / f"{job.id}-other-income.xlsx"
     try:
+        _progress(api, job.id, "기타소득 엑셀 내려받기")
         xlsx_path.write_bytes(api.download_other_income_excel(job.id))
+        _progress(api, job.id, "위하고 로그인")
         uploader.ensure_logged_in()
+        _progress(api, job.id, "수임처 확인")
         found_name, found_number = uploader.open_other_income_screen(job.business_number)
         if not company_matches(job.business_name, job.business_number, found_name, found_number):
             raise CompanyMismatch(
                 f"위하고 수임처가 다릅니다: 요청 {job.business_name}({job.business_number}), "
                 f"화면 {found_name}({found_number})"
             )
+        _progress(api, job.id, "기타소득자료 업로드 중")
         message = uploader.upload_other_income(job.period, xlsx_path)
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
@@ -200,14 +212,21 @@ def _process_monthly_production_job(api: EasyoneApi, uploader: WehagoUploader, j
     # 충족한다고 보고, 이 단계가 실제 성공했는지를 step_progress로 서버에 남긴다).
     step_progress: dict[str, str] = {}
     try:
+        _progress(api, job.id, "위하고 로그인")
         uploader.ensure_logged_in()
+        _progress(api, job.id, "원천세 마감 중", "wehago_income_tax")
         wht_text = uploader.close_wht_return(job.business_number, job.period)
         step_progress["wehago_income_tax"] = "done"
+        _progress(api, job.id, "원천세 마감 완료", "wehago_income_tax", "done")
+        _progress(api, job.id, "사업소득 마감 중", "wehago_business_income")
         biz_text = uploader.close_business_income_report(job.business_number, job.period)
         step_progress["wehago_business_income"] = "done"
+        _progress(api, job.id, "사업소득 마감 완료", "wehago_business_income", "done")
         efile_password = get_secret_optional(SECRET_WHT_EFILE_PASSWORD) or _DEFAULT_WHT_EFILE_PASSWORD
+        _progress(api, job.id, "전자신고 파일 제작 중", "wht_efile")
         efile_text = uploader.produce_wht_efile(job.business_number, job.period, efile_password)
         step_progress["wht_efile"] = "done"
+        _progress(api, job.id, "전자신고 파일 제작 완료", "wht_efile", "done")
     except LoginFailed as e:
         _report(api, job.id, False, f"위하고 로그인 실패: {e}")
         raise
@@ -287,6 +306,16 @@ def run_login_test(
         if result is not None:
             return result
         sleep(poll_interval_sec)
+
+
+def _progress(
+    api: EasyoneApi, job_id: str, label: str, step_key: str | None = None, state: str = "running"
+) -> None:
+    try:
+        api.progress(job_id, label, step_key=step_key, state=state)
+    except Exception:
+        # 진행 보고는 표시용이라 실패해도 작업은 계속한다.
+        logger.warning("진행 보고 실패 %s (%s)", job_id, label)
 
 
 def _report(
