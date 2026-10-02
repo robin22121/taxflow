@@ -1983,7 +1983,11 @@ class WehagoUploader:
 
         self.step = "전자신고 제작 모달 열기"
         think("wehago")
-        smarta.get_by_role("button", name="제작(F4)", exact=True).click()
+        # "제작(F4)" 버튼이 화면에 2개 있다 — #saosnb 쪽은 다른 화면과 공유하는 장식용/
+        # 비활성 버튼으로 보이고, 실제 동작은 id="onHandleMake"가 한다(2026-10-02 사용자
+        # 실기: role 기반 셀렉터가 strict mode violation으로 2개에 걸림, 에러 메시지로
+        # 두 요소의 id를 직접 확인).
+        smarta.locator("#onHandleMake").click()
         modal = smarta.locator("div._isDialog:visible", has_text="전자신고 파일 제작")
         modal.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
 
