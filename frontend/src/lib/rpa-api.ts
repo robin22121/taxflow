@@ -143,10 +143,11 @@ export function createWehagoUploadsSelective(
 
 // --- 게이트 2 : 제작 ---------------------------------------------------
 
-export function createProductions(filingId: string, clientIds: string[]): Promise<RpaJob[]> {
+/** resume=true면 직전에 실패한 제작에서 이미 끝난 단계는 건너뛰고 이어서 진행한다. */
+export function createProductions(filingId: string, clientIds: string[], resume = false): Promise<RpaJob[]> {
   return api<RpaJob[]>("/api/v1/rpa/productions", {
     method: "POST",
-    json: { filing_id: filingId, client_ids: clientIds },
+    json: { filing_id: filingId, client_ids: clientIds, resume },
   });
 }
 

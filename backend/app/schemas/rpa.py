@@ -77,6 +77,8 @@ class WehagoSelectiveUploadCreate(BaseModel):
 class ProductionCreate(BaseModel):
     filing_id: str
     client_ids: list[str] = Field(min_length=1)
+    # True면 직전에 실패한 제작의 완료(done) 단계를 이어받아, 에이전트가 그 단계를 건너뛴다.
+    resume: bool = False
 
 
 # --- 공통 : 작업 표시 --------------------------------------------------

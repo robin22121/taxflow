@@ -1236,6 +1236,27 @@ async def create_productions(
             f"이미 제작이 대기·진행 중인 거래처입니다 (client_ids: {sorted(active)}).",
         )
 
+    # 이어서 제작 — 가장 최근 제작이 FAILED일 때만 그 완료 단계를 물려받는다.
+    carried: dict[str, dict] = {}
+    if payload.resume:
+        previous = (
+            await db.execute(
+                select(RpaJob)
+                .where(
+                    RpaJob.monthly_filing_id == filing.id,
+                    RpaJob.client_id.in_(client_ids),
+                    RpaJob.kind == RpaJobKind.MONTHLY_PRODUCTION,
+                )
+                .order_by(RpaJob.created_at.asc())
+            )
+        ).scalars().all()
+        latest_production: dict[str, RpaJob] = {j.client_id: j for j in previous}
+        for cid, prev in latest_production.items():
+            if prev.status == RpaJobStatus.FAILED:
+                done = {k: v for k, v in (prev.step_progress or {}).items() if v == "done"}
+                if done:
+                    carried[cid] = done
+
     jobs = [
         RpaJob(
             tax_office_id=office_id,
@@ -1247,6 +1268,7 @@ async def create_productions(
             business_number=input_by_client[cid].business_number,
             business_name=input_by_client[cid].business_name,
             requested_by_user_id=user.id,
+            step_progress=carried.get(cid),
         )
         for cid in client_ids
     ]

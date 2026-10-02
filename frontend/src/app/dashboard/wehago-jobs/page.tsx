@@ -11,7 +11,13 @@ import { useConfirm } from "@/components/confirm-dialog";
 import { Badge, Button, Card, Modal } from "@/components/ui";
 import { useFilings } from "@/lib/queries";
 import { koreanPeriod } from "@/lib/format";
-import { type RpaJob, type RpaJobKind, createWehagoUploadsSelective, listJobs } from "@/lib/rpa-api";
+import {
+  type RpaJob,
+  type RpaJobKind,
+  createProductions,
+  createWehagoUploadsSelective,
+  listJobs,
+} from "@/lib/rpa-api";
 
 // 마지막 신호 후 이 시간이 지나면 멈춘 것으로 본다 (서버는 15분 뒤 FAILED 처리).
 const STALL_SEC = 120;
@@ -149,6 +155,27 @@ export default function WehagoJobsPage() {
   // 실패한 입력(전송) 작업만 소득구분 단위로 다시 보낸다 — 성공한 다른 소득구분은 건드리지 않는다.
   const resendType = detail ? COLUMNS.find((c) => c.kind === detail.kind && c.key !== "PRODUCTION") : undefined;
   const canResend = detail?.status === "FAILED" && Boolean(detail.client_id) && resendType !== undefined;
+  const canRetryProduction =
+    detail?.status === "FAILED" && Boolean(detail.client_id) && detail.kind === "MONTHLY_PRODUCTION";
+
+  // 제작 재시도 — resume이면 끝난 마감은 건너뛰고, 아니면 처음부터 다시 돈다.
+  async function retryProduction(resume: boolean) {
+    if (!detail?.client_id) return;
+    const ok = await confirm(
+      resume
+        ? `${detail.business_name} 제작을 실패한 단계부터 이어서 진행합니다.\n이미 끝난 마감은 다시 실행하지 않습니다.`
+        : `${detail.business_name} 제작을 처음부터 다시 진행합니다.\n이미 마감된 단계도 다시 실행되니, 위하고 화면을 먼저 확인했는지 확인해 주세요.`,
+    );
+    if (!ok) return;
+    setResendError(null);
+    try {
+      await createProductions(filingId, [detail.client_id], resume);
+      await queryClient.invalidateQueries({ queryKey: ["rpa", "jobs"] });
+      setDetail(null);
+    } catch (e) {
+      setResendError(e instanceof Error ? e.message : "다시 제작하지 못했습니다.");
+    }
+  }
 
   async function resend() {
     if (!detail?.client_id || !resendType) return;
@@ -285,7 +312,18 @@ export default function WehagoJobsPage() {
           setResendError(null);
         }}
         title="작업 상세"
-        footer={canResend ? <Button onClick={resend}>이 항목만 재전송</Button> : undefined}
+        footer={
+          canResend ? (
+            <Button onClick={resend}>이 항목만 재전송</Button>
+          ) : canRetryProduction ? (
+            <>
+              <Button variant="ghost" onClick={() => retryProduction(false)}>
+                처음부터 다시
+              </Button>
+              <Button onClick={() => retryProduction(true)}>이어서 제작</Button>
+            </>
+          ) : undefined
+        }
       >
         {detail && <JobDetail job={detail} />}
         {resendError && <p className="mt-3 text-[12px] text-red-600">{resendError}</p>}

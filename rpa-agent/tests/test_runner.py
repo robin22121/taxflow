@@ -25,7 +25,11 @@ class FakeApi:
         self.jobs = list(jobs)
         self.reports: list[tuple[str, bool, str]] = []
         self.step_progress_by_job: dict[str, dict] = {}
+        self.progress_labels: list[str] = []
         self.report_error = report_error
+
+    def progress(self, job_id: str, label: str, step_key: str | None = None, state: str = "running") -> None:
+        self.progress_labels.append(label)
 
     def claim(self) -> Job | None:
         return self.jobs.pop(0) if self.jobs else None
@@ -229,6 +233,27 @@ def test_monthly_production_efile_failure_keeps_close_progress(tmp_path: Path, m
         "wehago_income_tax": "done", "wehago_business_income": "done",
     }
 
+
+def test_monthly_production_resume_skips_steps_already_done(tmp_path: Path, monkeypatch):
+    """이어서 제작 — 서버가 채워 준 완료 단계(마감 2개)는 다시 실행하지 않고 남은 제작만 한다."""
+    monkeypatch.setattr("easyone_agent.runner.get_secret_optional", lambda name: None)
+    job = replace(
+        JOB,
+        kind=MONTHLY_PRODUCTION,
+        step_progress={"wehago_income_tax": "done", "wehago_business_income": "done"},
+    )
+    api, uploader = FakeApi([job]), FakeUploader()
+    assert process_one(api, uploader, tmp_path) is True
+    assert uploader.closed == []
+    assert uploader.efile_produced == [("123-45-67890", "2026-08", "abc12345")]
+    job_id, succeeded, message = api.reports[0]
+    assert (job_id, succeeded) == ("job1", True)
+    assert "이전 시도에서 완료" in message
+    assert api.step_progress_by_job["job1"] == {
+        "wehago_income_tax": "done", "wehago_business_income": "done", "wht_efile": "done",
+    }
+    assert "원천세 마감 중" not in api.progress_labels
+    assert "전자신고 파일 제작 중" in api.progress_labels
 
 
 def test_unimplemented_job_kind_is_reported_without_touching_uploader(tmp_path: Path):

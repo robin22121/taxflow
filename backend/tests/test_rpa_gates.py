@@ -730,6 +730,52 @@ async def test_agent_progress_updates_step_and_merges_progress(http: AsyncClient
 
 
 @pytest.mark.asyncio
+async def test_production_resume_carries_only_done_steps_from_failed_job(
+    http: AsyncClient, auth_headers: dict
+):
+    filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
+    agent_headers = await _issue_agent(http, auth_headers)
+    await _complete_wehago_input(http, auth_headers, agent_headers, filing_id, client_id)
+
+    body = {"filing_id": filing_id, "client_ids": [client_id]}
+    r = await http.post("/api/v1/rpa/productions", json=body, headers=auth_headers)
+    assert r.status_code == 201, r.text
+    first = (await http.post(CLAIM, headers=agent_headers)).json()["job"]
+    assert first["id"] == r.json()[0]["id"]
+    # 마감 1개는 끝, 다음 단계는 진행 중에 실패 — running은 이어받지 않는다.
+    failed = await http.post(
+        f"/api/v1/rpa/agent/jobs/{first['id']}/result",
+        json={
+            "status": "FAILED",
+            "message": "사업소득 마감 실패",
+            "step_progress": {"wehago_income_tax": "done", "wehago_business_income": "running"},
+        },
+        headers=agent_headers,
+    )
+    assert failed.status_code == 200
+
+    # resume 없이 다시 만들면 처음부터.
+    r = await http.post("/api/v1/rpa/productions", json=body, headers=auth_headers)
+    assert r.status_code == 201, r.text
+    assert r.json()[0]["step_progress"] is None
+    again = (await http.post(CLAIM, headers=agent_headers)).json()["job"]
+    await http.post(
+        f"/api/v1/rpa/agent/jobs/{again['id']}/result",
+        json={"status": "FAILED", "message": "다시 실패", "step_progress": {"wehago_income_tax": "done"}},
+        headers=agent_headers,
+    )
+
+    # resume=true — 직전 실패 작업의 done 단계만 이어받고, claim 응답에도 실려 온다.
+    r = await http.post(
+        "/api/v1/rpa/productions", json={**body, "resume": True}, headers=auth_headers
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()[0]["step_progress"] == {"wehago_income_tax": "done"}
+    claimed = (await http.post(CLAIM, headers=agent_headers)).json()["job"]
+    assert claimed["step_progress"] == {"wehago_income_tax": "done"}
+
+
+@pytest.mark.asyncio
 async def test_agent_progress_rejected_for_unclaimed_job(http: AsyncClient, auth_headers: dict):
     filing_id, (client_id,) = await _ready_clients(http, auth_headers, 1)
     agent_headers = await _issue_agent(http, auth_headers)
