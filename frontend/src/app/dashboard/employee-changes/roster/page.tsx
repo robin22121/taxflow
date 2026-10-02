@@ -6,9 +6,17 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 
-import { useBusinessTypeCodes, useClientEmployees, useCreateEmployee, useImportEmployees, useUpdateEmployee } from "@/lib/queries";
+import {
+  useBusinessTypeCodes,
+  useClientEmployees,
+  useCreateEmployee,
+  useDeleteEmployee,
+  useImportEmployees,
+  useUpdateEmployee,
+} from "@/lib/queries";
 import { Badge, Button, Card, Chip, Modal } from "@/components/ui";
 import { ClientPicker, useSelectedClientId } from "@/components/clients/client-picker";
+import { useConfirm } from "@/components/confirm-dialog";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
 import type { Employee, ImportEmployeeResult } from "@/lib/types";
 
@@ -49,12 +57,25 @@ export default function EmployeeRosterPage() {
 function RosterContent({ clientId }: { clientId: string }) {
   const { data: employees } = useClientEmployees(clientId);
   const importEmp = useImportEmployees(clientId);
+  const deleteEmployee = useDeleteEmployee(clientId);
+  const [confirm, confirmDialog] = useConfirm();
   const empFileRef = useRef<HTMLInputElement>(null);
   const [empResult, setEmpResult] = useState<ImportEmployeeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [addingEmployee, setAddingEmployee] = useState(false);
   const [incomeTab, setIncomeTab] = useState<string>("WAGE");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleDeleteEmployee(e: Employee) {
+    if (!(await confirm(`${e.name} — 삭제하면 되돌릴 수 없습니다. 삭제할까요?`))) return;
+    setDeleteError(null);
+    try {
+      await deleteEmployee.mutateAsync(e.id);
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -116,6 +137,7 @@ function RosterContent({ clientId }: { clientId: string }) {
             + 추가
           </Button>
         </div>
+        {deleteError && <p className="text-sm text-red-600 mb-3">{deleteError}</p>}
         <div className="flex gap-1.5 mb-3">
           {INCOME_TYPE_TABS.map((t) => {
             const count = employees?.filter((e) => e.income_type === t).length ?? 0;
@@ -163,9 +185,16 @@ function RosterContent({ clientId }: { clientId: string }) {
                       <td className="py-2 pr-3">
                         <StatusBadge status={e.status} />
                       </td>
-                      <td className="py-2 text-right">
+                      <td className="py-2 text-right whitespace-nowrap">
                         <Button variant="ghost" className="!text-[12px] !px-2 !py-0.5" onClick={() => setEditingEmployee(e)}>
                           수정
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="!text-[12px] !px-2 !py-0.5 !text-red-600"
+                          onClick={() => handleDeleteEmployee(e)}
+                        >
+                          삭제
                         </Button>
                       </td>
                     </tr>
@@ -189,6 +218,7 @@ function RosterContent({ clientId }: { clientId: string }) {
       {addingEmployee && (
         <EmployeeCreateModal clientId={clientId} incomeType={incomeTab} onClose={() => setAddingEmployee(false)} />
       )}
+      {confirmDialog}
     </div>
   );
 }
