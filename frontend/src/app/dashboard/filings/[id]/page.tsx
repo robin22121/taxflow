@@ -290,8 +290,10 @@ export default function FilingDetailPage({
             </button>
           )}
           {/* 업무 순서: 자료요청 → ① 소득자료 전송 → ② 신고서마감 → ③ 제작/신고 → ④ 납부서/영수증 → 다운로드
-              (2026-10-02 사용자 요청으로 3단계 명칭 변경, "제작/신고" 단계 신설 — 지금은 ②까지만
-              자동화됨, §13-3-10/§3-5 참고. ③·④ 둘 다 아직 미구현) */}
+              (2026-10-02) ②·③ 버튼은 같은 ProductionModal/createProductions 호출 — 백엔드가 한
+              RpaJob(MONTHLY_PRODUCTION) 안에서 마감 다음 단계로 전자신고 파일 제작까지 이어서
+              한다(runner.py _process_monthly_production_job). 이지원 노트북 실기로 제작 성공
+              확인(전자신고 파일을 rpa-agent/withfile/로 저장). 홈택스·위택스 업로드(④)는 미구현. */}
           <div className="relative shrink-0">
             <Button variant="secondary"
               onClick={() => setShowSmsMenu((v) => !v)}
@@ -327,8 +329,9 @@ export default function FilingDetailPage({
               ② 신고서마감
             </button>
             <span className="text-gray-300 text-[11px] px-0.5">›</span>
-            <button disabled title="준비 중 — 홈택스 전송용 전자신고 파일 제작·신고"
-              className="px-2.5 py-1 rounded-full text-[12px] font-medium text-gray-400 cursor-not-allowed">
+            <button onClick={() => setShowProductionModal(true)}
+              title="②와 같은 작업(마감 후 이어서 전자신고 파일 제작까지) — 자동화 PC(이지원)에서 실행"
+              className="px-2.5 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700">
               ③ 제작/신고
             </button>
             <span className="text-gray-300 text-[11px] px-0.5">›</span>
