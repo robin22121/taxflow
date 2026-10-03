@@ -931,6 +931,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
 
 const SOURCE_TAG: Record<string, string> = {
   carry_forward: "전월 동일", portal: "사장님 포털", import: "엑셀 임포트", fast_path: "페스트패스",
+  legacy: "이전 자료 · 수정 직전 값", // 기능 도입 이전 자료 — 처음 고치기 직전 값을 받은 값으로 보존
 };
 
 function ReceivedPane({ filingId, clientId, highlightEventId, onHighlight, onOpenHistory }: {

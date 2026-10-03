@@ -77,6 +77,11 @@ async def record_patch(
     reason = patch.get("edit_reason")
     recorded = False
 
+    if changes and entry.source_snapshot is None:
+        # 이 기능 도입 이전에 만들어진 자료의 첫 수정 — 원본을 보관한 적이 없으므로 수정 직전 값을
+        # "받은 값"의 최선의 근사로 보존한다 (source="legacy"). 이후 수정으로는 바뀌지 않는다.
+        entry.source_snapshot = {"source": "legacy", "values": before}
+
     if "deleted" in patch and bool(patch["deleted"]) != was_deleted:
         if patch["deleted"]:
             await record_change(db, entry, "DELETE", user=user, reason=reason,

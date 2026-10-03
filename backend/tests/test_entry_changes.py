@@ -53,6 +53,16 @@ async def test_value_edit_is_recorded_with_before_after_reason_and_auto_flag(htt
         assert "auto" not in total  # 직접 고친 값
         assert update["changes"]["taxable"].get("auto") is True  # 자동 재계산된 값
         assert update["actor_label"] and update["source"] == "manual" and update["batch_id"] == "batch-abc"
+        # 원본 스냅샷이 없던 이전 자료는 첫 수정 직전 값을 "받은 값"으로 보존한다 (이후 수정으로는 안 바뀐다)
+        from app.db import SessionLocal
+        from app.models import PayrollEntry
+
+        async with SessionLocal() as db:
+            row = await db.get(PayrollEntry, entry["id"])
+            assert row.source_snapshot is not None
+            assert row.source_snapshot["values"]["total_amount"] == entry["total_amount"]
+            assert row.total_amount == new_total  # 현재 값은 수정된 값
+
         # 주민번호·계좌 같은 값은 이력에 들어가지 않는다 (화이트리스트 필드만)
         dumped = json.dumps(update["changes"], ensure_ascii=False).lower()
         assert "rrn" not in dumped and "account" not in dumped
