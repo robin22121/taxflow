@@ -1,3 +1,5 @@
+> **⚠️ 폐기됨 (2026-10-03 표기)** — 이 PoC는 SmartA 데스크톱(pywinauto) 대상이었으나, 자동화 대상이 위하고 T·홈택스·위택스 웹 RPA(CDP)로 바뀌어 더 이상 쓰이지 않는다. 삭제 여부는 `plan/16-wehago-rpa.md` §11 참고. 신규 작업은 `rpa-agent/`에서 한다.
+
 # 더존 SmartA 보안 모듈 PoC
 
 **목적**: pywinauto가 SmartA 프로세스에 붙을 수 있는지, 필드 입력이 반영되는지 확인.
