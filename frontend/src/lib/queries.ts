@@ -182,22 +182,6 @@ export function useBusinessTypeCodes() {
   });
 }
 
-export function useCreateClient() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: {
-      business_name: string;
-      business_number?: string | null;
-      representative?: string | null;
-      contact_phone?: string | null;
-      contact_email?: string | null;
-      is_corporation?: boolean;
-    }) =>
-      api<Client>("/api/v1/clients", { method: "POST", json: payload }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
-  });
-}
-
 export function useAssignClient() {
   const qc = useQueryClient();
   return useMutation({
@@ -239,15 +223,6 @@ export function useUpdateStaff() {
       return api<Staff>(`/api/v1/staff/${id}`, { method: "PATCH", json: payload });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["staff"] }),
-  });
-}
-
-export function useBulkUploadClients() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (file: File) =>
-      apiUpload<Client[]>("/api/v1/clients/bulk-upload", file),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
   });
 }
 
