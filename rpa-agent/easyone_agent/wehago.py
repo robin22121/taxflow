@@ -24,6 +24,21 @@ from easyone_agent.company import normalize_business_number
 from easyone_agent.pace import key_delay_ms, think
 
 WEHAGO_URL = "https://www.wehagot.com"  # 위하고 T (세무회계사무소용)
+
+# 위하고와 같은 크롬을 공유하는 세금 사이트 탭 — 위하고 작업을 시작할 때 닫지 않는다.
+_TAX_SITE_TAB_HOSTS = ("hometax.go.kr", "wetax.go.kr")
+
+
+def _split_tabs(pages: list) -> tuple:
+    """시작할 때 남길 위하고 탭과 닫을 탭을 고른다.
+
+    반환: (기존 위하고 탭 또는 None, 남길 탭 또는 None, 닫을 탭 목록). 남길 탭이 None이면 호출자가
+    새 탭을 만든다. 홈택스·위택스 탭은 어느 쪽에도 넣지 않고 그대로 둔다.
+    """
+    others = [pg for pg in pages if not any(h in pg.url for h in _TAX_SITE_TAB_HOSTS)]
+    main_page = next((pg for pg in others if pg.url.startswith(WEHAGO_URL)), None)
+    keep = main_page or (others[0] if others else None)
+    return main_page, keep, [pg for pg in others if pg is not keep]
 TAXAGENT_URL = f"{WEHAGO_URL}/tedge/#/taxagent"  # 세무대리인 수임처 관리
 LOGIN_WAIT_MS = 60_000  # QR 추가 인증이 뜨면 사람이 처리할 시간
 LOGIN_FORM_WAIT_MS = 15_000
@@ -227,15 +242,14 @@ class WehagoUploader:
         # 발생 — 위하고 전송·제작 등 새 작업을 시작할 때마다 위하고 T 메인 화면 탭 하나만
         # 남기고 나머지는 전부 닫아 항상 같은 깨끗한 상태에서 시작한다).
         self.step = "이전 작업 탭 정리"
-        pages = self._context.pages
-        main_page = next((pg for pg in pages if pg.url.startswith(WEHAGO_URL)), None)
-        keep = main_page or (pages[0] if pages else self._context.new_page())
-        for pg in list(self._context.pages):
-            if pg is not keep:
-                try:
-                    pg.close()
-                except Exception:
-                    pass
+        main_page, keep, to_close = _split_tabs(self._context.pages)
+        if keep is None:
+            keep = self._context.new_page()
+        for pg in to_close:
+            try:
+                pg.close()
+            except Exception:
+                pass
         self._page = keep
         self._page.bring_to_front()
         # 재사용한 탭은 해시 라우팅 SPA라 URL이 같으면 goto만으로는 리액트 상태(검색창에
