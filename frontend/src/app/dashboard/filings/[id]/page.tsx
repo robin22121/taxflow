@@ -42,7 +42,7 @@ import { useConfirm } from "@/components/confirm-dialog";
 import { ClientEditModal } from "@/components/clients/client-edit-modal";
 import { RosterContent } from "@/components/employees/roster-content";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
-import { gateStage, indexJobsByClient, listJobs, type GateStage } from "@/lib/rpa-api";
+import { gateStage, indexJobsByClient, listJobs } from "@/lib/rpa-api";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -663,18 +663,6 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
     (s) => !search || s.client_name.toLowerCase().includes(search.toLowerCase()),
   );
 
-  // 위하고 자동화 단계 — 왼쪽 거래처 목록 배지
-  const { data: rpaJobs = [] } = useQuery({
-    queryKey: ["rpa", "jobs", filingId],
-    queryFn: () => listJobs(filingId),
-    refetchInterval: 10_000,
-  });
-  const jobsByClient = indexJobsByClient(rpaJobs);
-  const stageOf = (clientId: string) => {
-    const b = jobsByClient[clientId] ?? { inputs: [] };
-    return gateStage(b.inputs, b.production, undefined);
-  };
-
   return (
     <div className="flex flex-1 min-h-0 bg-gray-50 relative">
       {/* Mobile overlay backdrop */}
@@ -710,7 +698,6 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 session={s}
                 entries={entries}
                 active={s.id === activeSession}
-                rpaStage={stageOf(s.client_id)}
                 onClick={() => { setActiveSession(s.id); setShowSidebar(false); }}
               />
               {s.id === activeSession && selectedSession && (
@@ -1375,23 +1362,12 @@ function MainTabButton({ active, onClick, children }: { active: boolean; onClick
 
 /* ═══ Session List Item ═══ */
 
-const RPA_STAGE_BADGE: Partial<Record<GateStage, { label: string; tone: "info" | "success" | "danger" }>> = {
-  sending: { label: "위하고 전송 중", tone: "info" },
-  input_done: { label: "위하고 입력 완료", tone: "success" },
-  producing: { label: "제작 중", tone: "info" },
-  production_done: { label: "신고 완료", tone: "success" },
-  published: { label: "발송 완료", tone: "success" },
-  failed: { label: "제작실패", tone: "danger" },
-};
-
-function SessionItem({ session, entries, active, rpaStage, onClick }: {
+function SessionItem({ session, entries, active, onClick }: {
   session: CollectionSession;
   entries: PayrollEntry[];
   active: boolean;
-  rpaStage: GateStage;
   onClick: () => void;
 }) {
-  const stageBadge = RPA_STAGE_BADGE[rpaStage];
   const se = entries.filter((e) => e.client_id === session.client_id);
   const newHire = se.filter((e) => e.match_status === "NEW_HIRE_SUSPECTED").length;
   const resigned = se.filter((e) => e.match_status === "RESIGNATION_SUSPECTED").length;
@@ -1408,7 +1384,6 @@ function SessionItem({ session, entries, active, rpaStage, onClick }: {
       <div className="flex items-center gap-1.5 min-w-0">
         <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-gray-300"}`} />
         <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
-        {stageBadge && <span className="ml-auto shrink-0"><Badge tone={stageBadge.tone}>{stageBadge.label}</Badge></span>}
       </div>
       {se.length > 0 && (
         <div className="flex gap-1.5 mt-1 text-[11.5px] text-gray-500">

@@ -1,17 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { useBulkUploadClients, useClients } from "@/lib/queries";
-import { Badge, Button, Card, Input, Modal } from "@/components/ui";
+import { useClients } from "@/lib/queries";
+import { Badge, Button, Card, Input } from "@/components/ui";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
 import { formatBizNumber, formatPhone } from "@/lib/format";
 
 export default function ClientsPage() {
   const router = useRouter();
   const { data, isLoading } = useClients();
-  const [bulkOpen, setBulkOpen] = useState(false);
   const [wehagoOpen, setWehagoOpen] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -30,9 +29,6 @@ export default function ClientsPage() {
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setWehagoOpen(true)}>
             위하고에서 가져오기
-          </Button>
-          <Button variant="secondary" onClick={() => setBulkOpen(true)}>
-            거래처 일괄 업로드
           </Button>
         </div>
       </div>
@@ -95,75 +91,7 @@ export default function ClientsPage() {
         </Card>
       )}
 
-      {bulkOpen && <BulkUploadModal onClose={() => setBulkOpen(false)} />}
       {wehagoOpen && <WehagoImportModal onClose={() => setWehagoOpen(false)} />}
     </div>
-  );
-}
-
-function BulkUploadModal({ onClose }: { onClose: () => void }) {
-  const bulk = useBulkUploadClients();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [result, setResult] = useState<{ count: number } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  return (
-    <Modal
-      open={true}
-      onClose={onClose}
-      title="거래처 일괄 업로드"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={bulk.isPending}>
-            {result ? "닫기" : "취소"}
-          </Button>
-          {!result && (
-            <Button
-              disabled={!file || bulk.isPending}
-              onClick={async () => {
-                if (!file) return;
-                setErr(null);
-                try {
-                  const created = await bulk.mutateAsync(file);
-                  setResult({ count: created.length });
-                } catch (e) {
-                  setErr((e as Error).message);
-                }
-              }}
-            >
-              {bulk.isPending ? "업로드 중..." : "업로드"}
-            </Button>
-          )}
-        </>
-      }
-    >
-      <div className="space-y-3 text-[13px]">
-        {result ? (
-          <p className="text-blue-600 font-medium">
-            {result.count}개 거래처가 등록되었습니다.
-          </p>
-        ) : (
-          <>
-            <p className="text-gray-700">
-              엑셀(.xlsx) 또는 CSV 파일을 업로드하세요.
-            </p>
-            <p className="text-[12px] text-gray-500">
-              필수 컬럼: <strong>상호</strong> (또는 사업자명, 거래처명)
-              <br />
-              선택 컬럼: 사업자번호, 대표자, 전화번호, 이메일, 법인여부
-            </p>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="block w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-600 hover:file:bg-blue-100"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-          </>
-        )}
-        {err && <p className="text-red-600">{err}</p>}
-      </div>
-    </Modal>
   );
 }
