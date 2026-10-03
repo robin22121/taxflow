@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_write
 from app.models import (
     Client,
     CollectionEvent,
@@ -332,6 +332,7 @@ async def fast_path_commit(
     payload: FastPathCommitIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> FastPathCommitOut:
     """페스트패스 커밋 — 전월 항목을 최신 세율로 재계산한 뒤 approved=True로 저장.
 

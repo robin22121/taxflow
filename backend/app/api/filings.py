@@ -6,7 +6,7 @@ from datetime import UTC, datetime as _dt
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -501,12 +501,14 @@ async def delete_attachment(
     ).scalars().all()
 
     found = False
+    touched_event_ids: set[str] = set()  # 이번에 첨부가 실제로 빠진 이벤트
     for ev in events:
         payload = ev.raw_payload or {}
         atts = payload.get("attachments", [])
         new_atts = [a for a in atts if a.get("storage_key") != key]
         if len(new_atts) < len(atts):
             found = True
+            touched_event_ids.add(ev.id)
             # 삭제 이력 보존
             deleted = [a for a in atts if a.get("storage_key") == key]
             payload["attachments"] = new_atts
@@ -520,12 +522,15 @@ async def delete_attachment(
     if not found:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
 
-    # 연결된 PayrollEntry도 삭제
+    # 연결된 PayrollEntry도 삭제 — 첨부가 방금 빠진 이벤트에서 나온 항목만, 소프트 삭제로.
+    # (예전에는 첨부 없는 텍스트 이벤트의 항목까지 하드 삭제해 데이터가 사라졌다.)
     linked_entries = (
         await db.execute(
             select(PayrollEntry).where(
                 PayrollEntry.collection_session_id == session_id,
                 PayrollEntry.monthly_filing_id == filing_id,
+                PayrollEntry.collection_event_id.in_(touched_event_ids),
+                PayrollEntry.deleted.is_(False),
             )
         )
     ).scalars().all()
@@ -533,7 +538,7 @@ async def delete_attachment(
         # 이벤트에 첨부만 있고 텍스트 입력이 없었던 경우 — 엔트리도 함께 삭제
         ev = next((e for e in events if e.id == entry.collection_event_id), None)
         if ev and not (ev.raw_payload or {}).get("attachments"):
-            await db.delete(entry)
+            entry.deleted = True
 
     await db.commit()
     return {"deleted": True}
@@ -556,14 +561,24 @@ async def delete_event(
     if not event or event.session_id != session_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
 
-    # 연결된 PayrollEntry 삭제
+    # 연결된 PayrollEntry는 소프트 삭제한다 — 수집 update가 항목을 새 이벤트로 다시 연결하므로,
+    # 이벤트 하나를 지웠다고 원래 항목이 통째로 사라지면 안 된다. 이벤트 FK만 끊는다.
     linked = (
         await db.execute(
-            select(PayrollEntry).where(PayrollEntry.collection_event_id == event_id)
+            select(PayrollEntry).where(
+                PayrollEntry.collection_event_id == event_id,
+                PayrollEntry.deleted.is_(False),
+            )
         )
     ).scalars().all()
     for entry in linked:
-        await db.delete(entry)
+        entry.deleted = True
+    # 이미 삭제 처리된 항목도 이벤트 FK는 끊어야 이벤트를 지울 수 있다.
+    await db.execute(
+        update(PayrollEntry)
+        .where(PayrollEntry.collection_event_id == event_id)
+        .values(collection_event_id=None)
+    )
 
     # 이벤트 자체 삭제
     await db.delete(event)

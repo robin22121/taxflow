@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_write
 from app.models import (
     Client,
     CollectionEvent,
@@ -93,6 +93,7 @@ async def submit_message(
     payload: CollectMessageIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> CollectMessageOut:
     session = await _load_session(db, session_id, user)
 
@@ -236,6 +237,7 @@ async def preview_upload(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> CollectPreviewOut:
     """급여파일(엑셀·CSV·이미지·PDF)을 AI로 읽어 항목만 돌려준다. DB 미저장."""
     session = await _load_session(db, session_id, user)
@@ -302,6 +304,7 @@ async def preview_text(
     payload: TextPreviewIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> CollectPreviewOut:
     """붙여넣은 텍스트(카톡·이메일 본문 등)를 AI로 파싱해 항목만 돌려준다. DB 미저장."""
     session = await _load_session(db, session_id, user)
@@ -461,6 +464,7 @@ async def commit_message(
     payload: CollectCommitIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _writer: User = Depends(require_write),
 ) -> CollectMessageOut:
     """미리보기에서 사람이 검토·수정한 항목을 저장한다. AI를 다시 호출하지 않는다."""
     session = await _load_session(db, session_id, user)
