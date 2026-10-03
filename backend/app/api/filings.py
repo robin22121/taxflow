@@ -5,7 +5,7 @@ import zipfile
 from datetime import UTC, datetime as _dt
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.channels import MessageRecipient, get_alimtalk_channel
 from app.core.deps import get_current_user, get_db, require_write, visible_clients
 from app.services.access_log import log_access
+from app.services.entry_history import record_change, record_patch, snapshot_values
 from app.models import (
     Client,
     CollectionEvent,
@@ -23,10 +24,12 @@ from app.models import (
     MonthlyFiling,
     MonthlyFilingStatus,
     PayrollEntry,
+    PayrollEntryChange,
     User,
 )
 from app.schemas.filings import (
     CollectionSessionOut,
+    EntryChangeOut,
     FilingDashboard,
     InsuranceSummaryOut,
     MonthlyFilingCreate,
@@ -694,12 +697,15 @@ async def get_dashboard(
 @router.get("/{filing_id}/entries", response_model=list[PayrollEntryOut])
 async def list_entries(
     filing_id: str,
+    include_deleted: bool = False,  # 삭제된 항목은 기본적으로 내려주지 않는다 (복구는 변경이력에서)
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[PayrollEntryOut]:
     await _scoped_filing(db, filing_id, user)
     visible_ids = await _visible_client_ids(db, user)
     entries_q = select(PayrollEntry).where(PayrollEntry.monthly_filing_id == filing_id)
+    if not include_deleted:
+        entries_q = entries_q.where(PayrollEntry.deleted.is_(False))
     if visible_ids is not None:
         entries_q = entries_q.where(PayrollEntry.client_id.in_(visible_ids))
     rows = (
@@ -724,16 +730,68 @@ async def list_entries(
     return out
 
 
+@router.get("/{filing_id}/entry-changes", response_model=list[EntryChangeOut])
+async def list_entry_changes(
+    filing_id: str,
+    client_id: str | None = None,
+    entry_id: str | None = None,
+    include_approvals: bool = False,  # 승인·승인취소는 잡음이 많아 기본은 값 변경·삭제·복구만
+    limit: int = Query(100, ge=1, le=500),
+    before: _dt | None = None,  # 이 시각보다 이전 이력만 (더 보기)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[EntryChangeOut]:
+    """급여 항목 변경이력 — 신고 건 안에서 최신순. STAFF는 담당 거래처 것만 본다."""
+    await _scoped_filing(db, filing_id, user)
+    visible_ids = await _visible_client_ids(db, user)
+
+    q = select(PayrollEntryChange).where(PayrollEntryChange.monthly_filing_id == filing_id)
+    if visible_ids is not None:
+        q = q.where(PayrollEntryChange.client_id.in_(visible_ids))
+    if client_id:
+        q = q.where(PayrollEntryChange.client_id == client_id)
+    if entry_id:
+        q = q.where(PayrollEntryChange.entry_id == entry_id)
+    if not include_approvals:
+        q = q.where(PayrollEntryChange.action.notin_(["APPROVE", "UNAPPROVE"]))
+    if before:
+        q = q.where(PayrollEntryChange.created_at < before)
+    rows = (
+        await db.execute(q.order_by(PayrollEntryChange.created_at.desc(), PayrollEntryChange.id.desc()).limit(limit))
+    ).scalars().all()
+
+    deleted_by_entry = dict(
+        (
+            await db.execute(
+                select(PayrollEntry.id, PayrollEntry.deleted).where(
+                    PayrollEntry.id.in_({r.entry_id for r in rows})
+                )
+            )
+        ).all()
+    ) if rows else {}
+    out: list[EntryChangeOut] = []
+    for r in rows:
+        item = EntryChangeOut.model_validate(r, from_attributes=True)
+        item.entry_deleted = deleted_by_entry.get(r.entry_id)  # 항목이 영구 삭제됐으면 None
+        out.append(item)
+    return out
+
+
 @router.patch("/{filing_id}/entries/{entry_id}", response_model=PayrollEntryOut)
 async def update_entry(
     filing_id: str,
     entry_id: str,
     payload: PayrollEntryUpdate,
+    batch_id: str | None = None,  # 일괄 작업(일괄 승인 등)이 같은 묶음으로 보이게 하는 id
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     _writer: User = Depends(require_write),
 ) -> PayrollEntry:
     entry = await _scoped_entry(db, filing_id, entry_id, user)
+
+    # 변경이력용 — 수정 전 값과 상태를 먼저 떠 둔다.
+    before = snapshot_values(entry)
+    was_approved, was_deleted = bool(entry.approved), bool(entry.deleted)
 
     patch = payload.model_dump(exclude_unset=True)
     for field_name, value in patch.items():
@@ -797,6 +855,12 @@ async def update_entry(
             entry.employment_insurance = si.employment_insurance
             entry.longterm_care = si.longterm_care
 
+    await record_patch(db, entry, patch, before, was_approved, was_deleted, user=user, batch_id=batch_id)
+    await log_access(
+        db, "EDIT", user_id=user.id, tax_office_id=user.tax_office_id,
+        client_id=entry.client_id, subject_employee_id=entry.employee_id,
+        endpoint="PATCH /filings/{id}/entries/{entry_id}",
+    )
     await db.commit()
     await db.refresh(entry)
     return entry
@@ -865,12 +929,24 @@ async def recalculate_entry_deductions(
 async def delete_entry(
     filing_id: str,
     entry_id: str,
+    reason: str | None = None,  # 삭제 사유(선택) — 변경이력에 남는다
+    batch_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     _writer: User = Depends(require_write),
 ) -> Response:
     entry = await _scoped_entry(db, filing_id, entry_id, user)
-    # 소프트 삭제 — 원천세관리 화면에서 빨간 취소선으로 남기고, 신고서 산출물·집계·매칭에서는 제외한다.
+    # 소프트 삭제 — 표에서는 숨기고 변경이력에서 확인·복구한다. 신고서 산출물·집계·매칭에서는 제외한다.
+    if not entry.deleted:
+        await record_change(
+            db, entry, "DELETE", user=user, reason=reason,
+            changes={"snapshot": snapshot_values(entry)}, batch_id=batch_id,
+        )
+        await log_access(
+            db, "EDIT", user_id=user.id, tax_office_id=user.tax_office_id,
+            client_id=entry.client_id, subject_employee_id=entry.employee_id,
+            endpoint="DELETE /filings/{id}/entries/{entry_id}",
+        )
     entry.deleted = True
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

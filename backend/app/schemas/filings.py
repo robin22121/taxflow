@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -83,6 +83,25 @@ class PayrollEntryOut(BaseModel):
     source_event: SourceEventOut | None = None
 
     model_config = {"from_attributes": True}
+
+
+class EntryChangeOut(BaseModel):
+    """급여 항목 변경이력 한 건 — 변경이력 패널용."""
+
+    id: str
+    entry_id: str
+    employee_id: str | None
+    subject_name: str
+    income_type: str | None
+    action: str  # CREATE | UPDATE | DELETE | RESTORE | APPROVE | UNAPPROVE | PURGE
+    changes: dict | None
+    reason: str | None
+    source: str
+    actor_label: str | None
+    batch_id: str | None
+    created_at: datetime
+    # 항목이 지금도 삭제 상태인지 — True면 패널에서 [복구]를 보여준다. 항목이 영구 삭제됐으면 None.
+    entry_deleted: bool | None = None
 
 
 class PayrollEntryUpdate(BaseModel):

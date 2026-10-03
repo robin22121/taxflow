@@ -94,6 +94,10 @@ class PayrollEntry(Base, IdMixin, TimestampMixin):
     # 소프트 삭제 — 원천세관리에서 "삭제"해도 실제로는 지우지 않고 빨간 취소선으로 표시.
     # 신고서 산출물·집계·매칭 로직에서는 반드시 제외해야 한다.
     deleted: Mapped[bool] = mapped_column(default=False)
+    # 고객이 보낸 원래 값 — 수집 경로(collect·portal·carry_forward·import·fast_path)가 값을 쓸 때만
+    # 갱신하고 PATCH(수동 수정)로는 절대 바꾸지 않는다. "받은 자료" 탭이 이 값을 보여준다.
+    # NULL이면 이 기능 도입 이전 자료(원본 미보존). 형태: {"source": "...", "values": {필드: 값}}
+    source_snapshot: Mapped[dict | None] = mapped_column(JSON)
 
     monthly_filing: Mapped[MonthlyFiling] = relationship()
     collection_session: Mapped[CollectionSession] = relationship()
