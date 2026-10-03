@@ -25,7 +25,8 @@
 |---|---|---|---|
 | 세무사 메뉴 | **상단 탭 4개**: 원천세 신고 · 거래처정보 · 사원정보 · 타세목 신고·납부. 사이드바 아님. "자료요청"(2026-09-30)·"업무미처리내역"(2026-10-03) 탭은 제거됨 | ✅ | `frontend/src/app/dashboard/layout.tsx` |
 | 거래처 추가 | **위하고에서 가져오기로만** 추가(위하고→이지원천 단방향, 역방향 없음). 직접 입력 폼은 없앰(2026-10-03). 개별 사업자 단위, 여러 건 가능. 신고 상세 왼쪽 "거래처 N" 옆 [+]에서 연다. 가져올 때 사원정보(근로·일용·사업·기타 소득유형별 체크)를 함께 가져올 수 있음. **급여정보 가져오기는 미구현**(위하고 화면 실측 필요, 체크박스는 "준비 중") | ✅ | `frontend/src/components/rpa/wehago-import-modal.tsx`, `backend/app/api/rpa_import.py` |
-| 전체 거래처 가져오기 | 서버 관리자가 최초 도입 시 **터미널 명령으로** 하는 것이 원칙. **명령은 아직 없음**(현재는 관리자 웹 버튼만 있음) | ❓ | `plan/16` §12 |
+| 전체 거래처 가져오기 | 서버 관리자가 최초 도입 시 **터미널 명령으로** 한다: `cd backend && uv run python -m app.scripts.import_wehago_all --office <사무소코드>` (`--dry-run`으로 대상 확인). 작업을 등록만 하고 실제 가져오기는 이지원 에이전트가 수행. 관리자 웹 버튼도 남아 있음 | ✅ | `backend/app/scripts/import_wehago_all.py`, `plan/16` §12 |
+| 신고 상세 거래처 목록 | 거래처명·검색·제작 단계 배지·인원수만 표시. 확인필요/대기/미확인 표시와 **실패 사유 팝업은 제거**(2026-10-03) | ✅ | `frontend/src/app/dashboard/filings/[id]/page.tsx` |
 | 급여대장 컬럼 | **위하고T 22컬럼**이 실제 구현 기준 (`COL_COUNT = 22`). "SmartA 24컬럼"은 초기 기획 표현 | ✅ | `plan/04` 머리말(드리프트 경고), `backend/app/services/payroll_excel.py` |
 | 사업주 포털 링크 | 만료 **90일**, 만료 30일 이내 자동 갱신 (30일 아님) | ✅ | `plan/12` §4.1·§4.3, `backend/app/services/portal.py:46` |
 | 사업주 포털 PIN | 세무사가 발급하는 4~6자리 PIN, OTP 없음. **게이트는 현재 꺼짐**(`PORTAL_PIN_ENABLED=False`). 알림톡 T8(OTP형 PIN 요청)은 코드 없음 → 보류 | ✅ | `plan/12` §4.3, `plan/13` §3.5(T8), `config.py:52` |

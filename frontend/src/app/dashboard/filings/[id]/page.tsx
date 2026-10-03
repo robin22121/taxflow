@@ -42,7 +42,7 @@ import { useConfirm } from "@/components/confirm-dialog";
 import { ClientEditModal } from "@/components/clients/client-edit-modal";
 import { RosterContent } from "@/components/employees/roster-content";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
-import { gateStage, indexJobsByClient, listJobs, type GateStage, type RpaJob } from "@/lib/rpa-api";
+import { gateStage, indexJobsByClient, listJobs, type GateStage } from "@/lib/rpa-api";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
@@ -674,12 +674,6 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
     const b = jobsByClient[clientId] ?? { inputs: [] };
     return gateStage(b.inputs, b.production, undefined);
   };
-  const failedJobOf = (clientId: string): RpaJob | undefined => {
-    const b = jobsByClient[clientId] ?? { inputs: [] };
-    if (b.production?.status === "FAILED") return b.production;
-    return b.inputs.find((j) => j.status === "FAILED");
-  };
-  const [failureDetail, setFailureDetail] = useState<{ clientName: string; job: RpaJob } | null>(null);
 
   return (
     <div className="flex flex-1 min-h-0 bg-gray-50 relative">
@@ -717,9 +711,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 entries={entries}
                 active={s.id === activeSession}
                 rpaStage={stageOf(s.client_id)}
-                failedJob={failedJobOf(s.client_id)}
                 onClick={() => { setActiveSession(s.id); setShowSidebar(false); }}
-                onShowFailure={(job) => setFailureDetail({ clientName: s.client_name, job })}
               />
               {s.id === activeSession && selectedSession && (
                 <ClientInfoPanel session={selectedSession} entries={selectedEntries} />
@@ -857,24 +849,6 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
           meta={preview.meta}
           onClose={() => setPreview(null)}
         />
-      )}
-
-      {failureDetail && (
-        <Modal open={true} onClose={() => setFailureDetail(null)} title={`${failureDetail.clientName} — 제작실패 상세`}>
-          <div className="space-y-3 text-[13px]">
-            <div className="text-gray-500">
-              {failureDetail.job.kind !== "MONTHLY_PRODUCTION" ? "전송(자동입력) 단계에서 실패했습니다." : "제작 단계에서 실패했습니다."}
-            </div>
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-red-700 whitespace-pre-wrap">
-              {failureDetail.job.result_message || "상세 사유가 기록되지 않았습니다."}
-            </div>
-            {failureDetail.job.finished_at && (
-              <div className="text-gray-400 text-[12px]">
-                실패 시각: {new Date(failureDetail.job.finished_at).toLocaleString("ko-KR")}
-              </div>
-            )}
-          </div>
-        </Modal>
       )}
     </div>
   );
@@ -1410,38 +1384,17 @@ const RPA_STAGE_BADGE: Partial<Record<GateStage, { label: string; tone: "info" |
   failed: { label: "제작실패", tone: "danger" },
 };
 
-function SessionItem({ session, entries, active, rpaStage, failedJob, onClick, onShowFailure }: {
+function SessionItem({ session, entries, active, rpaStage, onClick }: {
   session: CollectionSession;
   entries: PayrollEntry[];
   active: boolean;
   rpaStage: GateStage;
-  failedJob?: RpaJob;
   onClick: () => void;
-  onShowFailure?: (job: RpaJob) => void;
 }) {
   const stageBadge = RPA_STAGE_BADGE[rpaStage];
   const se = entries.filter((e) => e.client_id === session.client_id);
   const newHire = se.filter((e) => e.match_status === "NEW_HIRE_SUSPECTED").length;
   const resigned = se.filter((e) => e.match_status === "RESIGNATION_SUSPECTED").length;
-  const unconfirmed = se.filter((e) => e.match_status === "UNCONFIRMED").length;
-  const review = se.filter(
-    (e) => {
-      if (e.approved) return false;
-      if (e.match_status === "UNCONFIRMED") return true;
-      const notes = e.anomaly_notes;
-      return (notes && Object.keys(notes).length > 0) || e.match_status === "AMBIGUOUS";
-    },
-  ).length;
-
-  const status = (() => {
-    if (review > 0) return "확인필요";
-    if (se.length > 0 && se.every((e) => e.approved)) return "완료";
-    if (se.length > 0) return "검토중";
-    if (session.status === "SENT") return "수신대기";
-    return "대기";
-  })();
-
-  const isDotted = status === "수신대기" || status === "대기";
 
   return (
     <button
@@ -1452,34 +1405,18 @@ function SessionItem({ session, entries, active, rpaStage, failedJob, onClick, o
           : "border border-transparent hover:bg-gray-50"
       }`}
     >
-      <div className="flex items-center gap-1.5 mb-1 min-w-0">
-          {review > 0 && <span className="w-[7px] h-[7px] rounded-full bg-red-500 shrink-0 shadow-[0_0_0_3px_rgba(185,28,28,0.10)]" />}
-          {isDotted && review === 0 && <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-gray-300"}`} />}
-          {!isDotted && review === 0 && <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-green-500"}`} />}
-          <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
-          {stageBadge && rpaStage === "failed" && failedJob && onShowFailure ? (
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); onShowFailure(failedJob); }}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); onShowFailure(failedJob); } }}
-              className="ml-auto shrink-0 cursor-pointer"
-              title="클릭해서 실패 사유 보기"
-            >
-              <Badge tone={stageBadge.tone}>{stageBadge.label}</Badge>
-            </span>
-          ) : (
-            stageBadge && <span className="ml-auto shrink-0"><Badge tone={stageBadge.tone}>{stageBadge.label}</Badge></span>
-          )}
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-gray-300"}`} />
+        <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
+        {stageBadge && <span className="ml-auto shrink-0"><Badge tone={stageBadge.tone}>{stageBadge.label}</Badge></span>}
       </div>
-      <div className="flex gap-1.5 text-[11.5px] text-gray-500">
-        {se.length > 0 && <span className="tabular-nums">{se.length}명</span>}
-        {newHire > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">신규 {newHire}</span></>}
-        {resigned > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">퇴사 {resigned}</span></>}
-        {unconfirmed > 0 && <><span className="opacity-50">·</span><span className="tabular-nums text-amber-600 font-bold">미확인 {unconfirmed}</span></>}
-        {review > 0 && <><span className="opacity-50">·</span><span className="tabular-nums text-red-600 font-bold">확인 {review}</span></>}
-        {se.length === 0 && <span>미수신</span>}
-      </div>
+      {se.length > 0 && (
+        <div className="flex gap-1.5 mt-1 text-[11.5px] text-gray-500">
+          <span className="tabular-nums">{se.length}명</span>
+          {newHire > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">신규 {newHire}</span></>}
+          {resigned > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">퇴사 {resigned}</span></>}
+        </div>
+      )}
     </button>
   );
 }
