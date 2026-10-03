@@ -44,6 +44,7 @@ import type {
   SessionAttachment,
   SessionTimelineEvent,
   Staff,
+  UnsentChange,
 } from "./types";
 
 export function useMe() {
@@ -155,6 +156,15 @@ export function useFilingEntries(filingId: string, includeDeleted = false) {
       api<PayrollEntry[]>(
         `/api/v1/filings/${filingId}/entries${includeDeleted ? "?include_deleted=true" : ""}`,
       ),
+  });
+}
+
+/** 위하고 전송 이후 다시 고친 급여가 있는 거래처 — 재전송이 끝나면 서버가 계산에서 빼므로 주기적으로 다시 본다. */
+export function useUnsentChanges(filingId: string) {
+  return useQuery({
+    queryKey: ["rpa", "unsent", filingId],
+    queryFn: () => api<UnsentChange[]>(`/api/v1/rpa/unsent-changes?filing_id=${encodeURIComponent(filingId)}`),
+    refetchInterval: 10_000,
   });
 }
 
@@ -541,6 +551,7 @@ export function useUpdateEntry(filingId: string) {
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["filings", filingId] });
+      qc.invalidateQueries({ queryKey: ["rpa", "unsent", filingId] });
     },
   });
 }
@@ -590,6 +601,7 @@ export function useDeleteEntry(filingId: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["filings", filingId] });
+      qc.invalidateQueries({ queryKey: ["rpa", "unsent", filingId] });
     },
   });
 }

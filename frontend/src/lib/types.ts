@@ -495,3 +495,13 @@ export type EmployeeChangeRequest = {
   note: string | null;
   status: "PENDING" | "APPROVED" | "REJECTED";
 };
+
+/** 위하고 전송 이후에 고친 급여가 있는 거래처 (GET /rpa/unsent-changes) — 재전송이 필요하다는 경고용 */
+export type UnsentChange = {
+  client_id: string;
+  income_types: string[]; // WAGE / BUSINESS / OTHER
+  count: number;
+  since: string;
+  // input: 위하고 전송 후 / production: 제작까지 끝난 뒤 / published: 사장님께 발송 확정까지 끝난 뒤
+  after: "input" | "production" | "published";
+};

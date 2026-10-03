@@ -105,6 +105,17 @@ class RpaJobOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UnsentChangeOut(BaseModel):
+    """위하고 전송 이후에 고친 급여가 있는 거래처 — 재전송이 필요하다는 경고용."""
+
+    client_id: str
+    income_types: list[str]  # 전송 이후 바뀐 소득유형 (WAGE/BUSINESS/OTHER)
+    count: int  # 전송 이후의 변경 건수
+    since: datetime  # 가장 이른 미전송 변경 시각
+    # 어디까지 진행된 뒤에 고쳤는가 — input: 위하고 전송만 / production: 제작까지 / published: 사장님께 발송 확정까지
+    after: Literal["input", "production", "published"]
+
+
 class RpaActivityJobOut(RpaJobOut):
     """하단 작업바 — 다른 직원 작업은 거래처 정보(상호·사업자번호·귀속월·결과 메시지 등)를 비운다."""
 

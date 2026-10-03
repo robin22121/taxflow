@@ -25,6 +25,7 @@ import {
   useSessionAttachments,
   useSessionTimeline,
   useSubmitMessage,
+  useUnsentChanges,
   useUpdateClient,
   useUpdateEntry,
 } from "@/lib/queries";
@@ -38,13 +39,13 @@ import { ProductionModal } from "@/components/rpa/production-modal";
 import { ProductionModalDemo } from "@/components/rpa/production-modal-demo";
 import { getLoginMode } from "@/lib/login-mode";
 import { FastPathModal } from "@/components/rpa/fast-path-modal";
-import { usePrompt } from "@/components/confirm-dialog";
+import { useConfirm, usePrompt } from "@/components/confirm-dialog";
 import { ChangeHistoryPanel } from "@/components/filings/change-history-panel";
 import { ClientEditModal } from "@/components/clients/client-edit-modal";
 import { RosterContent } from "@/components/employees/roster-content";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
 import { gateStage, indexJobsByClient, listJobs } from "@/lib/rpa-api";
-import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
+import type { CollectionSession, EntryChange, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent, UnsentChange } from "@/lib/types";
 
 /* ═══ Main Page ═══ */
 
@@ -88,6 +89,29 @@ export default function FilingDetailPage({
   const jobsByClientForProduction = indexJobsByClient(rpaJobsForProduction);
   const productionStageOf = (clientId: string) =>
     gateStage(jobsByClientForProduction[clientId]?.inputs ?? [], jobsByClientForProduction[clientId]?.production, undefined);
+
+  // 위하고 전송 이후 다시 고친 급여 — 재전송할 때까지 거래처 옆에 계속 경고한다.
+  const { data: unsent = [] } = useUnsentChanges(id);
+  const unsentByClient: Record<string, UnsentChange> = Object.fromEntries(unsent.map((u) => [u.client_id, u]));
+  // 이미 위하고 전송이 성공한 소득유형 — 이 유형의 항목을 고치면 재전송이 필요하다.
+  const sentTypesOf = (clientId: string): Set<string> => {
+    const typeByKind: Record<string, string> = {
+      WEHAGO_PAYROLL_INPUT: "WAGE", WEHAGO_BUSINESS_INPUT: "BUSINESS", WEHAGO_OTHER_INPUT: "OTHER",
+    };
+    return new Set(
+      (jobsByClientForProduction[clientId]?.inputs ?? [])
+        .filter((j) => j.status === "SUCCEEDED" && typeByKind[j.kind])
+        .map((j) => typeByKind[j.kind]),
+    );
+  };
+  const [askConfirm, confirmDialog] = useConfirm();
+  // ②신고서마감·③제작/신고는 위하고에 있는 자료로 진행한다 — 전송하지 않은 수정이 있으면 먼저 알린다 (차단은 아님).
+  async function confirmProduceWithUnsent(): Promise<boolean> {
+    if (unsent.length === 0) return true;
+    const names = new Map(sessions.map((s) => [s.client_id, s.client_name]));
+    const list = unsent.map((u) => `· ${names.get(u.client_id) ?? "거래처"} (${u.count}건)`).join("\n");
+    return askConfirm(`위하고에 전송하지 않은 수정이 있는 거래처가 있습니다.\n${list}\n\n이대로 진행하면 이전에 전송한 자료로 마감·제작됩니다. 먼저 ① 소득자료 전송으로 다시 보내는 것을 권장합니다.\n\n그래도 계속할까요?`);
+  }
 
   useEffect(() => {
     if (sessions.length === 0) return;
@@ -316,12 +340,12 @@ export default function FilingDetailPage({
               ① 소득자료 전송
             </button>
             <span className="text-gray-300 text-[11px] px-0.5">›</span>
-            <button onClick={() => setShowProductionModal(true)}
+            <button onClick={async () => { if (await confirmProduceWithUnsent()) setShowProductionModal(true); }}
               className="px-2.5 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700">
               ② 신고서마감
             </button>
             <span className="text-gray-300 text-[11px] px-0.5">›</span>
-            <button onClick={() => setShowProductionModal(true)}
+            <button onClick={async () => { if (await confirmProduceWithUnsent()) setShowProductionModal(true); }}
               title="②와 같은 작업(마감 후 이어서 전자신고 파일 제작까지) — 자동화 PC(이지원)에서 실행"
               className="px-2.5 py-1 rounded-full text-[12px] font-semibold bg-blue-600 text-white hover:bg-blue-700">
               ③ 제작/신고
@@ -354,6 +378,8 @@ export default function FilingDetailPage({
         headerSlots.actions,
       )}
 
+      {confirmDialog}
+
       {/* Body */}
       <DefaultMode
         filingId={id}
@@ -366,6 +392,8 @@ export default function FilingDetailPage({
         showSidebar={showSidebar}
         setShowSidebar={setShowSidebar}
         onOpenUnifiedSummary={() => setShowUnifiedSummary(true)}
+        unsentByClient={unsentByClient}
+        sentTypesOf={sentTypesOf}
       />
 
       {showSendModal && (
@@ -635,7 +663,7 @@ export default function FilingDetailPage({
 
 type MainTab = "received" | "wht" | "insurance";
 
-function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, showSidebar, setShowSidebar, onOpenUnifiedSummary }: {
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, showSidebar, setShowSidebar, onOpenUnifiedSummary, unsentByClient, sentTypesOf }: {
   filingId: string;
   sessions: CollectionSession[];
   entries: PayrollEntry[];
@@ -646,7 +674,17 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   showSidebar: boolean;
   setShowSidebar: (v: boolean) => void;
   onOpenUnifiedSummary: () => void;
+  unsentByClient: Record<string, UnsentChange>;
+  sentTypesOf: (clientId: string) => Set<string>;
 }) {
+  const [askRestore, restoreDialog] = useConfirm();
+  const selectedUnsent = selectedSession ? unsentByClient[selectedSession.client_id] : undefined;
+  // 변경이력 패널에서 삭제를 복구할 때 — 이미 위하고로 전송된 소득유형이면 먼저 알린다.
+  const confirmRestoreIfSent = async (row: EntryChange): Promise<boolean> => {
+    const type = row.income_type === "RETIREMENT" ? "OTHER" : row.income_type;
+    if (!selectedSession || !type || !sentTypesOf(selectedSession.client_id).has(type)) return true;
+    return askRestore("이미 위하고로 전송된 자료입니다.\n복구하면 위하고에 다시 전송해야 합니다. 재전송하기 전까지 화면에 경고가 계속 표시됩니다.\n\n계속할까요?");
+  };
   const [search, setSearch] = useState("");
   const [showClientImport, setShowClientImport] = useState(false);
   // 변경이력 패널 — 두 탭 공통. historyEntryId 가 있으면 그 직원(항목)만 본다.
@@ -702,6 +740,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 session={s}
                 entries={entries}
                 active={s.id === activeSession}
+                unsent={unsentByClient[s.client_id]}
                 onClick={() => { setActiveSession(s.id); setShowSidebar(false); }}
               />
               {s.id === activeSession && selectedSession && (
@@ -759,6 +798,18 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 border border-blue-100">
                   {selectedSession.client_name}
                 </span>
+                {selectedUnsent && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-600 text-white shadow-sm"
+                    title={`${selectedUnsent.since.slice(0, 16).replace("T", " ")} 이후 수정 · 대상: ${selectedUnsent.income_types.map((t) => incomeLabel(t)).join("·")}`}
+                  >
+                    ⚠ {selectedUnsent.after === "published"
+                      ? "발송 확정 이후 수정됨 · 사장님께 이미 공개됨"
+                      : selectedUnsent.after === "production"
+                        ? "제작 이후 수정됨 · 재전송·재제작 필요"
+                        : "수정됨 · 위하고 재전송 필요"} ({selectedUnsent.count}건)
+                  </span>
+                )}
                 <Button variant="secondary" className="!text-[11px] !px-2 !py-0.5" onClick={() => setShowClientEdit(true)}>
                   정보수정
                 </Button>
@@ -780,6 +831,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                     highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
                     forcedTab={mainTab === "insurance" ? "insurance" : "wht"}
                     summaryMode={mainTab === "wht" ? "wht" : undefined}
+                    sentIncomeTypes={sentTypesOf(selectedSession.client_id)}
                     selected={selectedEntryIds} setSelected={setSelectedEntryIds}
                     onOpenHistory={(entryId) => { setHistoryEntryId(entryId); setShowHistory(true); setCommOpen(false); }} />
                 )}
@@ -829,8 +881,10 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
           entryId={historyEntryId}
           onClearEntry={() => setHistoryEntryId(null)}
           onClose={() => { setShowHistory(false); setHistoryEntryId(null); }}
+          onBeforeRestore={confirmRestoreIfSent}
         />
       )}
+      {restoreDialog}
 
       {/* 고객소통내역 모바일 오버레이 배경 */}
       {selectedSession && mainTab === "received" && commOpen && (
@@ -1493,10 +1547,11 @@ function MainTabButton({ active, onClick, children }: { active: boolean; onClick
 
 /* ═══ Session List Item ═══ */
 
-function SessionItem({ session, entries, active, onClick }: {
+function SessionItem({ session, entries, active, unsent, onClick }: {
   session: CollectionSession;
   entries: PayrollEntry[];
   active: boolean;
+  unsent?: UnsentChange; // 위하고 전송 이후 고친 급여가 있으면 재전송 필요 표시
   onClick: () => void;
 }) {
   const se = entries.filter((e) => e.client_id === session.client_id);
@@ -1515,6 +1570,12 @@ function SessionItem({ session, entries, active, onClick }: {
       <div className="flex items-center gap-1.5 min-w-0">
         <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${active ? "bg-blue-500" : "bg-gray-300"}`} />
         <span className="text-[13px] font-semibold truncate">{session.client_name}</span>
+        {unsent && (
+          <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded-full text-[10.5px] font-bold bg-red-600 text-white"
+            title={`위하고 전송 이후 ${unsent.count}건 수정됨`}>
+            재전송 필요
+          </span>
+        )}
       </div>
       {se.length > 0 && (
         <div className="flex gap-1.5 mt-1 text-[11.5px] text-gray-500">
@@ -1776,7 +1837,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
 
 /* ═══ Right Pane (AI Table) ═══ */
 
-function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab, summaryMode, selected, setSelected, onOpenHistory }: {
+function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab, summaryMode, selected, setSelected, onOpenHistory, sentIncomeTypes }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
@@ -1788,6 +1849,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   selected: Set<string>;
   setSelected: (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
   onOpenHistory: (entryId: string) => void;
+  sentIncomeTypes: Set<string>; // 이미 위하고에 전송된 소득유형 — 이 유형 항목을 고치면 재전송이 필요하다
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
@@ -1798,6 +1860,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
   const [prompt, promptDialog] = usePrompt();
+  const [confirm, confirmDialog] = useConfirm();
   const [whtSubTab, setWhtSubTab] = useState<WhtSubTab>("WAGE");
   const tab = forcedTab ?? internalTab;
   const setTab = forcedTab ? () => {} : setInternalTab;
@@ -1846,13 +1909,21 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   // 일괄 작업은 같은 batchId 를 줘서 변경이력에서 "일괄 삭제 N건"처럼 묶어 보이게 한다.
   const newBatchId = () => crypto.randomUUID().replace(/-/g, "");
 
+  // 이미 위하고로 전송된 소득유형의 항목을 고치면 위하고와 달라진다 — 저장 전에 알린다.
+  async function confirmResend(touched: PayrollEntry[]): Promise<boolean> {
+    if (!touched.some((e) => sentIncomeTypes.has(e.income_type === "RETIREMENT" ? "OTHER" : e.income_type))) return true;
+    return confirm("이미 위하고로 전송된 자료입니다.\n수정·삭제하면 위하고에 다시 전송해야 합니다. 재전송하기 전까지 화면에 경고가 계속 표시됩니다.\n\n계속할까요?");
+  }
+
   async function deleteWithReason(e: PayrollEntry) {
+    if (!(await confirmResend([e]))) return;
     const reason = await prompt(`${e.raw_name} 항목을 삭제할까요?\n삭제해도 [변경이력]에서 복구할 수 있습니다.`, "삭제 사유 (선택)");
     if (reason === null) return;
     remove.mutate({ id: e.id, reason });
   }
   async function bulkDelete() {
     if (selected.size === 0) return;
+    if (!(await confirmResend(entries.filter((e) => selected.has(e.id))))) return;
     const reason = await prompt(`선택된 ${selected.size}건을 삭제할까요?\n삭제해도 [변경이력]에서 복구할 수 있습니다.`, "삭제 사유 (선택)");
     if (reason === null) return;
     const batchId = newBatchId();
@@ -1915,7 +1986,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   }
 
   // 검토 대상(미승인) 항목의 "승인" — 펼쳐서 값을 고쳤으면 그 값까지 함께 반영하고 승인 처리한다.
-  function approveEntry(e: PayrollEntry) {
+  async function approveEntry(e: PayrollEntry) {
     const d = getDraft(e);
     const patch: Partial<PayrollEntry> = { approved: true };
     for (const f of DETAIL_FIELDS) {
@@ -1925,6 +1996,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       alert("값을 수정했습니다. 수정 사유를 입력해주세요.");
       return;
     }
+    if (requiresEditReason(patch) && !(await confirmResend([e]))) return;
     update.mutate({ id: e.id, patch }, {
       onSuccess: () => { setExpandedId(null); setEditingId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
       onError: (err) => alert((err as Error).message),
@@ -1932,7 +2004,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   }
 
   // 이미 승인된 항목의 값 수정 저장 (승인 상태는 그대로 유지).
-  function saveEntryEdit(e: PayrollEntry) {
+  async function saveEntryEdit(e: PayrollEntry) {
     const d = getDraft(e);
     const patch: Partial<PayrollEntry> = {};
     for (const f of DETAIL_FIELDS) {
@@ -1943,10 +2015,17 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
       alert("값을 수정했습니다. 수정 사유를 입력해주세요.");
       return;
     }
+    if (!(await confirmResend([e]))) return;
     update.mutate({ id: e.id, patch }, {
       onSuccess: () => { setExpandedId(null); setEditingId(null); setDrafts((prev) => { const next = { ...prev }; delete next[e.id]; return next; }); },
       onError: (err) => alert((err as Error).message),
     });
+  }
+
+  // 승인취소 — 값을 고치려는 첫 단계라 이미 전송된 항목이면 여기서 먼저 알린다.
+  async function unapproveEntry(e: PayrollEntry) {
+    if (!(await confirmResend([e]))) return;
+    update.mutate({ id: e.id, patch: { approved: false } });
   }
 
   // 펼치기(행 클릭) — 조회만. 편집 모드는 함께 켜지 않으며, 접을 때는 편집 모드도 함께 닫는다.
@@ -1969,6 +2048,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   return (
     <>
       {promptDialog}
+      {confirmDialog}
       {/* 거래처 정보는 좌측 목록 하단(ClientInfoPanel)으로 이동 — 여기는 선택 시 액션만 */}
       {(selected.size > 0 || showInternalTabBar) && (
         <div className="px-4 py-2 border-b border-gray-100 shrink-0">
@@ -2054,14 +2134,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                       검토 대상 ({pendingEntries.length}명)
                     </td></tr>
                   )}
-                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => deleteWithReason(e)} onOpenHistory={() => onOpenHistory(e.id)} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
+                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => deleteWithReason(e)} onUnapprove={() => unapproveEntry(e)} onOpenHistory={() => onOpenHistory(e.id)} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
                   {/* ── 승인 완료 섹션 ── */}
                   {approvedEntries.length > 0 && (
                     <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
                       승인 완료 ({approvedEntries.length}명)
                     </td></tr>
                   )}
-                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={() => deleteWithReason(e)} onOpenHistory={() => onOpenHistory(e.id)} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
+                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={() => deleteWithReason(e)} onUnapprove={() => unapproveEntry(e)} onOpenHistory={() => onOpenHistory(e.id)} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
                 </tbody>
               </table>
             ) : (
@@ -2742,10 +2822,11 @@ type EntryRowProps = {
   editing: boolean;
   update: ReturnType<typeof useUpdateEntry>;
   remove: ReturnType<typeof useDeleteEntry>;
+  onUnapprove: () => void;
   onOpenHistory: () => void;
 };
 
-function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onRecalc, onToggleExpand, expanded, onToggleEdit, editing, update, remove, onOpenHistory }: EntryRowProps) {
+function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onRecalc, onToggleExpand, expanded, onToggleEdit, editing, update, remove, onUnapprove, onOpenHistory }: EntryRowProps) {
   // 메모(anomaly_notes.memo)만 있는 행은 이상치가 아니다 — 분석 사유 기준으로 판정
   const reasons = anomalyReasons(e);
   const hasFlag = reasons.length > 0 && !e.approved;
@@ -2820,7 +2901,7 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
             </>) : (<>
               {/* 승인된 항목은 [수정]을 눌러도 편집모드로 안 들어가고 안내만 뜬다 — 승인취소 후에만 실제 수정 가능 */}
               <button onClick={() => alert("승인된 항목입니다. 수정하려면 먼저 [승인취소]를 눌러주세요.")} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50">수정</button>
-              <button onClick={() => update.mutate({ id: e.id, patch: { approved: false } })} className="px-2 py-1 text-[11px] text-amber-600 border border-amber-200 rounded-full hover:bg-amber-50">승인취소</button>
+              <button onClick={onUnapprove} className="px-2 py-1 text-[11px] text-amber-600 border border-amber-200 rounded-full hover:bg-amber-50">승인취소</button>
             </>)}
           </div>
         </td>

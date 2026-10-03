@@ -71,7 +71,7 @@ function groupRows(rows: EntryChange[]): Group[] {
 }
 
 export function ChangeHistoryPanel({
-  filingId, clientId, clientName, entryId, onClearEntry, onClose,
+  filingId, clientId, clientName, entryId, onClearEntry, onClose, onBeforeRestore,
 }: {
   filingId: string;
   clientId: string;
@@ -79,6 +79,8 @@ export function ChangeHistoryPanel({
   entryId: string | null; // 특정 직원(항목)만 볼 때
   onClearEntry: () => void;
   onClose: () => void;
+  // 복구 전에 확인이 필요하면(예: 이미 위하고로 전송된 자료) false 를 돌려줘 막는다.
+  onBeforeRestore?: (row: EntryChange) => Promise<boolean>;
 }) {
   const [includeApprovals, setIncludeApprovals] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -92,6 +94,11 @@ export function ChangeHistoryPanel({
     if (seen.has(r.entry_id)) continue;
     seen.add(r.entry_id);
     if (r.action === "DELETE" && r.entry_deleted === true) restorable.add(r.id);
+  }
+
+  async function restore(row: EntryChange) {
+    if (onBeforeRestore && !(await onBeforeRestore(row))) return;
+    update.mutate({ id: row.entry_id, patch: { deleted: false } }, { onError: (err) => alert((err as Error).message) });
   }
 
   const groups = groupRows(rows);
@@ -131,8 +138,7 @@ export function ChangeHistoryPanel({
             return (
               <ChangeRow key={g.key} row={head} canRestore={restorable.has(head.id)}
                 restoring={update.isPending}
-                onRestore={() => update.mutate({ id: head.entry_id, patch: { deleted: false } },
-                  { onError: (err) => alert((err as Error).message) })} />
+                onRestore={() => restore(head)} />
             );
           }
           const open = openGroups.has(g.key);
@@ -152,8 +158,7 @@ export function ChangeHistoryPanel({
                 <div className="border-t border-gray-100 p-2 space-y-2">
                   {g.rows.map((r) => (
                     <ChangeRow key={r.id} row={r} compact canRestore={restorable.has(r.id)} restoring={update.isPending}
-                      onRestore={() => update.mutate({ id: r.entry_id, patch: { deleted: false } },
-                        { onError: (err) => alert((err as Error).message) })} />
+                      onRestore={() => restore(r)} />
                   ))}
                 </div>
               )}

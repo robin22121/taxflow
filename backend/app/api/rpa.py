@@ -28,6 +28,7 @@ from app.models import (
     FilingResultSource,
     MonthlyFiling,
     PayrollEntry,
+    PayrollEntryChange,
     RpaAgent,
     RpaJob,
     RpaJobKind,
@@ -51,6 +52,7 @@ from app.schemas.rpa import (
     RpaJobOut,
     RpaJobResultIn,
     RpaNotificationOut,
+    UnsentChangeOut,
     IncomeTypeStatus,
     WehagoSelectiveUploadCreate,
     WehagoSelectiveUploadResult,
@@ -677,6 +679,102 @@ async def list_jobs(
         query = query.where(RpaJob.acknowledged_at.is_(None))
     rows = await db.execute(query.order_by(RpaJob.created_at.desc()).limit(200))
     return list(rows.scalars().all())
+
+
+@router.get("/unsent-changes", response_model=list[UnsentChangeOut])
+async def list_unsent_changes(
+    filing_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[UnsentChangeOut]:
+    """위하고에 이미 전송한 뒤 다시 고친 급여가 있는 거래처 — 재전송이 필요하다는 경고용.
+
+    별도 상태를 저장하지 않고 계산한다: 소득유형별 마지막 성공 입력 작업(게이트 1)의 완료 시각보다
+    나중에 생긴 변경이력이 있으면 "미전송 수정"이다. 재전송이 성공하면 자동으로 사라진다.
+    사유만 바꾼 수정·승인 변경·기능 도입 이전 기록(system)은 세지 않는다. 일용소득은 게이트 1에
+    묶여 있지 않아 대상이 아니다.
+    """
+    office_id = _office_id(user)
+    filing = await db.get(MonthlyFiling, filing_id)
+    if filing is None or filing.tax_office_id != office_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "신고를 찾을 수 없습니다")
+
+    type_by_kind = {kind: income_type.value for income_type, kind in INPUT_JOB_KIND_BY_INCOME_TYPE.items()}
+    jobs = (
+        await db.execute(
+            select(RpaJob).where(
+                RpaJob.monthly_filing_id == filing_id,
+                RpaJob.kind.in_([*WEHAGO_INPUT_KINDS, RpaJobKind.MONTHLY_PRODUCTION]),
+                RpaJob.status == RpaJobStatus.SUCCEEDED,
+                RpaJob.finished_at.is_not(None),
+            )
+        )
+    ).scalars().all()
+    last_sent: dict[tuple[str, str], datetime] = {}  # (거래처, 소득유형) → 마지막 성공 전송
+    produced: dict[str, datetime] = {}  # 거래처 → 마지막 성공 제작
+    for job in jobs:
+        finished = _as_utc(job.finished_at)
+        if job.kind == RpaJobKind.MONTHLY_PRODUCTION:
+            produced[job.client_id] = max(finished, produced.get(job.client_id, finished))
+        else:
+            key = (job.client_id, type_by_kind[job.kind])
+            last_sent[key] = max(finished, last_sent.get(key, finished))
+    if not last_sent:
+        return []
+
+    published = {
+        client_id: _as_utc(at)
+        for client_id, at in (
+            await db.execute(
+                select(ClientFilingResult.client_id, ClientFilingResult.published_at).where(
+                    ClientFilingResult.period == filing.period,
+                    ClientFilingResult.published_at.is_not(None),
+                )
+            )
+        ).all()
+    }
+
+    changes = (
+        await db.execute(
+            select(PayrollEntryChange).where(
+                PayrollEntryChange.monthly_filing_id == filing_id,
+                PayrollEntryChange.tax_office_id == office_id,
+                PayrollEntryChange.source != "system",
+                PayrollEntryChange.action.in_(["CREATE", "UPDATE", "DELETE", "RESTORE", "PURGE"]),
+                PayrollEntryChange.client_id.in_({client_id for client_id, _ in last_sent}),
+            )
+        )
+    ).scalars().all()
+
+    per_client: dict[str, list[tuple[str, datetime]]] = {}
+    for change in changes:
+        if change.action == "UPDATE" and not change.changes:
+            continue  # 사유만 바뀐 수정
+        income_type = "OTHER" if change.income_type == "RETIREMENT" else change.income_type
+        sent_at = last_sent.get((change.client_id, income_type or ""))
+        at = _as_utc(change.created_at)
+        if sent_at is not None and at > sent_at:
+            per_client.setdefault(change.client_id, []).append((income_type, at))
+
+    out: list[UnsentChangeOut] = []
+    for client_id, items in per_client.items():
+        latest = max(at for _, at in items)
+        if client_id in published and latest > published[client_id]:
+            after = "published"
+        elif client_id in produced and latest > produced[client_id]:
+            after = "production"
+        else:
+            after = "input"
+        out.append(
+            UnsentChangeOut(
+                client_id=client_id,
+                income_types=sorted({t for t, _ in items}),
+                count=len(items),
+                since=min(at for _, at in items),
+                after=after,
+            )
+        )
+    return out
 
 
 @router.get("/jobs/activity", response_model=list[RpaActivityJobOut])
