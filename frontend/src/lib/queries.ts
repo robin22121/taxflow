@@ -20,6 +20,7 @@ import type {
   CurrentUser,
   Employee,
   EmployeeChangeRequest,
+  EntryChange,
   Filing,
   FilingDashboard,
   FilingNoticeSendResult,
@@ -146,10 +147,33 @@ export function useSessionTimeline(filingId: string, sessionId: string | null) {
   });
 }
 
-export function useFilingEntries(filingId: string) {
+/** 삭제된 항목은 기본적으로 내려오지 않는다 — 받은 자료처럼 삭제 사실도 보여줘야 하면 includeDeleted. */
+export function useFilingEntries(filingId: string, includeDeleted = false) {
   return useQuery({
-    queryKey: ["filings", filingId, "entries"],
-    queryFn: () => api<PayrollEntry[]>(`/api/v1/filings/${filingId}/entries`),
+    queryKey: ["filings", filingId, "entries", includeDeleted ? "with-deleted" : "active"],
+    queryFn: () =>
+      api<PayrollEntry[]>(
+        `/api/v1/filings/${filingId}/entries${includeDeleted ? "?include_deleted=true" : ""}`,
+      ),
+  });
+}
+
+/** 급여 항목 변경이력 — 거래처(필수)·직원 단위. 승인·승인취소는 includeApprovals 일 때만. */
+export function useEntryChanges(
+  filingId: string,
+  opts: { clientId: string | null; entryId?: string | null; includeApprovals?: boolean; enabled?: boolean },
+) {
+  const { clientId, entryId = null, includeApprovals = false, enabled = true } = opts;
+  return useQuery({
+    queryKey: ["filings", filingId, "entry-changes", clientId, entryId, includeApprovals],
+    queryFn: () => {
+      const qs = new URLSearchParams({ limit: "200" });
+      if (clientId) qs.set("client_id", clientId);
+      if (entryId) qs.set("entry_id", entryId);
+      if (includeApprovals) qs.set("include_approvals", "true");
+      return api<EntryChange[]>(`/api/v1/filings/${filingId}/entry-changes?${qs.toString()}`);
+    },
+    enabled: enabled && !!clientId,
   });
 }
 
@@ -509,11 +533,12 @@ export function useUploadFilingDocument(clientId: string) {
 export function useUpdateEntry(filingId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { id: string; patch: Partial<PayrollEntry> }) =>
-      api<PayrollEntry>(`/api/v1/filings/${filingId}/entries/${vars.id}`, {
-        method: "PATCH",
-        json: vars.patch,
-      }),
+    // batchId: 일괄 승인처럼 여러 건을 한 번에 처리할 때 같은 값을 줘서 변경이력에서 묶어 보이게 한다.
+    mutationFn: (vars: { id: string; patch: Partial<PayrollEntry>; batchId?: string }) =>
+      api<PayrollEntry>(
+        `/api/v1/filings/${filingId}/entries/${vars.id}${vars.batchId ? `?batch_id=${vars.batchId}` : ""}`,
+        { method: "PATCH", json: vars.patch },
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["filings", filingId] });
     },
@@ -555,8 +580,14 @@ export function useRecalculateDeductions(filingId: string) {
 export function useDeleteEntry(filingId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (entryId: string) =>
-      api(`/api/v1/filings/${filingId}/entries/${entryId}`, { method: "DELETE" }),
+    mutationFn: (vars: string | { id: string; reason?: string; batchId?: string }) => {
+      const { id, reason, batchId } = typeof vars === "string" ? { id: vars, reason: undefined, batchId: undefined } : vars;
+      const qs = new URLSearchParams();
+      if (reason?.trim()) qs.set("reason", reason.trim());
+      if (batchId) qs.set("batch_id", batchId);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return api(`/api/v1/filings/${filingId}/entries/${id}${suffix}`, { method: "DELETE" });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["filings", filingId] });
     },

@@ -80,6 +80,8 @@ class PayrollEntryOut(BaseModel):
     approved: bool
     edit_reason: str | None = None
     deleted: bool = False
+    # 고객이 보낸 원래 값 {source, values} — NULL이면 이 기능 도입 이전 자료(원본 미보존)
+    source_snapshot: dict | None = None
     source_event: SourceEventOut | None = None
 
     model_config = {"from_attributes": True}

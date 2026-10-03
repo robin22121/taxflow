@@ -409,7 +409,33 @@ export type PayrollEntry = {
   approved: boolean;
   edit_reason: string | null;
   deleted: boolean;
+  // 고객이 보낸 원래 값. null이면 이 기능 도입 이전 자료(원본 미보존).
+  source_snapshot: SourceSnapshot | null;
   source_event: SourceEvent | null;
+};
+
+export type SourceSnapshot = {
+  source: "collect" | "portal" | "carry_forward" | "import" | "fast_path" | string;
+  values: Partial<Record<string, string | number | null>>;
+};
+
+/** 급여 항목 변경이력 한 건 (GET /filings/{id}/entry-changes) */
+export type EntryChange = {
+  id: string;
+  entry_id: string;
+  employee_id: string | null;
+  subject_name: string;
+  income_type: string | null;
+  action: "CREATE" | "UPDATE" | "DELETE" | "RESTORE" | "APPROVE" | "UNAPPROVE" | "PURGE";
+  // UPDATE: {필드: {before, after, auto?}} / DELETE: {snapshot: {필드: 값}} / 그 외 null
+  changes: Record<string, unknown> | null;
+  reason: string | null;
+  source: string;
+  actor_label: string | null;
+  batch_id: string | null;
+  created_at: string;
+  // 항목이 지금도 삭제 상태인지 — true면 [복구]를 보여준다. 영구 삭제됐으면 null.
+  entry_deleted: boolean | null;
 };
 
 export type PayrollHistoryRow = {

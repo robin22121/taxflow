@@ -38,7 +38,8 @@ import { ProductionModal } from "@/components/rpa/production-modal";
 import { ProductionModalDemo } from "@/components/rpa/production-modal-demo";
 import { getLoginMode } from "@/lib/login-mode";
 import { FastPathModal } from "@/components/rpa/fast-path-modal";
-import { useConfirm } from "@/components/confirm-dialog";
+import { usePrompt } from "@/components/confirm-dialog";
+import { ChangeHistoryPanel } from "@/components/filings/change-history-panel";
 import { ClientEditModal } from "@/components/clients/client-edit-modal";
 import { RosterContent } from "@/components/employees/roster-content";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
@@ -648,6 +649,9 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
 }) {
   const [search, setSearch] = useState("");
   const [showClientImport, setShowClientImport] = useState(false);
+  // 변경이력 패널 — 두 탭 공통. historyEntryId 가 있으면 그 직원(항목)만 본다.
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
   const [showClientEdit, setShowClientEdit] = useState(false);
   const [showRoster, setShowRoster] = useState(false);
   const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
@@ -738,9 +742,18 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                   <Button
                     variant={commOpen ? "primary" : "secondary"}
                     className="!text-[11px] !px-2 !py-0.5"
-                    onClick={() => setCommOpen((v) => !v)}
+                    onClick={() => { setCommOpen((v) => !v); setShowHistory(false); }}
                   >
                     고객소통내역 {commOpen ? "▶" : "◀"}
+                  </Button>
+                )}
+                {mainTab !== "insurance" && (
+                  <Button
+                    variant={showHistory ? "primary" : "secondary"}
+                    className="!text-[11px] !px-2 !py-0.5"
+                    onClick={() => { setHistoryEntryId(null); setShowHistory((v) => !v); setCommOpen(false); }}
+                  >
+                    변경이력
                   </Button>
                 )}
                 <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 border border-blue-100">
@@ -762,7 +775,8 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                   highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
                   forcedTab={mainTab === "insurance" ? "insurance" : "wht"}
                   summaryMode={mainTab === "received" ? "received" : mainTab === "wht" ? "wht" : undefined}
-                  selected={selectedEntryIds} setSelected={setSelectedEntryIds} />
+                  selected={selectedEntryIds} setSelected={setSelectedEntryIds}
+                  onOpenHistory={(entryId) => { setHistoryEntryId(entryId); setShowHistory(true); setCommOpen(false); }} />
               </div>
 
               {/* 고객소통내역 (받은 자료 탭 전용, 기본 접힘, 슬라이드 개폐) — 급여데이터 열과 같은 높이 */}
@@ -799,6 +813,17 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">좌측에서 거래처를 선택하세요</div>
         )}
       </div>
+
+      {showHistory && selectedSession && (
+        <ChangeHistoryPanel
+          filingId={filingId}
+          clientId={selectedSession.client_id}
+          clientName={selectedSession.client_name}
+          entryId={historyEntryId}
+          onClearEntry={() => setHistoryEntryId(null)}
+          onClose={() => { setShowHistory(false); setHistoryEntryId(null); }}
+        />
+      )}
 
       {/* 고객소통내역 모바일 오버레이 배경 */}
       {selectedSession && mainTab === "received" && commOpen && (
@@ -1645,7 +1670,7 @@ function CenterPane({ filingId, session, entries, highlightEventId, onHighlight,
 
 /* ═══ Right Pane (AI Table) ═══ */
 
-function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab, summaryMode, selected, setSelected }: {
+function RightPane({ filingId, session, entries, highlightEventId, onHighlight, forcedTab, summaryMode, selected, setSelected, onOpenHistory }: {
   filingId: string;
   session: CollectionSession;
   entries: PayrollEntry[];
@@ -1656,6 +1681,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   // 퇴사처리 버튼이 상단 바에 있어 선택 상태는 DefaultMode 가 들고 있다
   selected: Set<string>;
   setSelected: (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => void;
+  onOpenHistory: (entryId: string) => void;
 }) {
   const update = useUpdateEntry(filingId);
   const remove = useDeleteEntry(filingId);
@@ -1665,7 +1691,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   // 펼치기(행 클릭)는 조회만 — 편집 모드는 "수정" 버튼을 눌렀을 때만 별도로 켠다.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [internalTab, setInternalTab] = useState<"wht" | "insurance">("wht");
-  const [confirm, confirmDialog] = useConfirm();
+  const [prompt, promptDialog] = usePrompt();
   const [whtSubTab, setWhtSubTab] = useState<WhtSubTab>("WAGE");
   const tab = forcedTab ?? internalTab;
   const setTab = forcedTab ? () => {} : setInternalTab;
@@ -1711,10 +1737,20 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
     if (selected.size === displayEntries.length) setSelected(new Set());
     else setSelected(new Set(displayEntries.map((e) => e.id)));
   }
+  // 일괄 작업은 같은 batchId 를 줘서 변경이력에서 "일괄 삭제 N건"처럼 묶어 보이게 한다.
+  const newBatchId = () => crypto.randomUUID().replace(/-/g, "");
+
+  async function deleteWithReason(e: PayrollEntry) {
+    const reason = await prompt(`${e.raw_name} 항목을 삭제할까요?\n삭제해도 [변경이력]에서 복구할 수 있습니다.`, "삭제 사유 (선택)");
+    if (reason === null) return;
+    remove.mutate({ id: e.id, reason });
+  }
   async function bulkDelete() {
     if (selected.size === 0) return;
-    if (!(await confirm(`선택된 ${selected.size}건을 삭제하시겠습니까?`))) return;
-    selected.forEach((id) => remove.mutate(id));
+    const reason = await prompt(`선택된 ${selected.size}건을 삭제할까요?\n삭제해도 [변경이력]에서 복구할 수 있습니다.`, "삭제 사유 (선택)");
+    if (reason === null) return;
+    const batchId = newBatchId();
+    selected.forEach((id) => remove.mutate({ id, reason, batchId }));
     setSelected(new Set());
   }
 
@@ -1826,7 +1862,7 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
 
   return (
     <>
-      {confirmDialog}
+      {promptDialog}
       {/* 거래처 정보는 좌측 목록 하단(ClientInfoPanel)으로 이동 — 여기는 선택 시 액션만 */}
       {(selected.size > 0 || showInternalTabBar) && (
         <div className="px-4 py-2 border-b border-gray-100 shrink-0">
@@ -1838,12 +1874,13 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                   className="text-xs px-3 py-1.5"
                   onClick={() => {
                     let skipped = 0;
+                    const batchId = newBatchId();
                     selected.forEach((id) => {
                       const entry = entries.find((e) => e.id === id);
                       if (!entry || entry.approved) return;
                       // 사장님 직접 입력(AI 파싱) 항목은 일괄 승인하지 않는다 — 한 건씩 확인 후 개별 승인
                       if (isPortalAiText(entry)) { skipped += 1; return; }
-                      update.mutate({ id, patch: { approved: true } });
+                      update.mutate({ id, patch: { approved: true }, batchId });
                     });
                     setSelected(new Set());
                     if (skipped > 0) alert(`직접 입력(AI 파싱) ${skipped}건은 일괄 승인에서 제외했습니다. 한 건씩 확인 후 개별 승인해 주세요.`);
@@ -1911,14 +1948,14 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
                       검토 대상 ({pendingEntries.length}명)
                     </td></tr>
                   )}
-                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
+                  {pendingEntries.map((e) => <EntryRow key={e.id} e={e} mode="pending" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onApprove={() => approveEntry(e)} onDelete={() => deleteWithReason(e)} onOpenHistory={() => onOpenHistory(e.id)} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
                   {/* ── 승인 완료 섹션 ── */}
                   {approvedEntries.length > 0 && (
                     <tr><td colSpan={6} className="px-4 py-1.5 bg-green-50/70 text-[10.5px] font-semibold text-green-700 uppercase tracking-wider border-b border-green-100">
                       승인 완료 ({approvedEntries.length}명)
                     </td></tr>
                   )}
-                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={async () => { if (await confirm(`${e.raw_name} 삭제?`)) remove.mutate(e.id); }} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
+                  {approvedEntries.map((e) => <EntryRow key={e.id} e={e} mode="approved" readOnly={readOnly} draft={getDraft(e)} setDraft={(d) => setDraftFor(e.id, d)} selected={selected} toggleSelect={toggleSelect} highlightEventId={highlightEventId} onHighlight={onHighlight} onDelete={() => deleteWithReason(e)} onOpenHistory={() => onOpenHistory(e.id)} onSave={() => saveEntryEdit(e)} onRecalc={() => recalcAfterAmountChange(e)} onToggleExpand={() => toggleExpand(e.id)} expanded={expandedId === e.id} onToggleEdit={() => toggleEdit(e.id)} editing={editingId === e.id} update={update} remove={remove} />)}
                 </tbody>
               </table>
             ) : (
@@ -2599,9 +2636,10 @@ type EntryRowProps = {
   editing: boolean;
   update: ReturnType<typeof useUpdateEntry>;
   remove: ReturnType<typeof useDeleteEntry>;
+  onOpenHistory: () => void;
 };
 
-function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onRecalc, onToggleExpand, expanded, onToggleEdit, editing, update, remove }: EntryRowProps) {
+function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, highlightEventId, onHighlight, onApprove, onDelete, onSave, onRecalc, onToggleExpand, expanded, onToggleEdit, editing, update, remove, onOpenHistory }: EntryRowProps) {
   // 메모(anomaly_notes.memo)만 있는 행은 이상치가 아니다 — 분석 사유 기준으로 판정
   const reasons = anomalyReasons(e);
   const hasFlag = reasons.length > 0 && !e.approved;
@@ -2613,7 +2651,7 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
     <>
       <tr
         onClick={() => { onToggleExpand(); if (e.collection_event_id) onHighlight(highlightEventId === e.collection_event_id ? null : e.collection_event_id); }}
-        className={`border-b border-gray-50 transition-colors cursor-pointer ${e.deleted ? "opacity-60" : ""} ${
+        className={`border-b border-gray-50 transition-colors cursor-pointer ${
           highlightEventId && e.collection_event_id === highlightEventId
             ? "bg-blue-50 ring-1 ring-inset ring-blue-300"
             : expanded ? "bg-blue-50/30"
@@ -2625,15 +2663,14 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
         <td className="py-2.5 pl-2">
           <div className="flex items-center gap-1.5">
             <span className={`text-[10px] text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`}>▶</span>
-            <span className={`font-semibold text-[13px] tracking-tight ${e.deleted ? "text-gray-400 line-through decoration-red-500 decoration-2" : "text-gray-900"}`}>{e.raw_name}</span>
-            {e.deleted && <span className="text-[10px] font-semibold text-red-500">삭제됨</span>}
-            {!e.deleted && e.approved && <span className="text-[10px] text-green-600">✓</span>}
+            <span className="font-semibold text-[13px] tracking-tight text-gray-900">{e.raw_name}</span>
+            {e.approved && <span className="text-[10px] text-green-600">✓</span>}
           </div>
           <div className="text-[11px] text-gray-500 mt-0.5 pl-[18px]">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
         </td>
         <td className="py-2.5 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
         <td className="py-2.5 pr-3.5 text-right tabular-nums font-semibold">
-          <span className={e.deleted ? "text-gray-400 line-through decoration-red-500 decoration-2" : hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
+          <span className={hasFlag ? "text-red-600 font-bold" : "text-gray-900"}>{formatKrw(e.total_amount)}</span>
           {fieldChanges && !expanded && (
             <div className="flex flex-wrap gap-0.5 mt-0.5 justify-end">
               {Object.keys(fieldChanges).map((k) => (
@@ -2666,9 +2703,7 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
         </td>
         <td className="py-2.5 pr-3 text-right" onClick={(ev) => ev.stopPropagation()}>
           <div className="flex gap-1 justify-end">
-            {readOnly ? null : e.deleted ? (
-              <button onClick={() => update.mutate({ id: e.id, patch: { deleted: false } })} className="px-2 py-1 text-[11px] text-blue-600 border border-blue-200 rounded-full hover:bg-blue-50" disabled={update.isPending}>복구</button>
-            ) : mode === "pending" ? (<>
+            {readOnly ? null : mode === "pending" ? (<>
               <button onClick={onApprove} className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 disabled:opacity-50" disabled={update.isPending}>승인</button>
               {editing ? (
                 <button onClick={onSave} disabled={update.isPending} className="px-2.5 py-1 text-[11px] bg-blue-600 text-white rounded-full font-medium hover:bg-blue-700 disabled:opacity-50">{update.isPending ? "저장 중..." : "저장"}</button>
@@ -2697,9 +2732,10 @@ function EntryRow({ e, mode, readOnly, draft, setDraft, selected, toggleSelect, 
               fieldChanges={fieldChanges}
               calcDiffs={calcDiffs}
               mode={mode}
-              readOnly={readOnly || e.deleted || !editing}
+              readOnly={readOnly || !editing}
               onCancel={onToggleExpand}
               onRecalc={onRecalc}
+              onOpenHistory={onOpenHistory}
             />
           </td>
         </tr>
@@ -2721,6 +2757,7 @@ function V3Spreadsheet({
   readOnly,
   onCancel,
   onRecalc,
+  onOpenHistory,
 }: {
   draft: Partial<PayrollEntry>;
   setDraft: (d: Partial<PayrollEntry>) => void;
@@ -2730,6 +2767,7 @@ function V3Spreadsheet({
   readOnly: boolean;
   onCancel: () => void;
   onRecalc: () => void;
+  onOpenHistory: () => void;
 }) {
   // 받은 자료(readOnly) = 원시 파싱값 그대로 조회만. 값 조정·재계산·사유 기록·저장(=승인)은 원천세관리에서만.
   const editing = !readOnly;
@@ -3050,7 +3088,10 @@ function V3Spreadsheet({
         <button className="text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded">
           명세서 PDF
         </button>
-        <button className="text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded">
+        <button
+          onClick={onOpenHistory}
+          className="text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded"
+        >
           변경 이력
         </button>
         <span className="flex-1" />
