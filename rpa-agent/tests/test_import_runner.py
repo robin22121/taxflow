@@ -102,6 +102,57 @@ def test_import_merges_business_other_daily_earners(tmp_path: Path):
     assert by_type["DAILY"]["name"] == "김연호"
 
 
+class _TypedSource(FakeSource):
+    """유형별로 한 명씩 돌려주고, 어떤 화면을 열었는지 기록한다."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.opened: list[str] = []
+
+    def export_employees(self, business_number: str, workdir: Path) -> Path:
+        self.opened.append("WAGE")
+        return super().export_employees(business_number, workdir)
+
+    def list_business_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+        self.opened.append("BUSINESS")
+        return [{"employee_code": "1", "name": "김태호", "income_type": "BUSINESS"}]
+
+    def list_other_income_earners(self, business_number: str) -> list[dict[str, Any]]:
+        self.opened.append("OTHER")
+        return [{"employee_code": "3", "name": "김아인", "income_type": "OTHER"}]
+
+    def list_daily_workers(self, business_number: str) -> list[dict[str, Any]]:
+        self.opened.append("DAILY")
+        return [{"employee_code": "1", "name": "김연호", "income_type": "DAILY"}]
+
+
+def test_import_reads_only_selected_employee_types(tmp_path: Path):
+    """선택한 소득유형(근로·일용)만 가져온다 — 고르지 않은 화면은 열지도 않는다."""
+    api, source = FakeApi(), _TypedSource()
+    job = Job("j5", None, None, "224-02-38407", "서도", kind=IMPORT_CLIENT,
+              import_options={"employee_income_types": ["WAGE", "DAILY"]})
+
+    ok, _ = process_import(api, source, job, tmp_path)
+
+    assert ok
+    assert source.opened == ["WAGE", "DAILY"]
+    assert {e["name"] for e in api.sent[0]["employees"]} == {"한지민", "김연호"}
+
+
+def test_import_without_employees_sends_company_only(tmp_path: Path):
+    """사원정보를 고르지 않으면(빈 목록) 수임처 기본사항만 보내고 사원 화면은 열지 않는다."""
+    api, source = FakeApi(), _TypedSource()
+    job = Job("j6", None, None, "224-02-38407", "서도", kind=IMPORT_CLIENT,
+              import_options={"employee_income_types": []})
+
+    ok, _ = process_import(api, source, job, tmp_path)
+
+    assert ok
+    assert source.opened == []
+    assert api.sent[0]["employees"] == []
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_client_import_rejects_other_company(tmp_path: Path):
     class OtherCompany(FakeSource):
         def read_company(self, business_number: str) -> dict[str, Any]:

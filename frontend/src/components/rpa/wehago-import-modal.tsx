@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api";
 import { digitsOnly, formatBizNumber } from "@/lib/format";
 import { useMe } from "@/lib/queries";
 import {
+  type EmployeeIncomeType,
   type ImportClientEntry,
   type RpaJob,
   cancelJob,
@@ -24,6 +25,13 @@ import {
 } from "@/lib/rpa-api";
 
 const ACTIVE = new Set(["PENDING", "RUNNING"]);
+
+const EMPLOYEE_TYPE_OPTIONS: { value: EmployeeIncomeType; label: string }[] = [
+  { value: "WAGE", label: "근로" },
+  { value: "DAILY", label: "일용" },
+  { value: "BUSINESS", label: "사업" },
+  { value: "OTHER", label: "기타" },
+];
 
 const STATUS_TEXT: Record<string, string> = {
   PENDING: "자동화 PC 대기",
@@ -69,11 +77,17 @@ export function WehagoImportModal({
     setQueue((q) => (q.includes(digits) ? q : [...q, digits]));
     setBn("");
   };
+  // 거래처 정보는 항상 가져오고, 사원정보(소득유형별)는 체크한 것만 함께 가져온다.
+  const [withEmployees, setWithEmployees] = useState(true);
+  const [employeeTypes, setEmployeeTypes] = useState<EmployeeIncomeType[]>(["WAGE", "DAILY", "BUSINESS", "OTHER"]);
+  const toggleEmployeeType = (t: EmployeeIncomeType) =>
+    setEmployeeTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
   const one = useMutation({
     mutationFn: async () => {
       const typed = digitsOnly(bn);
       const targets = [...queue, ...(typed.length === 10 && !queue.includes(typed) ? [typed] : [])];
-      const results = await Promise.allSettled(targets.map((t) => createClientImport(t)));
+      const types = withEmployees ? employeeTypes : [];
+      const results = await Promise.allSettled(targets.map((t) => createClientImport(t, types)));
       const failed = results.flatMap((r, i) =>
         r.status === "rejected" ? [{ bn: targets[i], message: errorText(r.reason) }] : [],
       );
@@ -148,6 +162,30 @@ export function WehagoImportModal({
               ))}
             </div>
           )}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+            <p className="text-[12px] font-medium text-gray-700">거래처 정보와 함께 가져올 항목</p>
+            <label className="flex items-center gap-2 text-[12px] text-gray-700">
+              <input type="checkbox" checked={withEmployees} onChange={(e) => setWithEmployees(e.target.checked)} />
+              사원정보
+            </label>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 pl-6">
+              {EMPLOYEE_TYPE_OPTIONS.map((o) => (
+                <label key={o.value} className={`flex items-center gap-1.5 text-[12px] ${withEmployees ? "text-gray-700" : "text-gray-300"}`}>
+                  <input
+                    type="checkbox"
+                    disabled={!withEmployees}
+                    checked={employeeTypes.includes(o.value)}
+                    onChange={() => toggleEmployeeType(o.value)}
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 text-[12px] text-gray-400" title="위하고 급여 화면 실측 후 지원 예정">
+              <input type="checkbox" disabled />
+              급여정보 (준비 중)
+            </label>
+          </div>
           <Button
             onClick={() => one.mutate()}
             disabled={(queue.length === 0 && digitsOnly(bn).length !== 10) || one.isPending || allRunning}

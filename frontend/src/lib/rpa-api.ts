@@ -245,11 +245,20 @@ export function createMasterImport(): Promise<RpaJob> {
   return api<RpaJob>("/api/v1/rpa/imports/master-all", { method: "POST" });
 }
 
-/** 사업자번호 1건 가져오기 — 없으면 새 거래처로 등록, 있으면 빈 칸만 채운다. */
-export function createClientImport(businessNumber: string): Promise<RpaJob> {
+/** 함께 가져올 사원 소득유형 — WAGE 근로 / DAILY 일용 / BUSINESS 사업 / OTHER 기타. */
+export type EmployeeIncomeType = "WAGE" | "DAILY" | "BUSINESS" | "OTHER";
+
+/**
+ * 사업자번호 1건 가져오기 — 없으면 새 거래처로 등록, 있으면 빈 칸만 채운다.
+ * employeeIncomeTypes: 생략하면 전부, 빈 배열이면 사원 없이 수임처 기본사항만.
+ */
+export function createClientImport(
+  businessNumber: string,
+  employeeIncomeTypes?: EmployeeIncomeType[],
+): Promise<RpaJob> {
   return api<RpaJob>("/api/v1/rpa/imports/clients", {
     method: "POST",
-    json: { business_number: businessNumber },
+    json: { business_number: businessNumber, employee_income_types: employeeIncomeTypes },
   });
 }
 

@@ -264,6 +264,39 @@ async def test_client_import_job_flow(http: AsyncClient, auth_headers: dict):
 
 
 @pytest.mark.asyncio
+async def test_client_import_carries_selected_employee_types_to_agent(http: AsyncClient, auth_headers: dict):
+    """거래처 추가 시 고른 사원 소득유형이 작업에 실려 에이전트 claim 응답으로 내려간다."""
+    await _clear_active_jobs()
+    agent = await _agent(http, auth_headers)
+
+    bad = await http.post("/api/v1/rpa/imports/clients", headers=auth_headers,
+                          json={"business_number": "224-02-38404", "employee_income_types": ["PAYROLL"]})
+    assert bad.status_code == 422
+
+    r = await http.post("/api/v1/rpa/imports/clients", headers=auth_headers,
+                        json={"business_number": "224-02-38404", "employee_income_types": ["WAGE", "DAILY", "WAGE"]})
+    assert r.status_code == 201, r.text
+
+    claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+    assert claimed["id"] == r.json()["id"]
+    assert claimed["step_progress"]["options"] == {"employee_income_types": ["WAGE", "DAILY"]}  # 중복 제거
+
+
+@pytest.mark.asyncio
+async def test_client_import_without_selection_keeps_default_all(http: AsyncClient, auth_headers: dict):
+    """선택값을 안 보내면(옛 화면) options 가 없고, 에이전트는 기존처럼 전부 가져온다."""
+    await _clear_active_jobs()
+    agent = await _agent(http, auth_headers)
+
+    r = await http.post("/api/v1/rpa/imports/clients", headers=auth_headers,
+                        json={"business_number": "224-02-38405"})
+    assert r.status_code == 201, r.text
+
+    claimed = (await http.post(CLAIM, headers=agent)).json()["job"]
+    assert not (claimed["step_progress"] or {}).get("options")
+
+
+@pytest.mark.asyncio
 async def test_master_import_records_progress_per_client(http: AsyncClient, auth_headers: dict):
     await _clear_active_jobs()
     agent = await _agent(http, auth_headers)

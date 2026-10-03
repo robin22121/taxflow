@@ -19,6 +19,14 @@ from easyone_agent.wehago_employees import parse_employee_export
 
 logger = logging.getLogger(__name__)
 
+# 함께 가져올 수 있는 사원 소득유형 — 서버가 options 를 안 보내면(옛 요청·전체 가져오기) 전부 가져온다.
+ALL_EMPLOYEE_TYPES = frozenset({"WAGE", "DAILY", "BUSINESS", "OTHER"})
+
+
+def _wanted_employee_types(job: Job) -> frozenset[str]:
+    chosen = (job.import_options or {}).get("employee_income_types")
+    return ALL_EMPLOYEE_TYPES if chosen is None else frozenset(chosen) & ALL_EMPLOYEE_TYPES
+
 
 class WehagoImportSource(Protocol):
     """위하고 화면 조작 (wehago.py). 테스트에서는 가짜로 바꾼다."""
@@ -91,11 +99,17 @@ def _import_one(
         basics = source.read_company(business_number)
         if normalize_business_number(basics["business_number"]) != normalize_business_number(business_number):
             raise RuntimeError(f"위하고 수임처 사업자번호가 다릅니다: {basics['business_number']}")
-        export = source.export_employees(business_number, workdir)
-        employees = parse_employee_export(export)
-        employees += source.list_business_income_earners(business_number)
-        employees += source.list_other_income_earners(business_number)
-        employees += source.list_daily_workers(business_number)
+        wanted = _wanted_employee_types(job)
+        employees: list[dict[str, Any]] = []
+        if "WAGE" in wanted:
+            export = source.export_employees(business_number, workdir)
+            employees += parse_employee_export(export)
+        if "BUSINESS" in wanted:
+            employees += source.list_business_income_earners(business_number)
+        if "OTHER" in wanted:
+            employees += source.list_other_income_earners(business_number)
+        if "DAILY" in wanted:
+            employees += source.list_daily_workers(business_number)
         payload = {**base, **basics, "employees": employees}
     except LoginFailed:
         raise

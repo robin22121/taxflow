@@ -109,6 +109,12 @@ async def create_client_import(
         business_number=format_bn(digits),
         business_name=client.business_name if client else f"위하고 수임처 {format_bn(digits)}",
         requested_by_user_id=user.id,
+        # 에이전트가 claim 응답의 step_progress.options 로 읽는다 (선택 안 하면 기존처럼 전부).
+        step_progress=(
+            {"options": {"employee_income_types": list(dict.fromkeys(payload.employee_income_types))}}
+            if payload.employee_income_types is not None
+            else None
+        ),
     )
     db.add(job)
     await db.commit()
