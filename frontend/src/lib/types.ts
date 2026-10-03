@@ -411,6 +411,8 @@ export type PayrollEntry = {
   deleted: boolean;
   // 고객이 보낸 원래 값. null이면 이 기능 도입 이전 자료(원본 미보존).
   source_snapshot: SourceSnapshot | null;
+  // 세무사가 값을 직접 고친 횟수 — 받은 자료의 "수정이력 있음" 표시용
+  edit_count: number;
   source_event: SourceEvent | null;
 };
 

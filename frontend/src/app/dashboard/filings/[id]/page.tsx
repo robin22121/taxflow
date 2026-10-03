@@ -771,12 +771,18 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
             {/* Tab content */}
             <div className="relative flex-1 min-h-0 flex overflow-hidden">
               <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
-                  highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
-                  forcedTab={mainTab === "insurance" ? "insurance" : "wht"}
-                  summaryMode={mainTab === "received" ? "received" : mainTab === "wht" ? "wht" : undefined}
-                  selected={selectedEntryIds} setSelected={setSelectedEntryIds}
-                  onOpenHistory={(entryId) => { setHistoryEntryId(entryId); setShowHistory(true); setCommOpen(false); }} />
+                {mainTab === "received" ? (
+                  <ReceivedPane key={selectedSession.id} filingId={filingId} clientId={selectedSession.client_id}
+                    highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                    onOpenHistory={(entryId) => { setHistoryEntryId(entryId); setShowHistory(true); setCommOpen(false); }} />
+                ) : (
+                  <RightPane key={`${selectedSession.id}-${mainTab}`} filingId={filingId} session={selectedSession} entries={selectedEntries}
+                    highlightEventId={highlightEventId} onHighlight={setHighlightEventId}
+                    forcedTab={mainTab === "insurance" ? "insurance" : "wht"}
+                    summaryMode={mainTab === "wht" ? "wht" : undefined}
+                    selected={selectedEntryIds} setSelected={setSelectedEntryIds}
+                    onOpenHistory={(entryId) => { setHistoryEntryId(entryId); setShowHistory(true); setCommOpen(false); }} />
+                )}
               </div>
 
               {/* 고객소통내역 (받은 자료 탭 전용, 기본 접힘, 슬라이드 개폐) — 급여데이터 열과 같은 높이 */}
@@ -807,6 +813,7 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
               onAddEmployee={() => setShowAddEmployee(true)}
               onResign={() => setShowResign(true)}
               selectedCount={selectedEntryIds.size}
+              showEmployeeActions={mainTab === "wht"}
             />
           </>
         ) : (
@@ -863,6 +870,101 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         />
       )}
     </div>
+  );
+}
+
+/* ═══ 받은 자료 — 고객이 보낸 원래 값 (조회 전용) ═══ */
+
+const SOURCE_TAG: Record<string, string> = {
+  carry_forward: "전월 동일", portal: "사장님 포털", import: "엑셀 임포트", fast_path: "페스트패스",
+};
+
+function ReceivedPane({ filingId, clientId, highlightEventId, onHighlight, onOpenHistory }: {
+  filingId: string;
+  clientId: string;
+  highlightEventId: string | null;
+  onHighlight: (id: string | null) => void;
+  onOpenHistory: (entryId: string) => void;
+}) {
+  // 받은 자료는 삭제된 항목도 "삭제됨"으로 보여줘야 해서 삭제 항목까지 받는다.
+  const { data: all = [], isLoading } = useFilingEntries(filingId, true);
+  const rows = all.filter((e) => e.client_id === clientId);
+
+  // 고객이 보낸 값 — 원본 스냅샷이 있으면 그 값, 이 기능 도입 이전 자료는 현재 값(원본 미보존)
+  const received = (e: PayrollEntry): number => {
+    const v = e.source_snapshot?.values?.total_amount;
+    return typeof v === "number" ? v : e.total_amount;
+  };
+  const receivedTotal = rows.reduce((sum, e) => sum + received(e), 0);
+  const deletedCount = rows.filter((e) => e.deleted).length;
+
+  return (
+    <>
+      <div className="flex items-center justify-end gap-4 px-4 py-2 border-b border-gray-100 text-[12px] shrink-0">
+        <span className="text-gray-500">받은 자료 <b className="text-gray-900 tabular-nums">{rows.length}건</b>{deletedCount > 0 && ` (삭제 ${deletedCount})`}</span>
+        <span className="text-gray-500">받은 합계 <b className="text-gray-900 tabular-nums">{rows.length ? formatKrw(receivedTotal) : "—"}</b></span>
+      </div>
+      <div className="flex-1 overflow-y-auto bg-white">
+        {isLoading ? (
+          <p className="text-[12px] text-gray-400 text-center py-10">불러오는 중...</p>
+        ) : rows.length === 0 ? (
+          <p className="text-[13px] text-gray-400 text-center py-16">받은 자료가 없습니다</p>
+        ) : (
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="text-[11px] text-gray-500 border-b border-gray-200">
+                <th className="text-left font-medium py-2 pl-4">직원 · 구분</th>
+                <th className="text-right font-medium py-2 pr-3.5">전월</th>
+                <th className="text-right font-medium py-2 pr-3.5">받은 값</th>
+                <th className="text-left font-medium py-2 pl-3 pr-4">표시</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((e) => {
+                const hasHistory = e.edit_count > 0 || e.deleted;
+                const origin = e.source_snapshot ? SOURCE_TAG[e.source_snapshot.source] : null;
+                return (
+                  <tr
+                    key={e.id}
+                    onClick={() => { if (e.collection_event_id) onHighlight(highlightEventId === e.collection_event_id ? null : e.collection_event_id); }}
+                    className={`border-b border-gray-50 cursor-pointer ${
+                      highlightEventId && e.collection_event_id === highlightEventId ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <td className="py-2.5 pl-4">
+                      <div className="font-semibold text-gray-900">{e.raw_name}</div>
+                      <div className="text-[11px] text-gray-500 mt-0.5">{e.a_code ?? "A01"} · {incomeLabel(e.income_type)}</div>
+                    </td>
+                    <td className="py-2.5 pr-3.5 text-right text-gray-500 tabular-nums">{e.prev_amount ? formatKrw(e.prev_amount) : "—"}</td>
+                    <td className="py-2.5 pr-3.5 text-right tabular-nums font-semibold text-gray-900">{formatKrw(received(e))}</td>
+                    <td className="py-2.5 pl-3 pr-4">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {e.deleted && (
+                          <button onClick={(ev) => { ev.stopPropagation(); onOpenHistory(e.id); }}
+                            className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            title="변경이력에서 확인·복구">삭제됨 (원천세관리)</button>
+                        )}
+                        {e.edit_count > 0 && (
+                          <button onClick={(ev) => { ev.stopPropagation(); onOpenHistory(e.id); }}
+                            className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 hover:bg-amber-100"
+                            title="클릭해 수정이력 보기">수정이력 있음</button>
+                        )}
+                        {e.match_status === "NEW_HIRE_SUSPECTED" && <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-600">신규</span>}
+                        {e.match_status === "RESIGNATION_SUSPECTED" && <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600">퇴사</span>}
+                        {e.match_status === "UNCONFIRMED" && <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-600">미확인</span>}
+                        {origin && <span className="px-2 py-0.5 rounded-full text-[11px] text-gray-500 bg-gray-50 border border-gray-100">{origin}</span>}
+                        {!e.source_snapshot && <span className="text-[11px] text-gray-400" title="이 기능 도입 이전 자료라 고객이 보낸 원래 값을 보관하지 않았습니다">원본 미보존</span>}
+                        {!hasHistory && !origin && e.source_snapshot && <span className="text-[11px] text-gray-300">—</span>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -937,7 +1039,7 @@ type PreviewMeta = {
 };
 
 function PayrollInputBar({
-  filingId, session, onPreview, onAddEmployee, onResign, selectedCount,
+  filingId, session, onPreview, onAddEmployee, onResign, selectedCount, showEmployeeActions,
 }: {
   filingId: string;
   session: CollectionSession;
@@ -945,6 +1047,8 @@ function PayrollInputBar({
   onAddEmployee: () => void;
   onResign: () => void;
   selectedCount: number;
+  // 직원 추가·퇴사처리는 값을 고치는 일이라 원천세관리 탭에서만 보인다 (받은 자료는 원본 조회 + 자료 입력 창구)
+  showEmployeeActions: boolean;
 }) {
   const previewUpload = usePreviewUpload();
   const previewCarryForward = usePreviewCarryForward();
@@ -1038,13 +1142,15 @@ function PayrollInputBar({
         <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" disabled={busy} onClick={() => fileRef.current?.click()}>
           {previewUpload.isPending ? "AI 읽는 중..." : "급여파일 업로드"}
         </Button>
-        <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onAddEmployee}>
-          직원 추가
-        </Button>
-        <Button variant="danger" className="!text-[12px] !px-2.5 !py-1" onClick={onResign} disabled={selectedCount === 0}
-          title={selectedCount === 0 ? "표에서 퇴사할 직원을 선택하세요" : undefined}>
-          퇴사처리{selectedCount > 0 ? ` (${selectedCount})` : ""}
-        </Button>
+        {showEmployeeActions && (<>
+          <Button variant="secondary" className="!text-[12px] !px-2.5 !py-1" onClick={onAddEmployee}>
+            직원 추가
+          </Button>
+          <Button variant="danger" className="!text-[12px] !px-2.5 !py-1" onClick={onResign} disabled={selectedCount === 0}
+            title={selectedCount === 0 ? "표에서 퇴사할 직원을 선택하세요" : undefined}>
+            퇴사처리{selectedCount > 0 ? ` (${selectedCount})` : ""}
+          </Button>
+        </>)}
         <textarea
           className="flex-1 min-w-40 h-8 text-[12px] border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
           placeholder="카톡 내용을 여기 붙여넣고 [반영하기] 를 누르세요"
@@ -1701,9 +1807,9 @@ function RightPane({ filingId, session, entries, highlightEventId, onHighlight, 
   const displayEntries = summaryMode === "wht" ? entries.filter((e) => matchesWhtSubTab(e, whtSubTab)) : entries;
   const pendingEntries = displayEntries.filter((e) => !e.approved);
   const approvedEntries = displayEntries.filter((e) => e.approved);
-  // 받은 자료 = 고객이 준 원시 파싱값 그대로 보존(조회 전용). 값 조정 + 사유 기록 + 승인은 원천세관리에서만.
+  // 받은 자료는 ReceivedPane(고객이 보낸 원래 값, 조회 전용)이 따로 그린다. 값 조정 + 사유 기록 + 승인은 이 화면(원천세관리)에서만.
   const readOnly = summaryMode === "received";
-  // 삭제(소프트 삭제)된 항목은 행 목록에는 취소선으로 남기되, 합계·신고서 미리보기·서브탭 카운트에서는 제외한다.
+  // 삭제(소프트 삭제)된 항목은 서버가 기본적으로 내려주지 않는다 — 복구는 [변경이력]에서 한다.
   const activeEntries = entries.filter((e) => !e.deleted);
   const activeDisplayEntries = displayEntries.filter((e) => !e.deleted);
 

@@ -712,10 +712,27 @@ async def list_entries(
         await db.execute(entries_q.options(selectinload(PayrollEntry.collection_event)))
     ).scalars().all()
 
+    # 항목별 수정 횟수 — 세무사가 값을 직접 고친 횟수("받은 자료"의 "수정이력 있음" 표시용).
+    # 고객이 자료를 다시 보낸 갱신(collect/portal)은 세지 않는다. 기능 도입 이전 사유 기록(system)은 센다.
+    edit_counts = dict(
+        (
+            await db.execute(
+                select(PayrollEntryChange.entry_id, func.count())
+                .where(
+                    PayrollEntryChange.monthly_filing_id == filing_id,
+                    PayrollEntryChange.action == "UPDATE",
+                    PayrollEntryChange.source.in_(["manual", "system"]),
+                )
+                .group_by(PayrollEntryChange.entry_id)
+            )
+        ).all()
+    )
+
     from app.schemas.filings import SourceEventOut
     out: list[PayrollEntryOut] = []
     for r in rows:
         entry_out = PayrollEntryOut.model_validate(r)
+        entry_out.edit_count = edit_counts.get(r.id, 0)
         if r.collection_event:
             ev = r.collection_event
             entry_out.source_event = SourceEventOut(

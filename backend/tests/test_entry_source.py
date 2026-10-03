@@ -83,6 +83,12 @@ async def test_collect_keeps_original_value_and_manual_edit_does_not_change_it(h
         assert row.total_amount == 3_200_000
         assert row.source_snapshot["values"]["total_amount"] == 3_000_000  # 받은 자료는 바뀌지 않는다
 
+        # API 응답에도 원본 값과 수정 횟수가 실린다 ("받은 자료" 탭이 이 값을 쓴다)
+        listed = {e["id"]: e for e in (await http.get(f"/api/v1/filings/{filing_id}/entries", headers=auth_headers)).json()}
+        assert listed[entry_id]["total_amount"] == 3_200_000  # 현재 값
+        assert listed[entry_id]["source_snapshot"]["values"]["total_amount"] == 3_000_000  # 받은 값
+        assert listed[entry_id]["edit_count"] == 1
+
         # 3) 고객이 수정 메시지를 다시 보내면 "마지막으로 받은 값"으로 원본이 갱신되고 승인은 풀린다
         r = await http.post(
             f"/api/v1/collect/sessions/{session_id}/messages/commit", headers=auth_headers,
@@ -97,6 +103,10 @@ async def test_collect_keeps_original_value_and_manual_edit_does_not_change_it(h
         collect_update = next(c for c in rows if c["action"] == "UPDATE" and c["source"] == "collect")
         assert collect_update["changes"]["total_amount"]["before"] == 3_200_000  # 이전 값은 이력에 남는다
         assert any(c["action"] == "UNAPPROVE" and c["source"] == "collect" for c in rows)
+
+        # 고객이 다시 보낸 갱신은 "수정이력 있음"(세무사가 직접 고친 횟수)에 세지 않는다
+        listed = {e["id"]: e for e in (await http.get(f"/api/v1/filings/{filing_id}/entries", headers=auth_headers)).json()}
+        assert listed[entry_id]["edit_count"] == 1
     finally:
         if entry_id:
             await _purge(entry_id)
