@@ -3,15 +3,14 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { useBulkUploadClients, useClients, useCreateClient } from "@/lib/queries";
+import { useBulkUploadClients, useClients } from "@/lib/queries";
 import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
-import { digitsOnly, formatBizNumber, formatPhone } from "@/lib/format";
+import { formatBizNumber, formatPhone } from "@/lib/format";
 
 export default function ClientsPage() {
   const router = useRouter();
   const { data, isLoading } = useClients();
-  const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [wehagoOpen, setWehagoOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -35,7 +34,6 @@ export default function ClientsPage() {
           <Button variant="secondary" onClick={() => setBulkOpen(true)}>
             거래처 일괄 업로드
           </Button>
-          <Button onClick={() => setOpen(true)}>+ 거래처 추가</Button>
         </div>
       </div>
 
@@ -64,7 +62,7 @@ export default function ClientsPage() {
         <Card className="text-center py-12">
           <div className="text-4xl mb-3 opacity-30">🏢</div>
           <p className="text-[15px] font-medium text-gray-700 mb-1">등록된 거래처가 없습니다</p>
-          <p className="text-[13px] text-gray-500">우측 상단 [거래처 추가]로 시작하세요.</p>
+          <p className="text-[13px] text-gray-500">우측 상단 [위하고에서 가져오기]로 시작하세요.</p>
         </Card>
       )}
 
@@ -97,7 +95,6 @@ export default function ClientsPage() {
         </Card>
       )}
 
-      {open && <CreateClientModal onClose={() => setOpen(false)} />}
       {bulkOpen && <BulkUploadModal onClose={() => setBulkOpen(false)} />}
       {wehagoOpen && <WehagoImportModal onClose={() => setWehagoOpen(false)} />}
     </div>
@@ -165,120 +162,6 @@ function BulkUploadModal({ onClose }: { onClose: () => void }) {
             />
           </>
         )}
-        {err && <p className="text-red-600">{err}</p>}
-      </div>
-    </Modal>
-  );
-}
-
-function CreateClientModal({ onClose }: { onClose: () => void }) {
-  const router = useRouter();
-  const create = useCreateClient();
-  const [businessName, setBusinessName] = useState("");
-  const [businessNumber, setBusinessNumber] = useState("");
-  const [representative, setRepresentative] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [isCorporation, setIsCorporation] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const canSubmit = businessName.trim().length > 0 && !create.isPending;
-
-  async function doCreate() {
-    setErr(null);
-    try {
-      const created = await create.mutateAsync({
-        business_name: businessName.trim(),
-        business_number: digitsOnly(businessNumber) || null,
-        representative: representative.trim() || null,
-        contact_phone: digitsOnly(contactPhone) || null,
-        contact_email: contactEmail.trim() || null,
-        is_corporation: isCorporation,
-      });
-      onClose();
-      // 급여지급일은 등록 폼에 없고 "기본 세팅"에서 별도 설정 — 신규 거래처는 기본값(당월 25일)이
-      // 맞는지 확인하도록 상세 화면에서 안내 배너를 띄운다.
-      router.push(`/dashboard/clients/${created.id}?checkPayday=1`);
-    } catch (e) {
-      setErr((e as Error).message);
-    }
-  }
-
-  return (
-    <Modal
-      open={true}
-      onClose={onClose}
-      title="거래처 추가"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={create.isPending}>
-            취소
-          </Button>
-          <Button disabled={!canSubmit} onClick={() => doCreate()}>
-            {create.isPending ? "등록 중..." : "등록"}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-3 text-[13px]">
-        <div>
-          <label className="block text-[12px] text-gray-500 mb-1">
-            상호 <span className="text-red-600">*</span>
-          </label>
-          <Input
-            placeholder="(주)에이상사"
-            value={businessName}
-            onChange={(e) => setBusinessName(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div>
-          <label className="block text-[12px] text-gray-500 mb-1">사업자번호</label>
-          <Input
-            placeholder="123-45-67890"
-            value={formatBizNumber(businessNumber)}
-            onChange={(e) => setBusinessNumber(digitsOnly(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className="block text-[12px] text-gray-500 mb-1">대표자</label>
-          <Input
-            placeholder="홍길동"
-            value={representative}
-            onChange={(e) => setRepresentative(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-[12px] text-gray-500 mb-1">전화번호 (휴대폰)</label>
-          <Input
-            type="tel"
-            placeholder="010-1234-5678"
-            value={formatPhone(contactPhone)}
-            onChange={(e) => setContactPhone(digitsOnly(e.target.value))}
-          />
-          <p className="text-[11px] text-gray-500 mt-1">알림톡·SMS 발송에 사용됩니다.</p>
-        </div>
-        <div>
-          <label className="block text-[12px] text-gray-500 mb-1">이메일</label>
-          <Input
-            type="email"
-            placeholder="contact@example.com"
-            value={contactEmail}
-            onChange={(e) => setContactEmail(e.target.value)}
-          />
-          <p className="text-[11px] text-gray-500 mt-1">초대장 이메일이 이 주소로 발송됩니다.</p>
-        </div>
-        <div className="flex items-center gap-2 pt-1">
-          <input
-            id="is_corporation"
-            type="checkbox"
-            checked={isCorporation}
-            onChange={(e) => setIsCorporation(e.target.checked)}
-            className="h-4 w-4 accent-blue-600"
-          />
-          <label htmlFor="is_corporation" className="text-[13px] text-gray-900">
-            법인 거래처 (원천징수이행상황신고서 A01 분류)
-          </label>
-        </div>
         {err && <p className="text-red-600">{err}</p>}
       </div>
     </Modal>

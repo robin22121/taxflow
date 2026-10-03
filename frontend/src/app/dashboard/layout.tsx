@@ -15,6 +15,7 @@ import { AiAssistantDialog } from "@/components/ai-assistant/ai-assistant-dialog
 // "원천세 신고" 세부메뉴에서 다시 꺼내 평평한 상단 탭으로 배치(사용자 확정, 회귀).
 // "자료요청"은 실제 발송 로직이 없는 플레이스홀더였는데 상단 탭에서 제거(2026-09-30).
 // "타세목 신고·납부"는 문자발송 세부메뉴를 그대로 유지한다((tax-other)/layout.tsx).
+// "업무미처리내역"은 프론트 단순화로 상단 탭에서 제거(2026-10-03).
 const NAV_ITEMS = [
   {
     href: "/dashboard",
@@ -35,11 +36,6 @@ const NAV_ITEMS = [
     href: "/dashboard/messages",
     label: "타세목 신고·납부",
     match: (p: string) => p.startsWith("/dashboard/messages"),
-  },
-  {
-    href: "/dashboard/pending-tasks",
-    label: "업무미처리내역",
-    match: (p: string) => p.startsWith("/dashboard/pending-tasks"),
   },
 ] as const;
 

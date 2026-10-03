@@ -25,11 +25,12 @@ import {
   useSessionAttachments,
   useSessionTimeline,
   useSubmitMessage,
+  useUpdateClient,
   useUpdateEntry,
 } from "@/lib/queries";
 import type { CollectPreview, ParsedEntryPreview } from "@/lib/queries";
 import { api, apiBlob, getToken } from "@/lib/api";
-import { Badge, BezelCard, Button, Eyebrow, Input, Modal } from "@/components/ui";
+import { Badge, Button, Eyebrow, Input, Modal } from "@/components/ui";
 import { useHeaderSlots } from "@/components/header-slot";
 import { WehagoSendModal } from "@/components/rpa/wehago-send-modal";
 import { WehagoSendModalDemo } from "@/components/rpa/wehago-send-modal-demo";
@@ -38,6 +39,9 @@ import { ProductionModalDemo } from "@/components/rpa/production-modal-demo";
 import { getLoginMode } from "@/lib/login-mode";
 import { FastPathModal } from "@/components/rpa/fast-path-modal";
 import { useConfirm } from "@/components/confirm-dialog";
+import { ClientEditModal } from "@/components/clients/client-edit-modal";
+import { RosterContent } from "@/components/employees/roster-content";
+import { WehagoImportModal } from "@/components/rpa/wehago-import-modal";
 import { gateStage, indexJobsByClient, listJobs, type GateStage, type RpaJob } from "@/lib/rpa-api";
 import type { CollectionSession, InsuranceTarget, PayrollEntry, SessionAttachment, SessionTimelineEvent } from "@/lib/types";
 
@@ -56,7 +60,6 @@ export default function FilingDetailPage({
   const sendInvite = useSendInvite(id);
   const requestCollection = useRequestCollection(id);
   const [activeSession, setActiveSession] = useState<string | null>(null);
-  const [reviewOnly, setReviewOnly] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [bulkPassword, setBulkPassword] = useState("");
   const [showSelectedRequestConfirm, setShowSelectedRequestConfirm] = useState(false);
@@ -120,12 +123,6 @@ export default function FilingDetailPage({
   const selectedEntries = selectedSession
     ? allEntries.filter((e) => e.client_id === selectedSession.client_id)
     : [];
-  const flaggedEntries = allEntries.filter(
-    (e) =>
-      (e.anomaly_notes && Object.keys(e.anomaly_notes).length > 0 && !e.approved) ||
-      (isPortalAiText(e) && !e.approved) ||
-      e.match_status === "AMBIGUOUS",
-  );
   // 거래처별 미승인 엔트리 수 — 통합 다운로드는 자료가 있고 전부 승인된 거래처만 받을 수 있다.
   const unapprovedCounts = new Map<string, number>();
   for (const e of allEntries) {
@@ -283,12 +280,6 @@ export default function FilingDetailPage({
       {/* 헤더 액션 슬롯 — 문자발송 / 통합 다운로드 / 급여명세서 (레이아웃 헤더로 포털) */}
       {headerSlots.actions && createPortal(
         <>
-          {/* Review mode indicator (when active) */}
-          {reviewOnly && (
-            <button onClick={() => setReviewOnly(false)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors cursor-pointer shrink-0">
-              확인필요만 보기 ✕
-            </button>
-          )}
           {/* 업무 순서: 자료요청 → ① 소득자료 전송 → ② 신고서마감 → ③ 제작/신고 → ④ 납부서/영수증 → 다운로드
               (2026-10-02) ②·③ 버튼은 같은 ProductionModal/createProductions 호출 — 백엔드가 한
               RpaJob(MONTHLY_PRODUCTION) 안에서 마감 다음 단계로 전자신고 파일 제작까지 이어서
@@ -363,25 +354,18 @@ export default function FilingDetailPage({
       )}
 
       {/* Body */}
-      {reviewOnly ? (
-        <ReviewOnlyMode filingId={id} entries={flaggedEntries} sessions={sessions} />
-      ) : (
-        <DefaultMode
-          filingId={id}
-          sessions={sessions}
-          entries={allEntries}
-          activeSession={activeSession}
-          setActiveSession={setActiveSession}
-          selectedSession={selectedSession}
-          selectedEntries={selectedEntries}
-          reviewOnly={reviewOnly}
-          setReviewOnly={setReviewOnly}
-          flaggedCount={flaggedEntries.length}
-          showSidebar={showSidebar}
-          setShowSidebar={setShowSidebar}
-          onOpenUnifiedSummary={() => setShowUnifiedSummary(true)}
-        />
-      )}
+      <DefaultMode
+        filingId={id}
+        sessions={sessions}
+        entries={allEntries}
+        activeSession={activeSession}
+        setActiveSession={setActiveSession}
+        selectedSession={selectedSession}
+        selectedEntries={selectedEntries}
+        showSidebar={showSidebar}
+        setShowSidebar={setShowSidebar}
+        onOpenUnifiedSummary={() => setShowUnifiedSummary(true)}
+      />
 
       {showSendModal && (
         getLoginMode() === "demo" ? (
@@ -646,29 +630,11 @@ export default function FilingDetailPage({
   );
 }
 
-/* ═══ Toggle Pill ═══ */
-
-function TogglePill({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
-        on ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-      }`}
-    >
-      <span className={`relative inline-block w-[22px] h-3 rounded-full transition-colors ${on ? "bg-white/25" : "bg-gray-200"}`}>
-        <span className={`absolute top-[1px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all ${on ? "left-[11px]" : "left-[1px]"}`} />
-      </span>
-      {children}
-    </button>
-  );
-}
-
 /* ═══ Default 3-Pane Mode ═══ */
 
 type MainTab = "received" | "wht" | "insurance";
 
-function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, reviewOnly, setReviewOnly, flaggedCount, showSidebar, setShowSidebar, onOpenUnifiedSummary }: {
+function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSession, selectedSession, selectedEntries, showSidebar, setShowSidebar, onOpenUnifiedSummary }: {
   filingId: string;
   sessions: CollectionSession[];
   entries: PayrollEntry[];
@@ -676,15 +642,14 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   setActiveSession: (id: string | null) => void;
   selectedSession: CollectionSession | null;
   selectedEntries: PayrollEntry[];
-  reviewOnly: boolean;
-  setReviewOnly: (v: boolean | ((prev: boolean) => boolean)) => void;
-  flaggedCount: number;
   showSidebar: boolean;
   setShowSidebar: (v: boolean) => void;
   onOpenUnifiedSummary: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "review" | "waiting">("all");
+  const [showClientImport, setShowClientImport] = useState(false);
+  const [showClientEdit, setShowClientEdit] = useState(false);
+  const [showRoster, setShowRoster] = useState(false);
   const [highlightEventId, setHighlightEventId] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("received");
   const [commOpen, setCommOpen] = useState(false);
@@ -694,23 +659,9 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showResign, setShowResign] = useState(false);
 
-  const isReview = (s: CollectionSession) => {
-    const se = entries.filter((e) => e.client_id === s.client_id);
-    return se.length > 0 && se.some((e) => {
-      if (e.approved) return false;
-      if (e.match_status === "UNCONFIRMED") return true;
-      const notes = e.anomaly_notes;
-      return (notes && Object.keys(notes).length > 0) || e.match_status === "AMBIGUOUS";
-    });
-  };
-  const isWaiting = (s: CollectionSession) => !s.has_responses;
-
-  const filtered = sessions.filter((s) => {
-    if (search && !s.client_name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filter === "review") return isReview(s);
-    if (filter === "waiting") return isWaiting(s);
-    return true;
-  });
+  const filtered = sessions.filter(
+    (s) => !search || s.client_name.toLowerCase().includes(search.toLowerCase()),
+  );
 
   // 위하고 자동화 단계 — 왼쪽 거래처 목록 배지
   const { data: rpaJobs = [] } = useQuery({
@@ -730,9 +681,6 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
   };
   const [failureDetail, setFailureDetail] = useState<{ clientName: string; job: RpaJob } | null>(null);
 
-  const reviewCount = sessions.filter(isReview).length;
-  const waitingCount = sessions.filter(isWaiting).length;
-
   return (
     <div className="flex flex-1 min-h-0 bg-gray-50 relative">
       {/* Mobile overlay backdrop */}
@@ -744,20 +692,14 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         <div className="px-3 pt-3 pb-2 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[14px] font-semibold">거래처 {sessions.length}</span>
-            <TogglePill on={reviewOnly} onClick={() => setReviewOnly((v: boolean) => !v)}>
-              확인필요만 보기
-            </TogglePill>
-          </div>
-          <div className="inline-flex items-center p-0.5 rounded-full bg-gray-50 border border-gray-200 text-[11px]">
-            {([["all", `전체`], ["review", `확인 ${reviewCount}`], ["waiting", `대기 ${waitingCount}`]] as const).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setFilter(key)}
-                className={`px-2 py-1 rounded-full font-medium transition-all ${filter === key ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-700"}`}
-              >
-                {label}
-              </button>
-            ))}
+            <button
+              onClick={() => setShowClientImport(true)}
+              title="거래처 추가 (위하고에서 가져오기)"
+              aria-label="거래처 추가"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[16px] leading-none font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+            >
+              +
+            </button>
           </div>
           <input
             type="text"
@@ -825,6 +767,12 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
                 <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-600 border border-blue-100">
                   {selectedSession.client_name}
                 </span>
+                <Button variant="secondary" className="!text-[11px] !px-2 !py-0.5" onClick={() => setShowClientEdit(true)}>
+                  정보수정
+                </Button>
+                <Button variant="secondary" className="!text-[11px] !px-2 !py-0.5" onClick={() => setShowRoster(true)}>
+                  사원정보
+                </Button>
               </div>
             </div>
 
@@ -878,6 +826,18 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setCommOpen(false)} />
       )}
 
+      {showClientImport && <WehagoImportModal onClose={() => setShowClientImport(false)} />}
+
+      {showClientEdit && selectedSession && (
+        <ClientEditDialog clientId={selectedSession.client_id} onClose={() => setShowClientEdit(false)} />
+      )}
+
+      {showRoster && selectedSession && (
+        <Modal open={true} onClose={() => setShowRoster(false)} size="lg" title={`${selectedSession.client_name} — 사원정보`}>
+          <RosterContent clientId={selectedSession.client_id} />
+        </Modal>
+      )}
+
       {showAddEmployee && selectedSession && (
         <AddEmployeeModal filingId={filingId} session={selectedSession}
           onClose={() => setShowAddEmployee(false)} />
@@ -917,6 +877,26 @@ function DefaultMode({ filingId, sessions, entries, activeSession, setActiveSess
         </Modal>
       )}
     </div>
+  );
+}
+
+/* ═══ 거래처 정보수정 팝업 (거래처 상세의 편집 모달 재사용) ═══ */
+
+function ClientEditDialog({ clientId, onClose }: { clientId: string; onClose: () => void }) {
+  const { data: clients } = useClients();
+  const client = clients?.find((c) => c.id === clientId);
+  const updateClient = useUpdateClient(clientId);
+  if (!client) return null;
+  return (
+    <ClientEditModal
+      client={client}
+      onClose={onClose}
+      onSubmit={async (patch) => {
+        await updateClient.mutateAsync(patch);
+        onClose();
+      }}
+      pending={updateClient.isPending}
+    />
   );
 }
 
@@ -3243,191 +3223,6 @@ function DiffPill({ diff }: { diff: string }) {
     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums bg-gray-100 text-gray-500">
       {diff}
     </span>
-  );
-}
-
-/* ═══ Review Only Mode ═══ */
-
-function ReviewOnlyMode({ filingId, entries, sessions }: {
-  filingId: string;
-  entries: PayrollEntry[];
-  sessions: CollectionSession[];
-}) {
-  const update = useUpdateEntry(filingId);
-  const total = entries.length;
-  const processed = entries.filter((e) => e.approved).length;
-  const [filterType, setFilterType] = useState<"all" | "anomaly" | "name" | "unconfirmed">("all");
-
-  const hasAnomaly = (e: PayrollEntry) => !!(e.anomaly_notes?.large_change || e.anomaly_notes?.abnormal_amount);
-  const unconfirmedCount = entries.filter((e) => e.match_status === "UNCONFIRMED").length;
-
-  const filteredEntries = entries.filter((e) => {
-    if (filterType === "anomaly") return hasAnomaly(e);
-    if (filterType === "name") return e.match_status === "AMBIGUOUS";
-    if (filterType === "unconfirmed") return e.match_status === "UNCONFIRMED";
-    return true;
-  });
-
-  const anomalyCount = entries.filter(hasAnomaly).length;
-  const nameCount = entries.filter((e) => e.match_status === "AMBIGUOUS").length;
-
-  if (total === 0) {
-    return <div className="flex-1 flex items-center justify-center bg-gray-50 text-sm text-gray-400">확인이 필요한 항목이 없습니다</div>;
-  }
-
-  return (
-    <div className="flex-1 flex flex-col min-h-0 bg-gray-50">
-      <div className="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-white shrink-0">
-        <div className="flex items-center gap-4">
-          <div>
-            <span className="text-[10.5px] font-semibold uppercase tracking-widest text-red-600">확인필요 큐</span>
-            <div className="text-[20px] font-bold tracking-tight">{total}건 남음</div>
-          </div>
-          <div className="h-9 w-px bg-gray-200" />
-          <div className="flex items-center gap-1.5">
-            {([["all", `전체 ${total}`], ["unconfirmed", `미확인 ${unconfirmedCount}`], ["anomaly", `이상치 ${anomalyCount}`], ["name", `이름매칭 ${nameCount}`]] as const).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setFilterType(key)}
-                className={`px-2.5 py-1 rounded-full text-[12px] font-medium transition-all ${
-                  filterType === key ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500">처리</span>
-          <div className="w-[120px] h-1.5 bg-gray-100 border border-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-gray-900 rounded-full transition-all" style={{ width: `${total ? (processed / total) * 100 : 0}%` }} />
-          </div>
-          <span className="text-sm tabular-nums"><b>{processed}</b> <span className="text-gray-500">/ {total}</span></span>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-5 space-y-3.5">
-        {filteredEntries.map((e, idx) => {
-          const clientName = sessions.find((s) => s.client_id === e.client_id)?.client_name ?? "—";
-          const prev = e.prev_amount ?? 0;
-          const curr = e.total_amount;
-          const pctChange = prev ? Math.round(((curr - prev) / prev) * 100) : null;
-          const reasons = anomalyReasons(e);
-          const anomalyType = reasons[0]?.label ?? (e.match_status === "AMBIGUOUS" ? "이름매칭" : "확인필요");
-          const fallbackReason = e.match_status === "AMBIGUOUS"
-            ? "기존 직원 목록에서 정확히 매칭되는 이름을 찾지 못했습니다."
-            : "확인이 필요한 항목입니다.";
-
-          if (e.approved) {
-            return (
-              <div key={e.id} className="rounded-[14px] border border-gray-200 bg-white p-4 opacity-60">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs tabular-nums text-gray-500">{idx + 1} / {total}</span>
-                  <span className="text-xs font-semibold text-gray-500">{clientName} · {e.raw_name}</span>
-                  <Badge tone="success">승인됨</Badge>
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <BezelCard key={e.id}>
-              <div className="p-5 space-y-4">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {/* Ring progress */}
-                    <RingProgress current={idx + 1} total={total} />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11.5px] font-semibold bg-red-50 text-red-600">
-                          {anomalyType}
-                        </span>
-                        <span className="text-xs text-gray-500">{clientName}</span>
-                      </div>
-                      <div className="text-[20px] font-bold tracking-tight mt-1">{e.raw_name}</div>
-                    </div>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <Button variant="ghost" className="text-xs px-2.5 py-1">건너뛰기</Button>
-                    <Button variant="danger" className="text-xs px-2.5 py-1">거부</Button>
-                    <Button className="text-xs px-2.5 py-1" onClick={() => update.mutate({ id: e.id, patch: { approved: true } })} disabled={update.isPending}>
-                      승인하고 다음
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Prev vs Current comparison */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500 mb-1 block">전월</span>
-                    <div className="rounded-[12px] border border-gray-200 bg-gray-50 p-4">
-                      <div className="text-[22px] font-bold tabular-nums text-gray-500 tracking-tight">
-                        {prev ? `₩ ${prev.toLocaleString()}` : "—"}
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-[10.5px] font-semibold uppercase tracking-widest text-red-600 mb-1 block">이번달 · AI 추출</span>
-                    <div className="rounded-[12px] border border-red-200/60 bg-red-50/40 p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="text-[22px] font-bold tabular-nums text-red-600 tracking-tight">₩ {curr.toLocaleString()}</div>
-                        {pctChange != null && (
-                          <div className="text-lg font-bold tabular-nums text-red-600">{pctChange > 0 ? "+" : ""}{pctChange}%</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Reason */}
-                <div className="rounded-[12px] bg-gray-50 border border-gray-200 p-3.5">
-                  <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500 mb-1 block">판단 근거</span>
-                  <div className="text-[13px] text-gray-700 leading-relaxed space-y-1">
-                    {reasons.length > 0 ? reasons.map((r) => (
-                      <div key={r.key}>
-                        {r.detail}{r.calc && <span className="block text-[12.5px] text-gray-600 tabular-nums">{r.calc}</span>} → {r.action}
-                        {r.rule && <span className="text-[12px] text-gray-400"> ({r.rule})</span>}
-                      </div>
-                    )) : fallbackReason}
-                  </div>
-                </div>
-
-                {/* Quick actions */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[10.5px] font-semibold uppercase tracking-widest text-gray-500">빠른 수정</span>
-                  {prev > 0 && (
-                    <button onClick={() => update.mutate({ id: e.id, patch: { total_amount: prev, approved: true } })}
-                      className="px-3 py-1.5 rounded-full border border-gray-200 text-xs font-medium hover:bg-gray-50 transition-colors" disabled={update.isPending}>
-                      전월값 사용
-                    </button>
-                  )}
-                  <button className="px-3 py-1.5 rounded-full border border-gray-200 text-xs font-medium hover:bg-gray-50 transition-colors">직접 입력...</button>
-                </div>
-              </div>
-            </BezelCard>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ═══ Ring Progress ═══ */
-
-function RingProgress({ current, total }: { current: number; total: number }) {
-  const pct = Math.round((current / total) * 100);
-  return (
-    <div
-      className="w-9 h-9 rounded-full grid place-items-center text-[10.5px] font-bold relative"
-      style={{
-        background: `conic-gradient(#101112 ${pct}%, #F4F4F6 0)`,
-      }}
-    >
-      <span className="absolute inset-1 bg-white rounded-full" />
-      <span className="relative z-10">{current}/{total}</span>
-    </div>
   );
 }
 
