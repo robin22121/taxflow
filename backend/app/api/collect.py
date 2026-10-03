@@ -38,6 +38,7 @@ from app.schemas.filings import (
 )
 from app.models.income_type import IncomeType
 from app.services.employee_codes import next_employee_code
+from app.services.entry_history import record_created, record_updated, snapshot_values
 from app.services.ai_parser import merge_rrn_sidechannel, parse_payroll_message
 from app.services.crypto import decrypt_rrn, encrypt_rrn, normalize_rrn, rrn_last4
 from app.services.file_intake import intake_file
@@ -106,6 +107,7 @@ async def submit_message(
         channel=payload.channel,
         sender_name=payload.sender_name,
         received_date=payload.received_date,
+        actor=user,
     )
 
 
@@ -562,6 +564,7 @@ async def commit_message(
         received_date=payload.received_date,
         prev_entries=prev_entries,
         updates=updates,
+        actor=user,
     )
 
 
@@ -899,8 +902,13 @@ async def _persist_results(
     received_date: "date | None" = None,
     prev_entries: list[PayrollEntry] | None = None,
     updates: list[tuple[PayrollEntry, PayrollEntryCandidate]] | None = None,
+    actor: User | None = None,  # 변경이력 작업자 — 직원이 직접 올린 경우
+    actor_label: str | None = None,  # 직원이 아닌 경우의 표기 ("사장님(포털)" 등, 없으면 자동 수신)
+    origin: str = "collect",  # 변경이력 출처 — collect | portal (carry_forward 는 channel 로 판단)
 ) -> CollectMessageOut:
     """Save collection event and payroll entries to DB."""
+    history_source = "carry_forward" if channel == "carry_forward" else origin
+    created_entries: list[PayrollEntry] = []
     payload: dict = {
         "matched": len(matching.entries),
         "new_hire": len(matching.new_hire_followups),
@@ -997,6 +1005,7 @@ async def _persist_results(
         ):
             needs_followup_count += 1
         db.add(entry)
+        created_entries.append(entry)
 
     # 기존 항목 수정 — "장수민 50만원 감액" 같은 요청은 새 항목이 아니라 갱신이다.
     # 금액이 바뀌므로 세액·4대보험을 다시 계산하고 승인 상태는 해제한다.
@@ -1004,6 +1013,7 @@ async def _persist_results(
     for entry, cand in updates or []:
         matched_emp = emp_by_id.get(cand.employee_id) if cand.employee_id else None
         fields, tax, _si = _computed_fields(cand, client, defaults, matched_emp)
+        before_values, was_approved = snapshot_values(entry), bool(entry.approved)
         for key, value in fields.items():
             setattr(entry, key, value)
         if channel == "carry_forward":
@@ -1018,7 +1028,14 @@ async def _persist_results(
         entry.collection_session_id = session.id
         entry.collection_event_id = event.id
         entry.approved = False
+        await record_updated(
+            db, entry, before_values, was_approved,
+            source=history_source, user=actor, actor_label=actor_label,
+        )
         updated_count += 1
+
+    # 원본 스냅샷·CREATE 이력 — 고객이 보낸 값을 "받은 자료"에서 그대로 보여주기 위함
+    await record_created(db, created_entries, source=history_source, user=actor, actor_label=actor_label)
 
     # Update session status
     session.status = (
@@ -1065,6 +1082,9 @@ async def _ingest_message(
     received_date: "date | None" = None,
     structured_payroll: list[WehagoPayrollRow] | None = None,
     rrn_map: dict[str, dict[str, str]] | None = None,
+    actor: User | None = None,
+    actor_label: str | None = None,
+    origin: str = "collect",
 ) -> CollectMessageOut:
     """
     attachments: 원본 파일 메타 [{"filename":..., "storage_key":..., "kind":..., "mime":...}]
@@ -1089,6 +1109,7 @@ async def _ingest_message(
         db, session, client, filing, matching, employees, text, channel, attachments,
         sender_name=sender_name, received_date=received_date,
         prev_entries=prev_entries,
+        actor=actor, actor_label=actor_label, origin=origin,
     )
 
 
@@ -1100,6 +1121,8 @@ async def _ingest_amounts(
     filing: MonthlyFiling,
     amounts: dict[str, int],
     channel: str,
+    actor_label: str | None = None,
+    origin: str = "collect",
 ) -> CollectMessageOut:
     """직원을 골라 금액만 바꾼 제출 — AI 없이 저장한다 (plan/12-owner-portal.md §8.3).
 
@@ -1214,6 +1237,7 @@ async def _ingest_amounts(
         db, session, client, filing, matching, employees, text, channel,
         prev_entries=prev_entries,
         updates=updates,
+        actor_label=actor_label, origin=origin,
     )
 
 

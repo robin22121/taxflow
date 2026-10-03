@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db, require_write
+from app.services.entry_history import record_created
 from app.models import (
     Client,
     CollectionEvent,
@@ -371,12 +372,13 @@ async def fast_path_commit(
     await db.flush()
 
     created = 0
+    created_entries: list[PayrollEntry] = []
     for pe in prev_entries:
         if pe.employee_id and pe.employee_id not in employees:
             continue
         emp = employees.get(pe.employee_id) if pe.employee_id else None
         income_tax, local_tax, dependents, children, rate_adjust = _recalc_row(pe, emp)
-        db.add(
+        new_entry = (
             PayrollEntry(
                 monthly_filing_id=filing.id,
                 collection_session_id=session.id,
@@ -415,8 +417,11 @@ async def fast_path_commit(
                 approved=True,  # 페스트패스 게이트를 통과했으므로 자동 승인
             )
         )
+        db.add(new_entry)
+        created_entries.append(new_entry)
         created += 1
 
+    await record_created(db, created_entries, source="fast_path", user=user)
     filing.total_entries = (filing.total_entries or 0) + created
     await db.commit()
 

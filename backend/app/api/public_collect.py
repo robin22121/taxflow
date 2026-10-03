@@ -218,6 +218,7 @@ async def public_submit_message(
         filing=link.filing,
         text=payload.text,
         channel="public_url",
+        actor_label="사장님(포털)", origin="portal",
     )
 
 
@@ -240,6 +241,7 @@ async def public_submit_amounts(
         filing=link.filing,
         amounts=amounts,
         channel="public_select" if amounts else "public_same",
+        actor_label="사장님(포털)", origin="portal",
     )
 
 
@@ -292,6 +294,7 @@ async def public_upload_file(
         images=images,
         attachments=attachments_meta,
         structured_payroll=intake.structured_payroll,
+        actor_label="사장님(포털)", origin="portal",
     )
 
 

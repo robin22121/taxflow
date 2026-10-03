@@ -34,6 +34,7 @@ from app.models import (
 from app.schemas.clients import EmployeeOut
 from app.schemas.imports import ImportEmployeeResult, ImportPayrollResult
 from app.services.crypto import encrypt_rrn, mask_rrn
+from app.services.entry_history import record_created
 from app.services.tax_calc import calculate_withholding_tax, income_type_to_a_code
 
 router = APIRouter()
@@ -341,6 +342,7 @@ async def import_payroll(
         raw_text=f"엑셀 임포트: {file.filename}, {len(data)} 행",
     ))
 
+    created_entries: list[PayrollEntry] = []
     matched_count, unmatched_count, created_count = 0, 0, 0
     errors: list[str] = []
 
@@ -413,8 +415,10 @@ async def import_payroll(
             approved=bool(emp),
         )
         db.add(entry)
+        created_entries.append(entry)
         created_count += 1
 
+    await record_created(db, created_entries, source="import", user=user)
     filing.total_clients = max(filing.total_clients, 1)
     filing.total_entries = (filing.total_entries or 0) + created_count
     await db.commit()

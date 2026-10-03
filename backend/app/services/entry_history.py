@@ -108,15 +108,16 @@ async def record_change(
     changes: dict | None = None,
     actor_label: str | None = None,
     batch_id: str | None = None,
+    tax_office_id: str | None = None,  # 이미 알고 있으면 넘겨 조회를 줄인다
 ) -> PayrollEntryChange:
     """이력 한 행을 추가한다 (commit은 호출부). user가 없으면(포털·카카오·시스템) actor_label로 표기."""
     assert action in ACTIONS and source in SOURCES, (action, source)
-    if user is not None:
-        tax_office_id = user.tax_office_id
-        label = user.name
-    else:
-        tax_office_id = await db.scalar(select(Client.tax_office_id).where(Client.id == entry.client_id))
-        label = actor_label
+    label = user.name if user is not None else actor_label
+    if tax_office_id is None:
+        if user is not None:
+            tax_office_id = user.tax_office_id
+        else:
+            tax_office_id = await db.scalar(select(Client.tax_office_id).where(Client.id == entry.client_id))
     row = PayrollEntryChange(
         tax_office_id=tax_office_id,
         monthly_filing_id=entry.monthly_filing_id,
@@ -136,3 +137,57 @@ async def record_change(
     )
     db.add(row)
     return row
+
+
+async def record_created(
+    db: AsyncSession,
+    entries: list[PayrollEntry],
+    *,
+    source: str,
+    user: User | None = None,
+    actor_label: str | None = None,
+) -> None:
+    """새로 만든 항목들의 원본 스냅샷(source_snapshot)과 CREATE 이력을 남긴다.
+
+    flush로 id·기본값을 먼저 확정한 뒤 값을 뜬다. source_snapshot은 수집 경로만 쓰며 수동 수정(PATCH)은
+    절대 바꾸지 않는다 — "받은 자료" 탭이 이 값을 고객이 보낸 원래 값으로 보여준다.
+    """
+    if not entries:
+        return
+    await db.flush()
+    offices: dict[str, str | None] = {}
+    for entry in entries:
+        if entry.client_id not in offices:
+            offices[entry.client_id] = (
+                user.tax_office_id if user is not None
+                else await db.scalar(select(Client.tax_office_id).where(Client.id == entry.client_id))
+            )
+        entry.source_snapshot = {"source": source, "values": snapshot_values(entry)}
+        await record_change(
+            db, entry, "CREATE", user=user, source=source, actor_label=actor_label,
+            tax_office_id=offices[entry.client_id],
+        )
+
+
+async def record_updated(
+    db: AsyncSession,
+    entry: PayrollEntry,
+    before: dict[str, Any],
+    was_approved: bool,
+    *,
+    source: str,
+    user: User | None = None,
+    actor_label: str | None = None,
+) -> None:
+    """수집 경로가 기존 항목을 고객의 새 값으로 덮어쓴 경우 — 값 변경 이력과 원본 스냅샷 갱신, 승인 해제 기록.
+
+    "받은 자료"는 마지막으로 받은 고객 값을 보여주므로 source_snapshot을 새 값으로 바꾼다
+    (이전 값은 이 이력의 before에 남는다).
+    """
+    after = snapshot_values(entry)
+    changes = diff_values(before, after)
+    entry.source_snapshot = {"source": source, "values": after}
+    if changes:
+        await record_change(db, entry, "UPDATE", user=user, source=source, actor_label=actor_label, changes=changes)
+    if was_approved and not entry.approved:
+        await record_change(db, entry, "UNAPPROVE", user=user, source=source, actor_label=actor_label)
