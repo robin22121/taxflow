@@ -19,6 +19,8 @@ type Tone = "wait" | "run" | "done" | "fail";
 // MONTHLY_PRODUCTION 하위 단계 (backend RpaJob.step_progress 키)
 const PRODUCTION_STEPS: { key: string; label: string }[] = [
   { key: "wehago_income_tax", label: "원천세 신고서 입력" },
+  { key: "wehago_business_income", label: "사업소득 마감" },
+  { key: "wht_efile", label: "전자신고 파일 제작" },
   { key: "wehago_local_tax", label: "지방소득세 신고서 입력" },
   { key: "hometax", label: "홈택스 원천세 신고" },
   { key: "wetax", label: "위택스 지방세 신고" },

@@ -48,13 +48,13 @@ function Update-AgentCode {
     return $false
 }
 
-powershell -ExecutionPolicy Bypass -File ".\scripts\start-chrome.ps1"
-
 while ($true) {
     Update-AgentCode | Out-Null
 
-    Write-Host "에이전트 실행 시작: uv run python -m easyone_agent run"
-    uv run python -m easyone_agent run
+    # start: 크롬(CDP) 실행 → 위하고 로그인 → 홈택스 로그인 → 작업 대기를 한 번에 한다
+    # (크롬을 따로 띄울 필요 없음 — 이미 떠 있으면 그대로 쓴다).
+    Write-Host "에이전트 실행 시작: uv run python -m easyone_agent start"
+    uv run python -m easyone_agent start
     $exitCode = $LASTEXITCODE
 
     if ($exitCode -eq 2) {

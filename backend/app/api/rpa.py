@@ -50,6 +50,7 @@ from app.schemas.rpa import (
     RpaAgentOut,
     RpaClaimOut,
     RpaJobOut,
+    RpaJobProgressIn,
     RpaJobResultIn,
     RpaNotificationOut,
     UnsentChangeOut,
@@ -1158,6 +1159,26 @@ async def agent_download_other_income_excel(
     )
 
 
+@router.post("/agent/jobs/{job_id}/progress", response_model=RpaJobOut)
+async def agent_report_progress(
+    job_id: str,
+    payload: RpaJobProgressIn,
+    db: AsyncSession = Depends(get_db),
+    agent: RpaAgent = Depends(get_current_agent),
+) -> RpaJob:
+    """실행 중 단계 보고. 현재 단계·마지막 보고 시각을 갱신하고 agent.last_seen_at도 갱신한다."""
+    job = await _agent_running_job(db, agent, job_id)
+    now = _utcnow()
+    agent.last_seen_at = now
+    job.current_step = payload.label
+    job.last_progress_at = now
+    if payload.step_key:
+        job.step_progress = {**(job.step_progress or {}), payload.step_key: payload.state}
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
 @router.post("/agent/jobs/{job_id}/result", response_model=RpaJobOut)
 async def agent_report_result(
     job_id: str,
@@ -1313,6 +1334,27 @@ async def create_productions(
             f"이미 제작이 대기·진행 중인 거래처입니다 (client_ids: {sorted(active)}).",
         )
 
+    # 이어서 제작 — 가장 최근 제작이 FAILED일 때만 그 완료 단계를 물려받는다.
+    carried: dict[str, dict] = {}
+    if payload.resume:
+        previous = (
+            await db.execute(
+                select(RpaJob)
+                .where(
+                    RpaJob.monthly_filing_id == filing.id,
+                    RpaJob.client_id.in_(client_ids),
+                    RpaJob.kind == RpaJobKind.MONTHLY_PRODUCTION,
+                )
+                .order_by(RpaJob.created_at.asc())
+            )
+        ).scalars().all()
+        latest_production: dict[str, RpaJob] = {j.client_id: j for j in previous}
+        for cid, prev in latest_production.items():
+            if prev.status == RpaJobStatus.FAILED:
+                done = {k: v for k, v in (prev.step_progress or {}).items() if v == "done"}
+                if done:
+                    carried[cid] = done
+
     jobs = [
         RpaJob(
             tax_office_id=office_id,
@@ -1324,6 +1366,7 @@ async def create_productions(
             business_number=input_by_client[cid].business_number,
             business_name=input_by_client[cid].business_name,
             requested_by_user_id=user.id,
+            step_progress=carried.get(cid),
         )
         for cid in client_ids
     ]

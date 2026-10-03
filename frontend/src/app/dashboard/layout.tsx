@@ -37,6 +37,11 @@ const NAV_ITEMS = [
     label: "타세목 신고·납부",
     match: (p: string) => p.startsWith("/dashboard/messages"),
   },
+  {
+    href: "/dashboard/wehago-jobs",
+    label: "위하고 작업",
+    match: (p: string) => p.startsWith("/dashboard/wehago-jobs"),
+  },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

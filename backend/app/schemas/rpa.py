@@ -77,6 +77,8 @@ class WehagoSelectiveUploadCreate(BaseModel):
 class ProductionCreate(BaseModel):
     filing_id: str
     client_ids: list[str] = Field(min_length=1)
+    # True면 직전에 실패한 제작의 완료(done) 단계를 이어받아, 에이전트가 그 단계를 건너뛴다.
+    resume: bool = False
 
 
 # --- 공통 : 작업 표시 --------------------------------------------------
@@ -96,6 +98,8 @@ class RpaJobOut(BaseModel):
     finished_at: datetime | None
     result_message: str | None
     step_progress: dict[str, Any] | None = None
+    current_step: str | None = None
+    last_progress_at: datetime | None = None
     compare_diff: dict[str, Any] | None = None
     acknowledged_at: datetime | None = None
     created_at: datetime
@@ -138,6 +142,14 @@ class RpaClaimOut(BaseModel):
 
 
 # --- 에이전트 회신 ------------------------------------------------------
+
+
+class RpaJobProgressIn(BaseModel):
+    """에이전트가 실행 중 단계 진행을 알리는 요청 — heartbeat를 겸한다."""
+
+    step_key: str | None = Field(default=None, max_length=60)  # step_progress에 기록할 키 (없으면 라벨만 갱신)
+    state: Literal["running", "done", "failed"] = "running"
+    label: str = Field(max_length=100)
 
 
 class RpaJobResultIn(BaseModel):

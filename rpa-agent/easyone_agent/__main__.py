@@ -1,9 +1,10 @@
 """사용법:
     python -m easyone_agent setup   # 토큰·위하고·홈택스·위택스 자격증명을 Windows 자격 증명 관리자에 저장
-    python -m easyone_agent run     # 작업 대기·처리 루프 시작
+    python -m easyone_agent start   # 크롬(CDP) 실행·위하고 로그인·홈택스 로그인 후 작업 대기 (원커맨드)
+    python -m easyone_agent run     # 작업 대기·처리 루프 시작 (크롬은 미리 떠 있어야 한다)
     python -m easyone_agent login-test  # 작업 한 건을 받아 위하고 로그인만 해 보고 끝낸다
 
-노트북 크롬은 먼저 `scripts/start-chrome.ps1` 로 CDP 포트를 열어 실행해 두어야 한다.
+`run`·`login-test`는 CDP 크롬이 미리 떠 있어야 한다(`scripts/start-chrome.*`). `start`는 크롬이 없으면 직접 띄운다.
 """
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ import logging
 import re
 import sys
 
+from easyone_agent import launcher
 from easyone_agent.api import EasyoneApi
+from easyone_agent.chrome import ensure_chrome
 from easyone_agent.config import (
     SECRET_AGENT_TOKEN,
     SECRET_HOMETAX_CERT_PASSWORD,
@@ -29,13 +32,14 @@ from easyone_agent.config import (
     SECRET_WHT_EFILE_PASSWORD,
     AgentConfig,
     get_secret,
+    get_secret_optional,
     load_config,
     set_secret,
 )
-from easyone_agent.hometax import ChromeLaunchFailed, HometaxError, TaxAgentLogin
+from easyone_agent.hometax import ChromeLaunchFailed, HometaxError, HometaxSession, TaxAgentLogin
 from easyone_agent.runner import run_forever, run_login_test
 from easyone_agent.updater import update_available
-from easyone_agent.wehago import WehagoUploader
+from easyone_agent.wehago import CdpConnectFailed, WehagoUploader
 
 EXIT_LOGIN_FAILED = 2  # 재시작 금지 — 자격 증명을 확인하고 사람이 다시 실행해야 한다
 EXIT_UPDATE_AVAILABLE = 3  # scripts/run-agent.ps1 이 이 코드를 보고 git pull 후 재시작한다
@@ -110,6 +114,46 @@ def _run() -> int:
     return EXIT_UPDATE_AVAILABLE if reason == "update_available" else EXIT_LOGIN_FAILED
 
 
+def _start() -> int:
+    """크롬(CDP) 확인·실행 → 위하고 로그인 → 홈택스 로그인 → 작업 대기까지 한 번에."""
+    config = load_config()
+    api = EasyoneApi(config.api_base_url, get_secret(SECRET_AGENT_TOKEN))
+
+    def make_hometax(uploader: WehagoUploader) -> HometaxSession:
+        # 위하고가 붙은 크롬 컨텍스트에서 홈택스 탭을 따로 연다 (HometaxSession 사용 예와 같은 방식).
+        return HometaxSession(
+            uploader._context,
+            user_id=get_secret_optional(SECRET_HOMETAX_ID) or "",
+            password=get_secret_optional(SECRET_HOMETAX_PASSWORD) or "",
+            tax_agent_id=get_secret_optional(SECRET_HOMETAX_TAX_AGENT_ID),
+            tax_agent_password=get_secret_optional(SECRET_HOMETAX_TAX_AGENT_PASSWORD),
+            cert_password=get_secret_optional(SECRET_HOMETAX_CERT_PASSWORD),
+            screenshot_dir=config.screenshot_dir,
+        )
+
+    def run_agent(uploader: WehagoUploader) -> str:
+        return run_forever(
+            api,
+            uploader,
+            config.workdir,
+            config.poll_interval_sec,
+            update_check_interval_sec=config.update_check_interval_sec,
+            update_available=update_available,
+        )
+
+    try:
+        reason = launcher.start(
+            ensure_chrome=lambda: ensure_chrome(config.cdp_url, config.chrome_profile_dir),
+            open_uploader=lambda: _uploader(config),
+            make_hometax=make_hometax,
+            run_agent=run_agent,
+        )
+    except (ChromeLaunchFailed, CdpConnectFailed) as e:
+        print(f"크롬에 연결하지 못했습니다: {e}")
+        return 1
+    return EXIT_UPDATE_AVAILABLE if reason == "update_available" else EXIT_LOGIN_FAILED
+
+
 def _login_test() -> int:
     config = load_config()
     api = EasyoneApi(config.api_base_url, get_secret(SECRET_AGENT_TOKEN))
@@ -139,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("setup", help="토큰·위하고/홈택스/위택스 자격증명 저장")
     sub.add_parser("run", help="작업 처리 시작")
+    sub.add_parser("start", help="크롬 실행·위하고 로그인·홈택스 로그인 후 작업 처리 시작 (원커맨드)")
     sub.add_parser("login-test", help="작업 한 건으로 위하고 로그인만 확인")
     sub.add_parser("login-hometax", help="홈택스 공동인증서 선택 팝업까지 열기 (세무사 아이디)")
     args = parser.parse_args(argv)
@@ -153,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         return _login_test()
     if args.command == "login-hometax":
         return _login_hometax()
+    if args.command == "start":
+        return _start()
     return _run()
 
 

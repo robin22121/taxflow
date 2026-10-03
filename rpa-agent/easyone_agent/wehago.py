@@ -19,10 +19,26 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from easyone_agent import wehago_nts
 from easyone_agent.company import normalize_business_number
 from easyone_agent.pace import key_delay_ms, think
 
 WEHAGO_URL = "https://www.wehagot.com"  # 위하고 T (세무회계사무소용)
+
+# 위하고와 같은 크롬을 공유하는 세금 사이트 탭 — 위하고 작업을 시작할 때 닫지 않는다.
+_TAX_SITE_TAB_HOSTS = ("hometax.go.kr", "wetax.go.kr")
+
+
+def _split_tabs(pages: list) -> tuple:
+    """시작할 때 남길 위하고 탭과 닫을 탭을 고른다.
+
+    반환: (기존 위하고 탭 또는 None, 남길 탭 또는 None, 닫을 탭 목록). 남길 탭이 None이면 호출자가
+    새 탭을 만든다. 홈택스·위택스 탭은 어느 쪽에도 넣지 않고 그대로 둔다.
+    """
+    others = [pg for pg in pages if not any(h in pg.url for h in _TAX_SITE_TAB_HOSTS)]
+    main_page = next((pg for pg in others if pg.url.startswith(WEHAGO_URL)), None)
+    keep = main_page or (others[0] if others else None)
+    return main_page, keep, [pg for pg in others if pg is not keep]
 TAXAGENT_URL = f"{WEHAGO_URL}/tedge/#/taxagent"  # 세무대리인 수임처 관리
 LOGIN_WAIT_MS = 60_000  # QR 추가 인증이 뜨면 사람이 처리할 시간
 LOGIN_FORM_WAIT_MS = 15_000
@@ -226,15 +242,14 @@ class WehagoUploader:
         # 발생 — 위하고 전송·제작 등 새 작업을 시작할 때마다 위하고 T 메인 화면 탭 하나만
         # 남기고 나머지는 전부 닫아 항상 같은 깨끗한 상태에서 시작한다).
         self.step = "이전 작업 탭 정리"
-        pages = self._context.pages
-        main_page = next((pg for pg in pages if pg.url.startswith(WEHAGO_URL)), None)
-        keep = main_page or (pages[0] if pages else self._context.new_page())
-        for pg in list(self._context.pages):
-            if pg is not keep:
-                try:
-                    pg.close()
-                except Exception:
-                    pass
+        main_page, keep, to_close = _split_tabs(self._context.pages)
+        if keep is None:
+            keep = self._context.new_page()
+        for pg in to_close:
+            try:
+                pg.close()
+            except Exception:
+                pass
         self._page = keep
         self._page.bring_to_front()
         # 재사용한 탭은 해시 라우팅 SPA라 URL이 같으면 goto만으로는 리액트 상태(검색창에
@@ -1985,7 +2000,7 @@ class WehagoUploader:
             save_dir: 위하고가 ErsData에 저장한 파일을 "<사업자번호>_<원래 이름>"으로 복사할 폴더.
 
         Returns:
-            저장폴더 팝업 원문 + 복사한 파일 경로.
+            복사한 파일 경로 안내.
 
         Raises:
             WehagoError: 맥 미지원 안내가 뜸, 또는 그 밖의 예상과 다른 화면.
@@ -2053,16 +2068,23 @@ class WehagoUploader:
                 "일치). Windows PC에서 같은 화면을 열어 [제작(F4)]부터 다시 진행하세요."
             )
 
-        # 파일은 크롬 다운로드가 아니라 위하고 로컬 프로그램(WehagoAgent)이 ErsData에
-        # 저장하고, 저장폴더 안내 팝업을 띄운다 — 경로는 그대로 두고 [확인]만 누른 뒤
-        # 새로 생긴 파일을 save_dir(rpa-agent/withfile)로 복사한다 (2026-10-02 사용자 요청·
-        # 실측: C:\Douzone\Wehago\ErsData\20261002C103900.01).
-        self.step = "전자신고 저장폴더 팝업 확인"
-        result = smarta.locator("div._isDialog:visible").filter(has_text=re.compile("저장|완료")).last
-        result.wait_for(state="visible", timeout=UPLOAD_WAIT_MS)
-        text = result.inner_text().strip()
+        # 파일은 크롬 다운로드가 아니라 위하고 로컬 프로그램(WehagoNTS)이 저장한다 — 크롬 밖의
+        # Windows "폴더 선택" 창(기본 C:\Douzone\Wehago\ErsData)에서 [확인], 같은 이름 파일이
+        # 있으면 "질의 — 덮어쓰시겠습니까?" 창에서 [예(Y)]까지 누른다. 위하고 화면에는 완료
+        # 팝업이 뜨지 않는다 (2026-10-02 실측). 저장된 파일은 save_dir(rpa-agent/withfile)로
+        # 복사한다.
+        self.step = "전자신고 저장폴더 선택 창 확인"
+        deadline = time.monotonic() + UPLOAD_WAIT_MS / 1000
+        dialog = None
+        while dialog is None and time.monotonic() < deadline:
+            dialog = wehago_nts.find_folder_dialog()
+            if dialog is None:
+                smarta.wait_for_timeout(500)
+        if dialog is None:
+            raise WehagoError("위하고 '폴더 선택' 창이 뜨지 않았습니다 — 위하고 로컬 프로그램(WehagoNTS) 실행 여부를 확인하세요.")
+        folder = Path(wehago_nts.folder_dialog_path(dialog) or WEHAGO_ERS_DIR)
         think("wehago")
-        result.get_by_role("button", name="확인", exact=True).click()
+        wehago_nts.confirm_folder_dialog(dialog)
 
         self.step = "전자신고 파일 저장 확인"
         # 파일명이 "제작일자+고정코드.01"이라 같은 날 다시 만들면 같은 이름으로 덮어쓴다 —
@@ -2070,16 +2092,14 @@ class WehagoUploader:
         deadline = time.monotonic() + UPLOAD_WAIT_MS / 1000
         made: list[Path] = []
         while time.monotonic() < deadline:
-            if WEHAGO_ERS_DIR.is_dir():
-                made = [p for p in WEHAGO_ERS_DIR.iterdir() if p.is_file() and p.stat().st_mtime >= started]
+            wehago_nts.answer_overwrite_prompt()
+            if folder.is_dir():
+                made = [p for p in folder.iterdir() if p.is_file() and p.stat().st_mtime >= started]
             if made:
                 break
             smarta.wait_for_timeout(500)
         if not made:
-            raise WehagoError(
-                f"저장폴더 팝업에서 [확인]을 눌렀지만 {WEHAGO_ERS_DIR} 에 새 파일이 생기지 않았습니다 "
-                f"— 팝업 내용: {text}"
-            )
+            raise WehagoError(f"'폴더 선택' 창에서 [확인]을 눌렀지만 {folder} 에 새 파일이 생기지 않았습니다")
         save_dir.mkdir(parents=True, exist_ok=True)
         prefix = normalize_business_number(business_number)
         copied = []
@@ -2087,7 +2107,7 @@ class WehagoUploader:
             dest = save_dir / f"{prefix}_{src.name}"
             shutil.copy2(src, dest)
             copied.append(str(dest))
-        return f"{text}\n저장 파일: {', '.join(copied)}"
+        return f"전자신고 파일 저장: {', '.join(copied)}"
 
     # ------------------------------------------------------------------
     # 소득자 명단 읽기 (plan/16 §13-3-5, 2026-09-30) — RealGrid `_gridView`를 직접 읽는다.

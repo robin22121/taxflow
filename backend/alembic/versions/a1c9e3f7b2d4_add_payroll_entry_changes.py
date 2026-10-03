@@ -6,7 +6,7 @@
 (= 원본 미보존, 이전 자료).
 
 Revision ID: a1c9e3f7b2d4
-Revises: e7f8a9b0c1d2
+Revises: f1a2b3c4d5e6
 Create Date: 2026-10-03 00:00:00.000000
 """
 
@@ -20,7 +20,7 @@ from sqlalchemy import inspect as sa_inspect
 from alembic import op
 
 revision: str = "a1c9e3f7b2d4"
-down_revision: str | None = "e7f8a9b0c1d2"
+down_revision: str | None = "f1a2b3c4d5e6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

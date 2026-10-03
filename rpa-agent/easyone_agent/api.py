@@ -27,6 +27,8 @@ class Job:
     pay_date: date | None = None  # 위하고 급여자료입력 지급일 — 서버가 아직 안 보내면 None
     business_address: str | None = None  # 지방세 마감 취급청 검색용 — MONTHLY_PRODUCTION에만 채워짐
     import_options: dict[str, Any] | None = None  # 가져오기 선택 항목 — 서버가 step_progress.options 로 보냄
+    # 이어서 제작일 때 서버가 미리 채워 둔 완료 단계 — 에이전트가 건너뛴다. 예: {"wehago_income_tax": "done"}
+    step_progress: dict[str, Any] | None = None
 
 
 class EasyoneApi:
@@ -59,6 +61,7 @@ class EasyoneApi:
             pay_date=date.fromisoformat(data["pay_date"]) if data.get("pay_date") else None,
             business_address=data.get("business_address"),
             import_options=(data.get("step_progress") or {}).get("options"),
+            step_progress=data.get("step_progress"),
         )
 
     def download_payroll_excel(self, job_id: str) -> bytes:
@@ -93,6 +96,14 @@ class EasyoneApi:
         if step_progress is not None:
             body["step_progress"] = step_progress
         r = self._http.post(f"/api/v1/rpa/agent/jobs/{job_id}/result", json=body)
+        r.raise_for_status()
+
+    def progress(self, job_id: str, label: str, step_key: str | None = None, state: str = "running") -> None:
+        """실행 중 단계 보고 — 서버가 현재 단계·마지막 신호 시각을 갱신한다 (heartbeat 겸용)."""
+        body: dict[str, Any] = {"label": label, "state": state}
+        if step_key:
+            body["step_key"] = step_key
+        r = self._http.post(f"/api/v1/rpa/agent/jobs/{job_id}/progress", json=body)
         r.raise_for_status()
 
     def report_import_client(self, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:

@@ -37,6 +37,9 @@ export type RpaJob = {
   finished_at: string | null;
   result_message: string | null;
   step_progress: Record<string, unknown> | null;
+  // 에이전트가 실행 중 보고하는 현재 단계 라벨과 마지막 신호 시각 — 멈춤 판단용
+  current_step: string | null;
+  last_progress_at: string | null;
   compare_diff: Record<string, unknown> | null;
   acknowledged_at: string | null;
   created_at: string;
@@ -140,10 +143,11 @@ export function createWehagoUploadsSelective(
 
 // --- 게이트 2 : 제작 ---------------------------------------------------
 
-export function createProductions(filingId: string, clientIds: string[]): Promise<RpaJob[]> {
+/** resume=true면 직전에 실패한 제작에서 이미 끝난 단계는 건너뛰고 이어서 진행한다. */
+export function createProductions(filingId: string, clientIds: string[], resume = false): Promise<RpaJob[]> {
   return api<RpaJob[]>("/api/v1/rpa/productions", {
     method: "POST",
-    json: { filing_id: filingId, client_ids: clientIds },
+    json: { filing_id: filingId, client_ids: clientIds, resume },
   });
 }
 

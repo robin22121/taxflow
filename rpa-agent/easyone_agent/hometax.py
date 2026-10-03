@@ -43,6 +43,7 @@ HOMETAX_MAIN_URL = "https://hometax.go.kr"
 LOGIN_FORM_WAIT_MS = 15_000
 LOGIN_WAIT_MS = 60_000
 CHROME_LAUNCH_TIMEOUT_SEC = 15  # 새로 띄운 크롬이 CDP 포트를 열 때까지 기다리는 한도
+HUMAN_LOGIN_WAIT_SEC = 300  # 공동인증서 창에서 사람이 로그인을 끝낼 때까지 기다리는 한도
 
 # scripts/start-chrome.sh·.ps1과 같은 후보 경로 — 새로 창을 열 때도 같은 설치 크롬을 쓴다
 _CHROME_PATH_CANDIDATES = {
@@ -113,6 +114,11 @@ class ChromeLaunchFailed(HometaxError):
     """CDP 크롬이 없어 새로 띄우려 했지만 실행 파일을 못 찾았거나 포트가 열리지 않았다."""
 
 
+def _is_hometax_main_url(url: str) -> bool:
+    """홈택스 본 화면 탭인지 — 보안 모듈 창(sesw.hometax.go.kr)은 제외한다."""
+    return "hometax.go.kr" in url and "sesw." not in url
+
+
 def _find_chrome_executable() -> str:
     import os
 
@@ -122,6 +128,29 @@ def _find_chrome_executable() -> str:
         if Path(path).exists():
             return path
     raise ChromeLaunchFailed(f"Google Chrome 실행 파일을 찾지 못했습니다 (확인한 경로: {candidates})")
+
+
+def launch_chrome(cdp_url: str, profile_dir: Path) -> None:
+    """전용 프로필 + 디버깅 포트로 설치된 크롬을 띄운다 (scripts/start-chrome.*와 같은 옵션).
+
+    Playwright `launch()`는 자동화 흔적이 남아 쓰지 않는다(plan/16 §8-4). 띄운 뒤 CDP 포트가
+    열릴 때까지의 대기는 호출자 몫이다.
+    """
+    chrome = _find_chrome_executable()
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    port = urlsplit(cdp_url).port or 9222
+    subprocess.Popen(
+        [
+            chrome,
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile_dir}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-features=BlockThirdPartyCookies,PrivacySandboxSettings4",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 class TaxAgentLogin:
@@ -173,21 +202,7 @@ class TaxAgentLogin:
         except PlaywrightError:
             pass  # CDP 크롬이 없음 — 새로 띄운다
 
-        chrome = _find_chrome_executable()
-        self._profile_dir.mkdir(parents=True, exist_ok=True)
-        port = urlsplit(self._cdp_url).port or 9222
-        subprocess.Popen(
-            [
-                chrome,
-                f"--remote-debugging-port={port}",
-                f"--user-data-dir={self._profile_dir}",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-features=BlockThirdPartyCookies,PrivacySandboxSettings4",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        launch_chrome(self._cdp_url, self._profile_dir)
 
         deadline = time.monotonic() + CHROME_LAUNCH_TIMEOUT_SEC
         last_error: Exception | None = None
@@ -239,36 +254,79 @@ class HometaxSession:
         self._page = None
 
     def open(self) -> None:
-        """홈택스 새 탭을 연다. 위하고와 분리된 탭에서 조작한다."""
+        """홈택스 탭을 준비한다. 이미 열려 있는 홈택스 탭(이전 실행이 남긴 로그인 세션)이 있으면
+        새로 열지 않고 재사용한다 — 실행할 때마다 탭이 쌓이지 않게. 위하고와는 다른 탭에서 조작한다."""
+        existing = next((pg for pg in self._context.pages if _is_hometax_main_url(pg.url)), None)
+        if existing is not None:
+            self._page = existing
+            return
         page = self._context.new_page()
         page.goto(HOMETAX_LOGIN_URL, wait_until="domcontentloaded")
         self._page = page
 
-    def ensure_logged_in(self) -> None:
-        """세션이 살아 있는지 확인. 없으면 아이디/PW 입력까지만 진행한다.
+    def _is_logged_in(self) -> bool:
+        try:
+            return self._page.get_by_text("로그아웃", exact=False).count() > 0
+        except Exception:
+            return False
 
-        인증서 팝업 이후(세무대리 관리번호)는 사람이 최초 1회 완료한 세션을 재활용한다.
-        인증서 세션이 만료된 경우 HometaxCertRequired를 던져 자동 재로그인을 시도하지 않는다.
+    def ensure_logged_in(
+        self,
+        poll_sec: float = 1.0,
+        sleep=time.sleep,
+        monotonic=time.monotonic,
+    ) -> None:
+        """로그인돼 있으면 그대로 통과하고, 아니면 공동인증서 로그인 팝업을 띄워 로그인 완료를 기다린다.
+
+        - 이미 로그인된 세션(예: 맥에서 이전에 로그인해 둔 크롬)은 입력 없이 통과한다.
+        - 로그인 순서는 아이디 → 공동인증서 선택 + 인증서 비밀번호 → 세무대리 관리번호
+          (plan/17 §3-9-7-4)이고 Playwright로 조작 가능하다고 확인돼 있다. 그러나 각 단계의
+          셀렉터를 아직 실측하지 못해 자동 입력은 구현하지 않았다. 지금은 인증서 팝업을 띄우는
+          데까지만 하고, 사람이 이어서 끝낼 때까지 `HUMAN_LOGIN_WAIT_SEC` 동안 기다린다.
+          시간 안에 끝나지 않으면 HometaxLoginFailed — 재시도하지 않는다(계정 잠금 방지,
+          plan/16 §8-3). 셀렉터가 확정되면 이 대기 자리에 단계별 입력을 넣는다.
         """
         if self._page is None:
             self.open()
         assert self._page is not None
         page = self._page
 
-        # 로그인 상태 판정 — 실측 후 정확한 셀렉터 확정 (§9-2 촬영 목록 4)
-        # 임시: '로그아웃' 버튼이 보이면 로그인됨으로 간주
-        try:
-            if page.get_by_text("로그아웃", exact=False).count() > 0:
+        # 이미 열려 있던 탭이거나 방금 연 탭이거나, 로그인 표시("로그아웃")나 [로그인] 버튼이
+        # 렌더링될 때까지 잠깐 기다린다 (WebSquare는 domcontentloaded 뒤에 그린다).
+        deadline = monotonic() + LOGIN_FORM_WAIT_MS / 1000
+        while monotonic() < deadline:
+            if self._is_logged_in():
                 return
-        except Exception:
-            pass
+            if self._login_button_visible():
+                break
+            sleep(0.5)
+        if self._is_logged_in():
+            return
 
-        # 아이디/PW 입력 필드는 홈택스 WebSquare 프레임 안에 있을 수 있다 (실측 필요)
-        raise NotImplementedError(
-            "홈택스 로그인 자동화 셀렉터는 실측 후 구현 — "
-            "지금은 사람이 크롬에서 직접 로그인해 세션을 남겨두어야 한다 "
-            "(docs/rpa-agent-install.md §8)."
+        if not self._login_button_visible():
+            page.goto(HOMETAX_LOGIN_URL, wait_until="domcontentloaded")
+        button = page.locator(_CERT_LOGIN_BUTTON)
+        try:
+            button.wait_for(state="visible", timeout=LOGIN_FORM_WAIT_MS)
+        except Exception as e:
+            raise HometaxLoginFailed("홈택스 로그인 화면이 열리지 않음") from e
+        button.click()
+
+        deadline = monotonic() + HUMAN_LOGIN_WAIT_SEC
+        while monotonic() < deadline:
+            if self._is_logged_in():
+                return
+            sleep(poll_sec)
+        raise HometaxLoginFailed(
+            f"홈택스 로그인이 {HUMAN_LOGIN_WAIT_SEC}초 안에 끝나지 않았습니다 "
+            "(공동인증서 선택·비밀번호·세무대리 관리번호 입력 필요 — 자동 입력은 셀렉터 실측 전)"
         )
+
+    def _login_button_visible(self) -> bool:
+        try:
+            return self._page.locator(_CERT_LOGIN_BUTTON).first.is_visible()
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # 일용ㆍ간이지급명세서 (거주자의 사업소득/기타소득 포함) — 2026-09-28 실측

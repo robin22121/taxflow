@@ -99,6 +99,9 @@ class RpaJob(Base, IdMixin, TimestampMixin):
     # 예: {"wehago_income_tax":"done","wehago_local_tax":"done","hometax":"running","wetax":"pending"}
     # 임포트 작업은 {"total": N, "clients": [{business_number, business_name, status, ...}]}
     step_progress: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # 에이전트가 실행 중 보고하는 현재 단계 라벨과 마지막 보고 시각 — "진행 중인지 멈췄는지" 판단용
+    current_step: Mapped[str | None] = mapped_column(String(100))
+    last_progress_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # 위하고 계산 vs 이지원천 승인값 대조 결과 — 불일치 항목만 남긴다 (위하고 원본 X, §1-2 ④).
     # 예: {"income_tax":{"expected":123000,"found":124000}}
